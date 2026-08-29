@@ -1,0 +1,57 @@
+{
+  "entities": {
+    "Resource": {
+      "collection": "resources",
+      "fields": {
+        "userId": {
+          "type": "string",
+          "description": "The UID of the user who owns this resource"
+        },
+        "type": {
+          "type": "string",
+          "description": "Category of resource: 'article' | 'github_repo' | 'mcp_server' | 'ai_skill' | 'knowledge'",
+          "enum": ["article", "github_repo", "mcp_server", "ai_skill", "knowledge"]
+        },
+        "title": {
+          "type": "string",
+          "description": "Title of the resource"
+        },
+        "url": {
+          "type": "string",
+          "description": "Original URL if applicable"
+        },
+        "rawInput": {
+          "type": "string",
+          "description": "Original text or link entered"
+        },
+        "summary": {
+          "type": "string",
+          "description": "Comprehensive summary or description"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Categorization tags"
+        },
+        "isFavorite": {
+          "type": "boolean",
+          "description": "Whether resource is marked as favorite"
+        },
+        "metadata": {
+          "type": "map",
+          "description": "Specific metadata based on type (github stats, mcp command/args/env, skill prompt/model, article author/readTime)"
+        },
+        "createdAt": {
+          "type": "timestamp",
+          "description": "Creation timestamp"
+        },
+        "updatedAt": {
+          "type": "timestamp",
+          "description": "Last update timestamp"
+        }
+      }
+    }
+  }
+}

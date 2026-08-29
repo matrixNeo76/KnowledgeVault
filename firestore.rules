@@ -1,0 +1,45 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Helper function to check if user is owner
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Rules for user profile documents
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // Rules for resources collection
+    match /resources/{resourceId} {
+      // Allow read if user owns the resource
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      
+      // Allow create if user sets themselves as owner and data is valid
+      allow create: if isAuthenticated()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.type in ['article', 'github_repo', 'mcp_server', 'ai_skill', 'knowledge']
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 400;
+
+      // Allow update if user owns it and does not change ownership
+      allow update: if isAuthenticated()
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.type in ['article', 'github_repo', 'mcp_server', 'ai_skill', 'knowledge']
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0;
+
+      // Allow delete if user owns the resource
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+  }
+}
