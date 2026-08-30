@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useMemo } from "react";
+import { createPortal } from "react-dom";
 import * as d3 from "d3";
 import { 
   ZoomIn, 
@@ -47,6 +48,58 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
   const [relationFilterMode, setRelationFilterMode] = useState<RelationFilterMode>("all");
   const [showConceptHubs, setShowConceptHubs] = useState<boolean>(false);
   const [showEdgeLabels, setShowEdgeLabels] = useState<boolean>(true);
+  const [dimensions, setDimensions] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
+
+  // Handle ResizeObserver for accurate dynamic viewport sizing
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const measure = () => {
+      const w = el.clientWidth || window.innerWidth;
+      const h = el.clientHeight || (isFullscreen ? window.innerHeight : 650);
+      if (w > 0 && h > 0) {
+        setDimensions({ width: w, height: h });
+      }
+    };
+
+    measure();
+
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      resizeObserver = new ResizeObserver(() => {
+        measure();
+      });
+      resizeObserver.observe(el);
+    }
+
+    window.addEventListener("resize", measure);
+
+    return () => {
+      if (resizeObserver) resizeObserver.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [isFullscreen]);
+
+  // Handle ESC key and prevent body scrolling when in fullscreen
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setIsFullscreen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isFullscreen]);
 
   // Helper to safely extract entity name strings from metadata
   const getResourceEntities = (r: ResourceItem): string[] => {
@@ -382,8 +435,9 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
   useEffect(() => {
     if (!svgRef.current || !containerRef.current) return;
 
-    const width = containerRef.current.clientWidth || 800;
-    const height = containerRef.current.clientHeight || 550;
+    const width = dimensions.width || containerRef.current.clientWidth || (isFullscreen ? window.innerWidth : 800);
+    const rawHeight = containerRef.current.clientHeight || (isFullscreen ? window.innerHeight : 650);
+    const height = Math.max(300, rawHeight - 64); // accounts for top controls toolbar
 
     const svg = d3.select(svgRef.current);
     svg.selectAll("*").remove();
@@ -715,7 +769,7 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     return () => {
       simulation.stop();
     };
-  }, [graphData, resources, showConceptHubs, showEdgeLabels]);
+  }, [graphData, resources, showConceptHubs, showEdgeLabels, dimensions.width, dimensions.height, isFullscreen]);
 
   // Zoom Handlers
   const handleZoom = (scaleFactor: number) => {
@@ -737,17 +791,19 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
   const filteredNodesCount = graphData.nodes.length;
   const filteredLinksCount = graphData.links.length;
 
-  return (
+  const graphContent = (
     <div
       ref={containerRef}
-      className={`relative w-full bg-[#080808] border border-[#1F1F1F] rounded-2xl overflow-hidden flex flex-col transition-all duration-300 shadow-2xl ${
-        isFullscreen ? "fixed inset-4 z-50 bg-[#080808]" : "h-[640px]"
+      className={`w-full bg-[#080808] flex flex-col transition-all overflow-hidden ${
+        isFullscreen
+          ? "fixed inset-0 z-[9999] w-screen h-screen bg-[#080808] border-none rounded-none shadow-none"
+          : "relative h-[660px] sm:h-[720px] xl:h-[760px] border border-[#1F1F1F] rounded-2xl shadow-2xl"
       }`}
     >
       {/* Top Controls Toolbar */}
-      <div className="p-3.5 border-b border-[#1A1A1A] bg-[#0A0A0A]/95 backdrop-blur-md flex flex-wrap items-center justify-between gap-3 z-10">
+      <div className="p-3 sm:p-3.5 border-b border-[#1A1A1A] bg-[#0A0A0A]/95 backdrop-blur-md flex flex-wrap items-center justify-between gap-3 z-10 shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-[#141414] border border-[#C5A059]/40 flex items-center justify-center text-[#C5A059]">
+          <div className="w-8 h-8 rounded-lg bg-[#141414] border border-[#C5A059]/40 flex items-center justify-center text-[#C5A059] shrink-0">
             <BrainCircuit className="w-4 h-4" />
           </div>
           <div>
@@ -756,6 +812,11 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
               <span className="text-[10px] font-mono bg-[#161616] text-[#C5A059] px-2 py-0.5 rounded border border-[#2A2A2A]">
                 {filteredNodesCount} Nodi · {filteredLinksCount} Relazioni
               </span>
+              {isFullscreen && (
+                <span className="text-[10px] font-mono bg-[#C5A059]/15 text-[#C5A059] px-2 py-0.5 rounded border border-[#C5A059]/30 hidden md:inline-block">
+                  Schermo Intero (ESC per uscire)
+                </span>
+              )}
             </h3>
             <p className="text-[10px] text-[#777] font-mono">
               Grafo topologico semantico · Relazioni ontologiche, entità condivise e tag
@@ -855,17 +916,28 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
           <div className="w-px h-4 bg-[#222] mx-1" />
           <button
             onClick={() => setIsFullscreen(!isFullscreen)}
-            className="p-1.5 text-[#888] hover:text-white hover:bg-[#1C1C1C] rounded transition-colors"
-            title={isFullscreen ? "Esci da Schermo Intero" : "Schermo Intero"}
+            className={`p-1.5 rounded transition-all flex items-center gap-1.5 ${
+              isFullscreen
+                ? "bg-[#C5A059] text-black font-semibold hover:bg-[#D4AF65] px-2.5"
+                : "text-[#888] hover:text-white hover:bg-[#1C1C1C]"
+            }`}
+            title={isFullscreen ? "Esci da Schermo Intero (ESC)" : "Espandi a Schermo Intero"}
           >
-            {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+            {isFullscreen ? (
+              <>
+                <Minimize2 className="w-4 h-4" />
+                <span className="text-[11px] font-mono">Esci</span>
+              </>
+            ) : (
+              <Maximize2 className="w-4 h-4" />
+            )}
           </button>
         </div>
       </div>
 
       {/* Main SVG Graph Canvas */}
-      <div className="flex-1 w-full h-full relative cursor-grab active:cursor-grabbing">
-        <svg ref={svgRef} className="w-full h-full" />
+      <div className="flex-1 w-full h-full min-h-0 relative cursor-grab active:cursor-grabbing overflow-hidden">
+        <svg ref={svgRef} className="w-full h-full block" />
 
         {/* Legend Overlay */}
         <div className="absolute bottom-4 left-4 bg-[#0A0A0A]/90 backdrop-blur-md border border-[#1F1F1F] rounded-xl p-3.5 text-[10px] font-mono space-y-2 pointer-events-none shadow-2xl max-w-xs">
@@ -983,5 +1055,7 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
       </div>
     </div>
   );
+
+  return isFullscreen ? createPortal(graphContent, document.body) : graphContent;
 };
 

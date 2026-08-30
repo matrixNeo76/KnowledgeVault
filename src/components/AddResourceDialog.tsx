@@ -25,8 +25,6 @@ export const AddResourceDialog: React.FC<AddResourceDialogProps> = ({
   onAdd,
   onAnalyzeWithAI,
 }) => {
-  if (!isOpen) return null;
-
   const [type, setType] = useState<ResourceType>("github_repo");
   const [title, setTitle] = useState("");
   const [url, setUrl] = useState("");
@@ -39,6 +37,18 @@ export const AddResourceDialog: React.FC<AddResourceDialogProps> = ({
   const [aiInputPrompt, setAiInputPrompt] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Escape key handler
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !isSubmitting) onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose, isSubmitting]);
+
+  if (!isOpen) return null;
 
   const handleAIAutoFill = async () => {
     if (!aiInputPrompt.trim() || isAnalyzing) return;
@@ -68,6 +78,11 @@ export const AddResourceDialog: React.FC<AddResourceDialogProps> = ({
     if (!title.trim() || !summary.trim() || isSubmitting) return;
 
     setIsSubmitting(true);
+    let cleanUrl = url.trim();
+    if (cleanUrl.startsWith("github.com/")) {
+      cleanUrl = `https://${cleanUrl}`;
+    }
+
     const tagsArray = tagsStr
       .split(",")
       .map((t) => t.trim().toLowerCase())
@@ -76,12 +91,24 @@ export const AddResourceDialog: React.FC<AddResourceDialogProps> = ({
     const metadata: Record<string, any> = {};
     if (type === "mcp_server" && mcpConfig) metadata.configSnippet = mcpConfig;
     if (type === "ai_skill" && systemPrompt) metadata.systemPrompt = systemPrompt;
-    if (type === "github_repo" && installCommand) metadata.installCommand = installCommand;
+    if (type === "github_repo") {
+      const ghRegex = /(?:https?:\/\/)?(?:www\.)?github\.com\/([a-zA-Z0-9._-]+)\/([a-zA-Z0-9._-]+)/i;
+      const matchGh = (cleanUrl || title).match(ghRegex);
+      if (matchGh) {
+        metadata.owner = matchGh[1];
+        metadata.repoName = matchGh[2].replace(/\.git$/, "").replace(/[#?].*$/, "");
+        if (!installCommand) {
+          metadata.installCommand = `git clone https://github.com/${metadata.owner}/${metadata.repoName}.git`;
+        }
+      }
+      if (installCommand) metadata.installCommand = installCommand;
+      if (!tagsArray.includes("github")) tagsArray.push("github");
+    }
 
     const success = await onAdd({
       type,
       title: title.trim(),
-      url: url.trim() || "",
+      url: cleanUrl || "",
       summary: summary.trim(),
       tags: tagsArray,
       isFavorite: false,
@@ -95,32 +122,36 @@ export const AddResourceDialog: React.FC<AddResourceDialogProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+    <div 
+      className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 overflow-y-auto"
+      onClick={onClose}
+    >
       <div 
-        className="bg-[#0D0D0D] border border-[#222] rounded-2xl w-full max-w-2xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden my-auto"
+        className="bg-[#0D0D0D] border border-[#222] rounded-2xl w-full max-w-2xl max-h-[94vh] sm:max-h-[92vh] flex flex-col shadow-2xl overflow-hidden my-auto"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="p-5 border-b border-[#1C1C1C] flex items-center justify-between bg-[#0A0A0A]">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-md bg-[#161616] border border-[#C5A059]/40 flex items-center justify-center text-[#C5A059]">
+        <div className="p-3.5 sm:p-5 border-b border-[#1C1C1C] flex items-center justify-between gap-2.5 bg-[#0A0A0A]">
+          <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 flex-1">
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-md bg-[#161616] border border-[#C5A059]/40 flex items-center justify-center text-[#C5A059] shrink-0">
               <Plus className="w-4 h-4" />
             </div>
-            <h2 className="text-base sm:text-lg font-serif text-white font-medium">
+            <h2 className="text-sm sm:text-lg font-serif text-white font-medium truncate">
               Aggiungi Nuova Risorsa al Vault
             </h2>
           </div>
 
           <button
             onClick={onClose}
-            className="p-1 text-[#666] hover:text-white hover:bg-[#1C1C1C] rounded-lg transition-colors"
+            aria-label="Chiudi finestra"
+            className="w-9 h-9 sm:w-8 sm:h-8 flex items-center justify-center rounded-lg bg-[#1C1C1C] hover:bg-[#2A2A2A] text-[#EEE] hover:text-white border border-[#333] transition-colors shrink-0 cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Content */}
-        <div className="p-6 overflow-y-auto space-y-5">
+        <div className="p-4 sm:p-6 overflow-y-auto space-y-4 sm:space-y-5">
           {/* AI Auto-Fill Helper Box */}
           <div className="bg-[#111] border border-[#222] rounded-xl p-4">
             <div className="flex items-center gap-2 text-xs font-mono text-[#C5A059] mb-2">
@@ -203,7 +234,7 @@ export const AddResourceDialog: React.FC<AddResourceDialogProps> = ({
                 URL / Link Risorsa (opzionale)
               </label>
               <input
-                type="url"
+                type="text"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 placeholder="https://github.com/..."

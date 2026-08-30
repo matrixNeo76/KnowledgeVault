@@ -10,9 +10,11 @@ import {
   Check, 
   ChevronRight,
   BrainCircuit,
-  FileCode
+  FileCode,
+  Calendar
 } from "lucide-react";
 import { ResourceItem, ResourceType } from "../types";
+import { formatDate } from "../lib/dateUtils";
 
 interface ResourceTableProps {
   resources: ResourceItem[];
@@ -86,7 +88,8 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({
             <th className="py-3 px-4 w-28">Tipo</th>
             <th className="py-3 px-4">Titolo & Sommario</th>
             <th className="py-3 px-4 hidden md:table-cell">Tags</th>
-            <th className="py-3 px-4 hidden lg:table-cell">Link / Sorgente</th>
+            <th className="py-3 px-4 hidden lg:table-cell">Data</th>
+            <th className="py-3 px-4 hidden xl:table-cell">Link / Sorgente</th>
             <th className="py-3 px-4 text-right">Azioni</th>
           </tr>
         </thead>
@@ -94,6 +97,7 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({
           {resources.map((item) => {
             const badge = getTypeBadge(item.type);
             const isCopied = copiedId === item.id;
+            const itemDate = formatDate(item.createdAt) || formatDate(item.updatedAt) || formatDate(new Date());
 
             return (
               <tr
@@ -150,8 +154,15 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({
                   </div>
                 </td>
 
+                {/* Date */}
+                <td className="py-3.5 px-4 hidden lg:table-cell whitespace-nowrap">
+                  <span className="text-[11px] font-mono text-[#666]">
+                    {itemDate}
+                  </span>
+                </td>
+
                 {/* URL */}
-                <td className="py-3.5 px-4 hidden lg:table-cell whitespace-nowrap max-w-[180px] truncate">
+                <td className="py-3.5 px-4 hidden xl:table-cell whitespace-nowrap max-w-[180px] truncate">
                   {item.url ? (
                     <a
                       href={item.url}

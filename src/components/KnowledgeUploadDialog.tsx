@@ -24,8 +24,6 @@ export const KnowledgeUploadDialog: React.FC<KnowledgeUploadDialogProps> = ({
   onUploadProcessedDoc,
   existingResources,
 }) => {
-  if (!isOpen) return null;
-
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [inputText, setInputText] = useState("");
   const [fileName, setFileName] = useState("");
@@ -33,6 +31,18 @@ export const KnowledgeUploadDialog: React.FC<KnowledgeUploadDialogProps> = ({
   const [dragActive, setDragActive] = useState(false);
   const [success, setSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Escape key handler
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !isProcessing) onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose, isProcessing]);
+
+  if (!isOpen) return null;
 
   // Read uploaded file content
   const handleFile = (file: File) => {
@@ -124,37 +134,41 @@ export const KnowledgeUploadDialog: React.FC<KnowledgeUploadDialogProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+    <div 
+      className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 overflow-y-auto"
+      onClick={onClose}
+    >
       <div 
-        className="bg-[#0D0D0D] border border-[#222] rounded-2xl w-full max-w-2xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden my-auto"
+        className="bg-[#0D0D0D] border border-[#222] rounded-2xl w-full max-w-2xl max-h-[94vh] sm:max-h-[92vh] flex flex-col shadow-2xl overflow-hidden my-auto"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="p-5 border-b border-[#1C1C1C] flex items-center justify-between bg-[#0A0A0A]">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-[#181818] border border-[#C5A059]/40 flex items-center justify-center text-[#C5A059]">
+        <div className="p-3.5 sm:p-5 border-b border-[#1C1C1C] flex items-center justify-between gap-2.5 bg-[#0A0A0A]">
+          <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 flex-1">
+            <div className="w-8 h-8 rounded-lg bg-[#181818] border border-[#C5A059]/40 flex items-center justify-center text-[#C5A059] shrink-0">
               <BrainCircuit className="w-4 h-4" />
             </div>
-            <div>
-              <h2 className="text-base sm:text-lg font-serif text-white font-medium">
-                Carica & Converti in OKF v0.2 (Knowledge)
+            <div className="min-w-0 flex-1">
+              <h2 className="text-sm sm:text-lg font-serif text-white font-medium truncate">
+                Carica & Converti in OKF v0.2
               </h2>
-              <p className="text-[10px] text-[#666] font-mono">
-                Estrae concetti, ontologie e crea collegamenti al grafo in tempo reale
+              <p className="text-[9px] sm:text-[10px] text-[#666] font-mono truncate">
+                Estrae concetti, ontologie e crea collegamenti al grafo
               </p>
             </div>
           </div>
 
           <button
             onClick={onClose}
-            className="p-1 text-[#666] hover:text-white hover:bg-[#1C1C1C] rounded-lg transition-colors"
+            aria-label="Chiudi finestra"
+            className="w-9 h-9 sm:w-8 sm:h-8 flex items-center justify-center rounded-lg bg-[#1C1C1C] hover:bg-[#2A2A2A] text-[#EEE] hover:text-white border border-[#333] transition-colors shrink-0 cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Content */}
-        <div className="p-6 space-y-5 overflow-y-auto">
+        <div className="p-4 sm:p-6 space-y-4 sm:space-y-5 overflow-y-auto">
           {/* Dropzone */}
           <div
             onDragEnter={handleDrag}

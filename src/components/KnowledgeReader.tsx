@@ -28,10 +28,19 @@ export const KnowledgeReader: React.FC<KnowledgeReaderProps> = ({
   onClose,
   onNavigateToResource,
 }) => {
-  if (!resource) return null;
-
   const [activeTab, setActiveTab] = useState<"document" | "okf_spec" | "graph_links">("document");
   const [copied, setCopied] = useState(false);
+
+  // Escape key handler
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  if (!resource) return null;
 
   const rawMarkdown =
     resource.metadata?.markdownContent ||
@@ -107,61 +116,66 @@ export const KnowledgeReader: React.FC<KnowledgeReaderProps> = ({
   const contentBody = rawMarkdown.replace(/^---[\s\S]*?---\n*/, "") || resource.summary;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
+    <div 
+      className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-2 sm:p-6 overflow-y-auto"
+      onClick={onClose}
+    >
       <div 
-        className="bg-[#0C0C0C] border border-[#242424] rounded-2xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden my-auto"
+        className="bg-[#0C0C0C] border border-[#242424] rounded-2xl w-full max-w-4xl max-h-[94vh] sm:max-h-[92vh] flex flex-col shadow-2xl overflow-hidden my-auto"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Top Header */}
-        <div className="p-5 border-b border-[#1C1C1C] bg-[#090909] flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-[#181818] border border-[#C5A059]/40 flex items-center justify-center text-[#C5A059]">
+        <div className="p-3.5 sm:p-5 border-b border-[#1C1C1C] bg-[#090909] flex items-center justify-between gap-2.5">
+          {/* Left Title & Badges */}
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
+            <div className="w-8 h-8 rounded-lg bg-[#181818] border border-[#C5A059]/40 flex items-center justify-center text-[#C5A059] shrink-0">
               <BrainCircuit className="w-4 h-4" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] font-mono uppercase bg-[#181818] text-[#C5A059] px-2 py-0.5 rounded border border-[#C5A059]/30">
-                  OKF v0.2 Document
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                <span className="text-[9px] sm:text-[10px] font-mono uppercase bg-[#181818] text-[#C5A059] px-1.5 sm:px-2 py-0.5 rounded border border-[#C5A059]/30 shrink-0">
+                  OKF v0.2
                 </span>
                 {resource.metadata?.domain && (
-                  <span className="text-[10px] font-mono text-[#888] bg-[#141414] px-2 py-0.5 rounded">
-                    Domain: {resource.metadata.domain}
+                  <span className="hidden xs:inline-block text-[9px] sm:text-[10px] font-mono text-[#888] bg-[#141414] px-1.5 sm:px-2 py-0.5 rounded truncate max-w-[120px] sm:max-w-[180px]">
+                    {resource.metadata.domain}
                   </span>
                 )}
                 {resource.metadata?.docType && (
-                  <span className="text-[10px] font-mono text-[#666] bg-[#121212] px-1.5 py-0.5 rounded uppercase">
+                  <span className="text-[9px] sm:text-[10px] font-mono text-[#777] bg-[#121212] px-1.5 py-0.5 rounded uppercase shrink-0">
                     {resource.metadata.docType}
                   </span>
                 )}
               </div>
-              <h2 className="text-base sm:text-lg font-serif text-white font-medium truncate max-w-lg mt-0.5">
+              <h2 className="text-sm sm:text-lg font-serif text-white font-medium truncate mt-0.5">
                 {resource.title}
               </h2>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          {/* Right Action & Prominent Close Buttons */}
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <button
               onClick={handleCopyMarkdown}
-              className="flex items-center gap-1 text-xs text-[#AAA] hover:text-white bg-[#141414] hover:bg-[#1E1E1E] border border-[#2B2B2B] px-3 py-1.5 rounded-lg transition-colors"
+              className="flex items-center gap-1 text-xs text-[#AAA] hover:text-white bg-[#141414] hover:bg-[#1E1E1E] border border-[#2B2B2B] px-2 sm:px-3 py-1.5 rounded-lg transition-colors shrink-0"
               title="Copia Markdown OKF"
             >
               {copied ? (
                 <>
                   <Check className="w-3.5 h-3.5 text-emerald-400" />
-                  <span className="text-emerald-400 font-mono">Copiato!</span>
+                  <span className="text-emerald-400 font-mono text-[11px] sm:text-xs">Copiato</span>
                 </>
               ) : (
                 <>
                   <Copy className="w-3.5 h-3.5 text-[#C5A059]" />
-                  <span className="hidden sm:inline font-mono">Copia .md</span>
+                  <span className="hidden md:inline font-mono">Copia .md</span>
                 </>
               )}
             </button>
 
             <button
               onClick={handleDownloadMarkdown}
-              className="p-1.5 text-[#AAA] hover:text-white bg-[#141414] hover:bg-[#1E1E1E] border border-[#2B2B2B] rounded-lg transition-colors"
+              className="p-1.5 sm:p-2 text-[#AAA] hover:text-white bg-[#141414] hover:bg-[#1E1E1E] border border-[#2B2B2B] rounded-lg transition-colors shrink-0"
               title="Scarica file .okf.md"
             >
               <Download className="w-4 h-4" />
@@ -169,7 +183,8 @@ export const KnowledgeReader: React.FC<KnowledgeReaderProps> = ({
 
             <button
               onClick={onClose}
-              className="p-1.5 text-[#666] hover:text-white hover:bg-[#1E1E1E] rounded-lg transition-colors ml-2"
+              aria-label="Chiudi finestra"
+              className="w-9 h-9 sm:w-8 sm:h-8 flex items-center justify-center rounded-lg bg-[#1C1C1C] hover:bg-[#2A2A2A] text-[#EEE] hover:text-white border border-[#333] transition-colors shrink-0 cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
@@ -177,10 +192,10 @@ export const KnowledgeReader: React.FC<KnowledgeReaderProps> = ({
         </div>
 
         {/* Tabs Navigation */}
-        <div className="px-6 border-b border-[#1A1A1A] bg-[#0A0A0A] flex items-center gap-4">
+        <div className="px-3 sm:px-6 border-b border-[#1A1A1A] bg-[#0A0A0A] flex items-center gap-2 sm:gap-4 overflow-x-auto whitespace-nowrap">
           <button
             onClick={() => setActiveTab("document")}
-            className={`py-3 text-xs font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
+            className={`py-2.5 sm:py-3 text-xs font-medium border-b-2 transition-colors flex items-center gap-1.5 shrink-0 ${
               activeTab === "document"
                 ? "border-[#C5A059] text-white"
                 : "border-transparent text-[#777] hover:text-[#BBB]"
@@ -191,30 +206,30 @@ export const KnowledgeReader: React.FC<KnowledgeReaderProps> = ({
           </button>
           <button
             onClick={() => setActiveTab("graph_links")}
-            className={`py-3 text-xs font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
+            className={`py-2.5 sm:py-3 text-xs font-medium border-b-2 transition-colors flex items-center gap-1.5 shrink-0 ${
               activeTab === "graph_links"
                 ? "border-[#C5A059] text-white"
                 : "border-transparent text-[#777] hover:text-[#BBB]"
             }`}
           >
             <Network className="w-3.5 h-3.5 text-[#C5A059]" />
-            <span>Connessioni del Grafo ({linkedResources.length})</span>
+            <span>Connessioni ({linkedResources.length})</span>
           </button>
           <button
             onClick={() => setActiveTab("okf_spec")}
-            className={`py-3 text-xs font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
+            className={`py-2.5 sm:py-3 text-xs font-medium border-b-2 transition-colors flex items-center gap-1.5 shrink-0 ${
               activeTab === "okf_spec"
                 ? "border-[#C5A059] text-white"
                 : "border-transparent text-[#777] hover:text-[#BBB]"
             }`}
           >
             <FileCode className="w-3.5 h-3.5 text-[#C5A059]" />
-            <span>Sorgente OKF YAML</span>
+            <span>Sorgente YAML</span>
           </button>
         </div>
 
         {/* Tab Contents */}
-        <div className="p-6 overflow-y-auto flex-1 space-y-6 text-[#CCC]">
+        <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-5 sm:space-y-6 text-[#CCC]">
           {activeTab === "document" && (
             <div className="space-y-6">
               {/* Executive Summary Card */}

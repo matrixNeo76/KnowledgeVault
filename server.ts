@@ -1,6 +1,6 @@
 import express from "express";
 import path from "path";
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -14,7 +14,14 @@ app.use(express.json({ limit: "10mb" }));
 let genAIClient: GoogleGenAI | null = null;
 function getGenAI() {
   if (!genAIClient && process.env.GEMINI_API_KEY) {
-    genAIClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    genAIClient = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+      httpOptions: {
+        headers: {
+          "User-Agent": "aistudio-build",
+        },
+      },
+    });
   }
   return genAIClient;
 }
@@ -22,7 +29,7 @@ function getGenAI() {
 // Fallback heuristic parser if Gemini API is unavailable or busy
 function fallbackParse(rawText: string, explicitType?: string) {
   const text = rawText.trim();
-  let type: "article" | "github_repo" | "mcp_server" | "ai_skill" | "knowledge" = "article";
+  let type: "article" | "github_repo" | "mcp_server" | "ai_skill" | "knowledge" = (explicitType as any) || "article";
   let title = "Risorsa senza titolo";
   let url = "";
   let summary = "";
@@ -33,39 +40,46 @@ function fallbackParse(rawText: string, explicitType?: string) {
   const urlMatch = text.match(/https?:\/\/[^\s]+/i);
   if (urlMatch) {
     url = urlMatch[0];
+  } else if (text.includes("github.com/")) {
+    const ghMatch = text.match(/github\.com\/[^\s]+/i);
+    if (ghMatch) url = `https://${ghMatch[0]}`;
   }
 
-  // GitHub URL
-  if (url.includes("github.com/")) {
-    const ghMatch = url.match(/github\.com\/([^\/]+)\/([^\/\s#?]+)/i);
-    if (ghMatch) {
-      const owner = ghMatch[1];
-      const repoName = ghMatch[2].replace(/\.git$/, "");
-      title = `${owner}/${repoName}`;
-      
-      // Check if it might be an MCP server
-      if (text.toLowerCase().includes("mcp") || text.toLowerCase().includes("model context protocol") || repoName.toLowerCase().includes("mcp")) {
-        type = "mcp_server";
-        tags.push("mcp", "model-context-protocol", "server");
-        metadata.protocol = "stdio";
-        metadata.command = `npx -y @modelcontextprotocol/server-${repoName}`;
-        metadata.configSnippet = JSON.stringify({
-          mcpServers: {
-            [repoName]: {
-              command: "npx",
-              args: ["-y", `@modelcontextprotocol/server-${repoName}`]
-            }
+  // GitHub URL or Owner/Repo pattern check
+  const ghRegex = /(?:https?:\/\/)?(?:www\.)?github\.com\/([a-zA-Z0-9._-]+)\/([a-zA-Z0-9._-]+)/i;
+  const matchGh = (url || text).match(ghRegex);
+
+  if (matchGh) {
+    const owner = matchGh[1];
+    const repoName = matchGh[2].replace(/\.git$/, "").replace(/[#?].*$/, "");
+    url = `https://github.com/${owner}/${repoName}`;
+    title = `${owner}/${repoName}`;
+
+    // Respect explicitType if user specified one
+    if (explicitType === "mcp_server" || (!explicitType && (text.toLowerCase().includes("mcp-server") || text.toLowerCase().includes("model context protocol")) && !text.toLowerCase().includes("not mcp"))) {
+      type = "mcp_server";
+      tags.push("mcp", "model-context-protocol", "server", repoName.toLowerCase());
+      metadata.protocol = "stdio";
+      metadata.command = `npx -y @modelcontextprotocol/server-${repoName}`;
+      metadata.configSnippet = JSON.stringify({
+        mcpServers: {
+          [repoName]: {
+            command: "npx",
+            args: ["-y", `@modelcontextprotocol/server-${repoName}`]
           }
-        }, null, 2);
-      } else {
-        type = "github_repo";
-        tags.push("github", "open-source", repoName.toLowerCase());
-        metadata.owner = owner;
-        metadata.repoName = repoName;
-        metadata.installCommand = `git clone https://github.com/${owner}/${repoName}.git`;
-      }
-      summary = `Repository GitHub ${owner}/${repoName}`;
+        }
+      }, null, 2);
+    } else if (explicitType === "knowledge") {
+      type = "knowledge";
+      tags.push("knowledge", "github", "repo", repoName.toLowerCase());
+    } else {
+      type = "github_repo";
+      tags.push("github", "open-source", "repository", repoName.toLowerCase(), owner.toLowerCase());
+      metadata.owner = owner;
+      metadata.repoName = repoName;
+      metadata.installCommand = `git clone https://github.com/${owner}/${repoName}.git`;
     }
+    summary = `Repository GitHub ${owner}/${repoName}. Codice sorgente e documentazione open-source.`;
   } else if (text.includes("mcpServers") || text.includes("claude_desktop_config") || text.toLowerCase().startsWith("mcp:")) {
     type = "mcp_server";
     title = "MCP Server Config";
@@ -155,7 +169,7 @@ function fallbackParse(rawText: string, explicitType?: string) {
 }
 
 // Resilient Gemini Generator with candidate models and reliable timeout
-async function generateWithGeminiFallback(prompt: string, schema: any, timeoutMs = 15000) {
+async function generateWithGeminiFallback(prompt: string, schema: any, timeoutMs = 25000) {
   const ai = getGenAI();
   if (!ai) return null;
 
@@ -168,13 +182,20 @@ async function generateWithGeminiFallback(prompt: string, schema: any, timeoutMs
 
   for (const modelName of candidateModels) {
     try {
+      const config: any = {
+        responseMimeType: "application/json",
+        responseSchema: schema,
+      };
+
+      // Optimize thinking latency for fast JSON structured response
+      if (modelName.startsWith("gemini-3")) {
+        config.thinkingConfig = { thinkingLevel: ThinkingLevel.LOW };
+      }
+
       const generatePromise = ai.models.generateContent({
         model: modelName,
         contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: schema,
-        },
+        config,
       });
 
       const timeoutPromise = new Promise((_, reject) =>
@@ -188,7 +209,7 @@ async function generateWithGeminiFallback(prompt: string, schema: any, timeoutMs
       }
     } catch (err: any) {
       lastError = err;
-      console.warn(`[Gemini] ${modelName} skipped (${err?.status || err?.message})`);
+      console.warn(`[Gemini] ${modelName} attempt warning (${err?.status || err?.message})`);
     }
   }
 
@@ -379,7 +400,7 @@ app.post("/api/analyze-resource", async (req, res) => {
 Analyze the following text or URL to extract structured information for a developer knowledge base.
 
 Target Categories:
-1. 'github_repo' - GitHub repositories, packages, tools
+1. 'github_repo' - GitHub repositories, packages, tools (CRITICAL: any github.com URL must be classified as github_repo unless explicitType says otherwise)
 2. 'mcp_server' - Model Context Protocol servers, tools, connectors for Claude/Gemini/AI agents
 3. 'knowledge' - Architecture documents, specifications, second-brain knowledge notes adhering to OKF v0.2 format
 4. 'ai_skill' - AI System prompts, agents instructions, persona templates, workflow skills
@@ -392,13 +413,13 @@ ${trimmedInput}
 ${explicitType ? `User requested type hint: ${explicitType}` : ""}
 
 Instructions:
-- Detect the exact resource type ('article', 'github_repo', 'mcp_server', 'ai_skill', or 'knowledge').
-- Extract a clean, precise title.
-- If a URL is present or inferred, extract it into 'url'.
-- Write a clear, comprehensive summary (in Italian or English depending on context, favoring informative Italian).
-- Generate 3 to 6 relevant lowercase tags (e.g. ['typescript', 'mcp', 'gemini', 'database', 'agents']).
+- If input contains "github.com/" or is a repo format "owner/repo", set type to 'github_repo' (unless explicitType is specifically 'mcp_server' or 'knowledge').
+- Extract a clean, precise title. For GitHub repos, use 'owner/repo' or repo name.
+- If a URL is present or inferred, format as full https:// URL.
+- Write a clear, comprehensive summary (in Italian or English, favoring informative Italian).
+- Generate 3 to 6 relevant lowercase tags (e.g. ['github', 'typescript', 'open-source', 'agents']).
 - Fill type-specific metadata:
-  - If github_repo: { owner, repoName, language, stars, installCommand }
+  - If github_repo: { owner, repoName, language, installCommand: "git clone https://github.com/owner/repo.git" }
   - If mcp_server: { protocol: 'stdio' | 'sse', command, args, env, configSnippet, toolsProvided }
   - If ai_skill: { skillType, recommendedModel, systemPrompt, triggerKeywords, exampleUsage }
   - If article: { author, readingTimeMin, keyTakeaways: [] }
@@ -501,6 +522,25 @@ Return pure JSON matching this exact structure:
     // Normalize and sanitize
     if (!parsedJson.tags) parsedJson.tags = [];
     if (!parsedJson.metadata) parsedJson.metadata = {};
+
+    // Check if input is a GitHub repository
+    const ghRegex = /(?:https?:\/\/)?(?:www\.)?github\.com\/([a-zA-Z0-9._-]+)\/([a-zA-Z0-9._-]+)/i;
+    const matchGh = (parsedJson.url || trimmedInput).match(ghRegex);
+    if (matchGh) {
+      const owner = matchGh[1];
+      const repoName = matchGh[2].replace(/\.git$/, "").replace(/[#?].*$/, "");
+      parsedJson.url = `https://github.com/${owner}/${repoName}`;
+      if (!parsedJson.metadata.owner) parsedJson.metadata.owner = owner;
+      if (!parsedJson.metadata.repoName) parsedJson.metadata.repoName = repoName;
+      if (!parsedJson.metadata.installCommand) {
+        parsedJson.metadata.installCommand = `git clone https://github.com/${owner}/${repoName}.git`;
+      }
+      if (!explicitType || explicitType === "github_repo") {
+        parsedJson.type = "github_repo";
+      }
+      if (!parsedJson.tags.includes("github")) parsedJson.tags.push("github");
+    }
+
     if (explicitType && ["article", "github_repo", "mcp_server", "ai_skill", "knowledge"].includes(explicitType)) {
       parsedJson.type = explicitType;
     }

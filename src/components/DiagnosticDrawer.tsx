@@ -47,6 +47,16 @@ export const DiagnosticDrawer: React.FC<DiagnosticDrawerProps> = ({
     }
   }, [logs.length, isOpen]);
 
+  // Escape key handler
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const toggleExpand = (id: string) => {
@@ -108,45 +118,48 @@ export const DiagnosticDrawer: React.FC<DiagnosticDrawerProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/75 backdrop-blur-sm animate-fade-in">
+    <div 
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/75 backdrop-blur-sm animate-fade-in"
+      onClick={onClose}
+    >
       <div 
-        className="w-full max-w-4xl max-h-[90vh] h-[85vh] bg-[#0C0B08] border border-[#2D2413] rounded-t-2xl sm:rounded-2xl flex flex-col shadow-2xl overflow-hidden font-sans"
+        className="w-full max-w-4xl max-h-[92vh] sm:max-h-[90vh] h-[85vh] bg-[#0C0B08] border border-[#2D2413] rounded-t-2xl sm:rounded-2xl flex flex-col shadow-2xl overflow-hidden font-sans"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-[#1E190F] bg-[#141009]/80">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-[#C5A059]/10 border border-[#C5A059]/20 text-[#D5B069]">
-              <Terminal className="w-5 h-5" />
+        <div className="flex items-center justify-between gap-2 px-3.5 sm:px-5 py-3.5 sm:py-4 border-b border-[#1E190F] bg-[#141009]/90">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+            <div className="p-1.5 sm:p-2 rounded-xl bg-[#C5A059]/10 border border-[#C5A059]/20 text-[#D5B069] shrink-0">
+              <Terminal className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-sm sm:text-base font-semibold text-white tracking-wide">
-                  Console di Diagnostica & Activity Log
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <h2 className="text-xs sm:text-base font-semibold text-white tracking-wide truncate">
+                  Console di Diagnostica
                 </h2>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-[#1C160C] text-[#C5A059] border border-[#3E3017]">
-                  {logs.length} eventi
+                <span className="text-[9px] sm:text-[10px] font-mono px-1.5 sm:px-2 py-0.5 rounded-full bg-[#1C160C] text-[#C5A059] border border-[#3E3017] shrink-0">
+                  {logs.length}
                 </span>
               </div>
-              <p className="text-xs text-[#888]">
-                Monitoraggio real-time di richieste AI Gemini, parsing OKF v0.2 e sincronizzazione Firestore.
+              <p className="hidden xs:block text-[11px] text-[#888] truncate">
+                Monitoraggio real-time AI Gemini, OKF v0.2 e Firestore
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <button
               onClick={handleCopyAll}
-              className="px-3 py-1.5 rounded-lg text-xs font-mono bg-[#16130D] border border-[#2D2413] text-[#CCC] hover:text-[#FFF] hover:border-[#C5A059]/40 flex items-center gap-1.5 transition-all"
+              className="px-2 sm:px-3 py-1.5 rounded-lg text-xs font-mono bg-[#16130D] border border-[#2D2413] text-[#CCC] hover:text-[#FFF] hover:border-[#C5A059]/40 flex items-center gap-1.5 transition-all shrink-0"
               title="Copia Report Diagnostico JSON"
             >
               {copied ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-[#888]" />}
-              <span>{copied ? "Copiato" : "Copia Report"}</span>
+              <span className="hidden sm:inline">{copied ? "Copiato" : "Copia"}</span>
             </button>
 
             <button
               onClick={onClearLogs}
-              className="p-2 rounded-lg text-[#888] hover:text-rose-400 hover:bg-rose-950/20 border border-transparent hover:border-rose-900/40 transition-all"
+              className="p-1.5 sm:p-2 rounded-lg text-[#888] hover:text-rose-400 hover:bg-rose-950/20 border border-transparent hover:border-rose-900/40 transition-all shrink-0"
               title="Pulisci Log"
             >
               <Trash2 className="w-4 h-4" />
@@ -154,7 +167,8 @@ export const DiagnosticDrawer: React.FC<DiagnosticDrawerProps> = ({
 
             <button
               onClick={onClose}
-              className="p-2 rounded-lg text-[#888] hover:text-white hover:bg-[#1E190F] transition-all"
+              aria-label="Chiudi finestra"
+              className="w-8 h-8 sm:w-8 sm:h-8 flex items-center justify-center rounded-lg bg-[#1C160C] hover:bg-[#2A2010] text-[#EEE] hover:text-white border border-[#3E3017] transition-all shrink-0 cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>

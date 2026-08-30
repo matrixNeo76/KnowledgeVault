@@ -42,15 +42,17 @@ created_at: "2026-08-29T10:00:00Z"
 ---
 
 ## 1. Visione del Progetto
-Il **Knowledge Vault** è un hub avanzato progettato per superare i limiti della documentazione statica. Trasforma ogni file tecnico in un **nodo ontologico interconnesso**, consentendo a sviluppatori e modelli di intelligenza artificiale (come **Claude Code** e **Gemini**) di esplorare grafi semantici e correlazioni tra tool, protocolli e architetture.
+Il **Knowledge Vault** è un hub avanzato per sviluppatori, ingegneri del prompt e agenti IA (Claude Code, Gemini, Copilot) che trasforma la documentazione tecnica in un **grafo topologico di conoscenza interconnessa**.
 
 ---
 
-## 2. Componenti Chiave del Sistema
-- **Grafo Topologico D3**: Visualizzazione dinamica con calcolo istantaneo di relazioni dirette, affinità semantiche e hub di entità.
-- **Formato OKF v0.2**: Standard formale con frontmatter YAML e metadati ricchi (entità, relazioni pesate, domini).
-- **Backend Ibrido Express + Gemini SDK**: Analisi in tempo reale con estrazione di schemi JSON e fallback euristico a latenza zero.
-- **Persistenza Realtime Cloud Firestore**: Sincronizzazione atomica multi-dispositivo con regole di sicurezza per utente.
+## 2. Funzionalità Chiave dell'Applicativo
+- **Grafo Topologico D3 Force Simulation**: Simulazione a forze fisiche con risoluzione relazionale su 5 livelli (relazioni OKF, entità comuni, citazioni nel testo, tag, domini), supporto a nodi Hub Concetto, zoom continuo, fullscreen ed etichette semantiche lungo gli archi.
+- **Cattura Intelligente & Gemini 3.7 / 2.5 Flash Engine**: Inserimento istantaneo di URL, repository GitHub, server MCP, prompt IA e documenti con parsing strutturato e fallback locale.
+- **Standard OKF v0.2**: Frontmatter YAML rigoroso con entità, relazioni pesate, trigger keywords e compatibilità completa per esportazione markdown.
+- **Knowledge Reader**: Visualizzatore Markdown con ispezione YAML e scheda dedicata "Grafo & Relazioni" con calcolo della matrice di affinità.
+- **Persistenza Realtime Cloud Firestore**: Sincronizzazione multi-device immediata, autenticazione Google / Ospite e regole di sicurezza per utente.
+- **Console di Diagnostica & Telemetria**: Monitoraggio real-time di eventi AUTH, FIRESTORE, CAPTURE e GEMINI con log scaricabile in formato JSON.
 `
     }
   },
@@ -452,6 +454,76 @@ created_at: "2026-08-29T10:40:00Z"
       ],
       systemPrompt: "Estrai esclusivamente oggetti JSON conformi allo schema specificato. Non includere blocchi markdown ```json o testo di accompagnamento. Valida tutti i tipi prima dell'emissione.",
       triggerKeywords: ["json", "extract", "parse", "schema"]
+    }
+  },
+
+  // 13. GitHub Repo: Model Context Protocol Servers
+  {
+    type: "github_repo",
+    title: "modelcontextprotocol/servers",
+    url: "https://github.com/modelcontextprotocol/servers",
+    summary: "Repository ufficiale Anthropic con la collezione di server di riferimento per Model Context Protocol (PostgreSQL, Filesystem, Git, SQLite, Slack, Brave Search).",
+    tags: ["github", "mcp", "open-source", "servers", "tools", "anthropic"],
+    isFavorite: true,
+    metadata: {
+      owner: "modelcontextprotocol",
+      repoName: "servers",
+      language: "TypeScript",
+      installCommand: "git clone https://github.com/modelcontextprotocol/servers.git",
+      entities: [
+        { name: "Model Context Protocol", type: "standard", description: "Specifica MCP implementata dai server" },
+        { name: "Anthropic", type: "organization", description: "Organizzazione promotrice dello standard" }
+      ],
+      relations: [
+        { targetTitle: "Guida Completa al Model Context Protocol (MCP)", relationType: "implements", weight: 0.95, description: "Implementazione ufficiale dei server di riferimento" },
+        { targetTitle: "PostgreSQL MCP Server", relationType: "contains", weight: 0.9, description: "Modulo server PostgreSQL contenuto nella repo" }
+      ]
+    }
+  },
+
+  // 14. GitHub Repo: Anthropic Quickstarts
+  {
+    type: "github_repo",
+    title: "anthropics/anthropic-quickstarts",
+    url: "https://github.com/anthropics/anthropic-quickstarts",
+    summary: "Progetti di avvio rapido e architetture di riferimento per la creazione di applicazioni, agenti autonomi e toolchain con l'API di Claude.",
+    tags: ["github", "claude", "anthropic", "quickstart", "agents", "python", "typescript"],
+    isFavorite: false,
+    metadata: {
+      owner: "anthropics",
+      repoName: "anthropic-quickstarts",
+      language: "Python / TypeScript",
+      installCommand: "git clone https://github.com/anthropics/anthropic-quickstarts.git",
+      entities: [
+        { name: "Claude Code", type: "tool", description: "Strumenti CLI e API Anthropic" },
+        { name: "Anthropic", type: "organization", description: "Creatore dei framework" }
+      ],
+      relations: [
+        { targetTitle: "Claude Code: Guida al Terminale Agentico", relationType: "references", weight: 0.85, description: "Esempi di orchestrazione e workflow agentico" }
+      ]
+    }
+  },
+
+  // 15. GitHub Repo: Google Gemini Cookbook
+  {
+    type: "github_repo",
+    title: "google-gemini/cookbook",
+    url: "https://github.com/google-gemini/cookbook",
+    summary: "Collezione ufficiale di guide, notebook e ricette di codice per l'utilizzo avanzato dei modelli Gemini 2.5 e Gemini 3.7 Flash con il Google GenAI SDK.",
+    tags: ["github", "gemini", "google", "cookbook", "python", "ai-engine"],
+    isFavorite: true,
+    metadata: {
+      owner: "google-gemini",
+      repoName: "cookbook",
+      language: "Python / Jupyter",
+      installCommand: "git clone https://github.com/google-gemini/cookbook.git",
+      entities: [
+        { name: "Gemini 3.7 Flash", type: "ai_model", description: "Modello generativo di riferimento" },
+        { name: "Google GenAI SDK", type: "sdk", description: "SDK per chiamate di inferenza" }
+      ],
+      relations: [
+        { targetTitle: "Google Gemini AI Engine: Linee Guida e Prompt (GEMINI.md)", relationType: "complements", weight: 0.9, description: "Esempi pratici e pattern di implementazione" }
+      ]
     }
   }
 ];

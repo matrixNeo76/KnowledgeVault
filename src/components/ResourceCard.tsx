@@ -14,6 +14,7 @@ import {
   FileCode
 } from "lucide-react";
 import { ResourceItem, ResourceType } from "../types";
+import { formatDate } from "../lib/dateUtils";
 
 interface ResourceCardProps {
   resource: ResourceItem;
@@ -105,15 +106,7 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
     }
   };
 
-  const formatDate = (ts: any) => {
-    if (!ts) return "";
-    try {
-      const date = ts.toDate ? ts.toDate() : new Date(ts);
-      return date.toLocaleDateString("it-IT", { month: "short", day: "numeric", year: "numeric" });
-    } catch {
-      return "";
-    }
-  };
+  const displayDate = formatDate(resource.createdAt) || formatDate(resource.updatedAt) || formatDate(new Date());
 
   return (
     <div 
@@ -143,8 +136,8 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-[#555] text-[10px] font-mono">
-              {formatDate(resource.createdAt)}
+            <span className="text-[#666] text-[10px] font-mono">
+              {displayDate}
             </span>
 
             <button

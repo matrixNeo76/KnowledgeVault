@@ -24,8 +24,9 @@ import {
   serverTimestamp,
   User
 } from "./lib/firebase";
-import { ResourceItem, ResourceType, ViewMode } from "./types";
+import { ResourceItem, ResourceType, ViewMode, SortOption, DiagnosticLog } from "./types";
 import { initialSampleResources } from "./lib/sampleData";
+import { parseDate, formatDate, getTimestampMillis } from "./lib/dateUtils";
 import { Sidebar } from "./components/Sidebar";
 import { Header } from "./components/Header";
 import { CaptureBar } from "./components/CaptureBar";
@@ -39,20 +40,39 @@ import { KnowledgeReader } from "./components/KnowledgeReader";
 import { KnowledgeUploadDialog } from "./components/KnowledgeUploadDialog";
 import { DiagnosticDrawer } from "./components/DiagnosticDrawer";
 import { FolderSearch, Plus, Sparkles, AlertCircle, Network, BrainCircuit, Terminal } from "lucide-react";
-import { DiagnosticLog } from "./types";
 
-// Robust Firestore sanitizer to eliminate all undefined fields recursively
+// Checks if a value is a plain JavaScript object (and not a Date, FieldValue, Timestamp, etc.)
+function isPlainObject(value: any): boolean {
+  if (value === null || typeof value !== "object") return false;
+  if (Array.isArray(value)) return false;
+  if (value instanceof Date) return false;
+  if (typeof value.toMillis === "function" || typeof value.toDate === "function") return false;
+  if ("_methodName" in value || "_delegate" in value) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === null || proto === Object.prototype;
+}
+
+// Robust Firestore sanitizer to eliminate all undefined fields recursively while keeping serverTimestamp intact
 function sanitizeForFirestore<T extends Record<string, any>>(obj: T): T {
+  if (!obj || typeof obj !== "object") return obj;
+  if (Array.isArray(obj)) {
+    return obj
+      .filter((v) => v !== undefined)
+      .map((v) => (isPlainObject(v) || Array.isArray(v) ? sanitizeForFirestore(v) : v)) as any;
+  }
+  if (!isPlainObject(obj)) {
+    return obj;
+  }
   const result: Record<string, any> = {};
   for (const [key, value] of Object.entries(obj)) {
     if (value === undefined) {
       continue;
-    } else if (value !== null && typeof value === "object" && !Array.isArray(value) && !(value instanceof Date) && typeof (value as any)?.toMillis !== "function") {
+    } else if (isPlainObject(value)) {
       result[key] = sanitizeForFirestore(value);
     } else if (Array.isArray(value)) {
       result[key] = value
         .filter((v) => v !== undefined)
-        .map((v) => (v !== null && typeof v === "object" && !(v instanceof Date) && typeof (v as any)?.toMillis !== "function" ? sanitizeForFirestore(v) : v));
+        .map((v) => (isPlainObject(v) || Array.isArray(v) ? sanitizeForFirestore(v) : v));
     } else {
       result[key] = value;
     }
@@ -70,7 +90,7 @@ export default function App() {
   const [currentCategory, setCurrentCategory] = useState<ResourceType | "all" | "favorites">("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
-  const [sortBy, setSortBy] = useState<"newest" | "oldest" | "title">("newest");
+  const [sortBy, setSortBy] = useState<SortOption>("newest");
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [selectedResourceForDetail, setSelectedResourceForDetail] = useState<ResourceItem | null>(null);
@@ -162,22 +182,31 @@ export default function App() {
       (snapshot) => {
         const items: ResourceItem[] = [];
         snapshot.forEach((docSnap) => {
+          const rawData = docSnap.data() as Omit<ResourceItem, "id">;
+          // Ensure valid createdAt timestamp is present for display and sorting (healing any previous corrupted records)
+          const validatedCreatedAt = parseDate(rawData.createdAt) || parseDate(rawData.updatedAt) || new Date();
           items.push({
             id: docSnap.id,
-            ...(docSnap.data() as Omit<ResourceItem, "id">),
+            ...rawData,
+            createdAt: rawData.createdAt ? (parseDate(rawData.createdAt) ? rawData.createdAt : validatedCreatedAt) : validatedCreatedAt,
           });
         });
 
         // Default sort by createdAt
         items.sort((a, b) => {
-          const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
-          const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
+          const timeA = getTimestampMillis(a.createdAt);
+          const timeB = getTimestampMillis(b.createdAt);
           return timeB - timeA;
         });
 
         setResources(items);
         setIsLoadingResources(false);
         addLog("info", "FIRESTORE", `Sincronizzate ${items.length} risorse dal database.`);
+
+        // Auto-seed if account has 0 resources
+        if (snapshot.empty && !isSeeding) {
+          handleSeedDemoData();
+        }
       },
       (error) => {
         console.error("Firestore snapshot error:", error);
@@ -298,13 +327,29 @@ export default function App() {
       // 1. Analyze with Gemini AI / OKF Engine
       const analyzed = await analyzeWithAI(input, explicitType);
 
+      let resolvedType = analyzed.type || explicitType || "article";
+      if (
+        (input.includes("github.com/") || (analyzed.url && analyzed.url.includes("github.com/"))) &&
+        explicitType !== "mcp_server" &&
+        explicitType !== "knowledge" &&
+        resolvedType !== "mcp_server"
+      ) {
+        resolvedType = "github_repo";
+      }
+
+      let resolvedUrl = (analyzed.url && typeof analyzed.url === "string") ? analyzed.url.trim() : (input.startsWith("http") ? input.trim() : "");
+      if (!resolvedUrl && input.includes("github.com/")) {
+        const ghMatch = input.match(/github\.com\/[^\s]+/i);
+        if (ghMatch) resolvedUrl = `https://${ghMatch[0]}`;
+      }
+
       // 2. Save directly to Firestore
-      addLog("info", "FIRESTORE", `Salvataggio risorsa "${analyzed.title}" nel database...`);
+      addLog("info", "FIRESTORE", `Salvataggio risorsa "${analyzed.title}" [${resolvedType}] nel database...`);
       const rawData = {
         userId: user.uid,
-        type: analyzed.type || explicitType || "article",
+        type: resolvedType,
         title: analyzed.title || "Nuova Risorsa",
-        url: (analyzed.url && typeof analyzed.url === "string") ? analyzed.url.trim() : (input.startsWith("http") ? input.trim() : ""),
+        url: resolvedUrl,
         rawInput: input,
         summary: analyzed.summary || input,
         tags: Array.isArray(analyzed.tags) ? analyzed.tags : [],
@@ -316,6 +361,16 @@ export default function App() {
 
       const docRef = await addDoc(collection(db, "resources"), sanitizeForFirestore(rawData));
       addLog("success", "FIRESTORE", `Risorsa salvata con successo con ID: ${docRef.id}`);
+
+      setStatusMessage(`Risorsa "${rawData.title}" aggiunta al Vault!`);
+      setTimeout(() => setStatusMessage(null), 4000);
+
+      // Ensure the newly added resource is immediately visible on screen
+      if (currentCategory !== "all" && currentCategory !== resolvedType) {
+        setCurrentCategory(resolvedType);
+      }
+      setSelectedTag(null);
+      setSearchQuery("");
 
       return true;
     } catch (error: any) {
@@ -480,11 +535,29 @@ export default function App() {
       })
       .sort((a, b) => {
         if (sortBy === "title") {
-          return a.title.localeCompare(b.title);
+          return (a.title || "").localeCompare(b.title || "");
         }
-        const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
-        const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
-        return sortBy === "newest" ? timeB - timeA : timeA - timeB;
+        if (sortBy === "title_desc") {
+          return (b.title || "").localeCompare(a.title || "");
+        }
+        if (sortBy === "favorites") {
+          if (a.isFavorite && !b.isFavorite) return -1;
+          if (!a.isFavorite && b.isFavorite) return 1;
+        }
+        if (sortBy === "type") {
+          const typePriority: Record<ResourceType, number> = {
+            knowledge: 1,
+            mcp_server: 2,
+            github_repo: 3,
+            ai_skill: 4,
+            article: 5,
+          };
+          const diff = (typePriority[a.type] || 99) - (typePriority[b.type] || 99);
+          if (diff !== 0) return diff;
+        }
+        const timeA = getTimestampMillis(a.createdAt);
+        const timeB = getTimestampMillis(b.createdAt);
+        return sortBy === "oldest" ? timeA - timeB : timeB - timeA;
       });
   }, [resources, currentCategory, selectedTag, searchQuery, sortBy]);
 
@@ -493,7 +566,10 @@ export default function App() {
       {/* Sidebar Navigation */}
       <Sidebar
         currentCategory={currentCategory}
-        onSelectCategory={setCurrentCategory}
+        onSelectCategory={(cat) => {
+          setCurrentCategory(cat);
+          setSelectedTag(null);
+        }}
         counts={counts}
         user={user}
         onSignIn={handleGoogleSignIn}
@@ -547,6 +623,13 @@ export default function App() {
             allTags={allTags}
             selectedTag={selectedTag}
             onSelectTag={setSelectedTag}
+            sortBy={sortBy}
+            onSortByChange={setSortBy}
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
+            totalFilteredCount={filteredResources.length}
+            searchQuery={searchQuery}
+            onClearSearch={() => setSearchQuery("")}
           />
 
           {/* Resources Display */}
@@ -558,7 +641,7 @@ export default function App() {
             </div>
           ) : viewMode === "graph" ? (
             /* Graph View for Knowledge Ontology & Connected Resources */
-            <div className="flex-1 min-h-[580px] bg-[#0A0A0A] border border-[#1E1E1E] rounded-2xl overflow-hidden relative shadow-2xl flex flex-col">
+            <div className="flex-1 w-full min-h-0 flex flex-col">
               <KnowledgeGraph
                 resources={filteredResources}
                 onSelectResource={(item) => {
@@ -605,7 +688,7 @@ export default function App() {
                       disabled={isSeeding}
                       className="px-4 py-2 rounded-lg bg-[#141414] hover:bg-[#1E1E1E] border border-[#333] text-xs text-[#C5A059] transition-colors"
                     >
-                      {isSeeding ? "Caricamento Demo..." : "Carica Dati Demo"}
+                      {isSeeding ? "Caricamento Docs..." : "Carica Documentazione OKF v0.2"}
                     </button>
                     <button
                       onClick={() => setIsKnowledgeUploadOpen(true)}

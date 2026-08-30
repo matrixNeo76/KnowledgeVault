@@ -74,11 +74,13 @@ export interface ResourceItem {
 
 export type ViewMode = 'grid' | 'table' | 'graph';
 
+export type SortOption = 'newest' | 'oldest' | 'title' | 'title_desc' | 'type' | 'favorites';
+
 export interface FilterOptions {
   category: ResourceType | 'all' | 'favorites' | 'graph';
   searchQuery: string;
   selectedTag: string | null;
-  sortBy: 'newest' | 'oldest' | 'title';
+  sortBy: SortOption;
 }
 
 export interface GraphNode {
