@@ -39,6 +39,7 @@ import { KnowledgeGraph } from "./components/KnowledgeGraph";
 import { KnowledgeReader } from "./components/KnowledgeReader";
 import { KnowledgeUploadDialog } from "./components/KnowledgeUploadDialog";
 import { DiagnosticDrawer } from "./components/DiagnosticDrawer";
+import { ExportBackupDialog } from "./components/ExportBackupDialog";
 import { FolderSearch, Plus, Sparkles, AlertCircle, Network, BrainCircuit, Terminal } from "lucide-react";
 
 // Checks if a value is a plain JavaScript object (and not a Date, FieldValue, Timestamp, etc.)
@@ -98,6 +99,7 @@ export default function App() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isKnowledgeUploadOpen, setIsKnowledgeUploadOpen] = useState(false);
   const [isDiagnosticOpen, setIsDiagnosticOpen] = useState(false);
+  const [isExportOpen, setIsExportOpen] = useState(false);
   const [logs, setLogs] = useState<DiagnosticLog[]>([
     {
       id: "init-1",
@@ -424,14 +426,78 @@ export default function App() {
 
   // Toggle Favorite
   const handleToggleFavorite = async (id: string, currentFav: boolean) => {
+    const nextFav = !currentFav;
+    // Optimistic UI state update
+    setResources((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, isFavorite: nextFav } : item))
+    );
+    setSelectedResourceForDetail((prev) =>
+      prev && prev.id === id ? { ...prev, isFavorite: nextFav } : prev
+    );
+
     try {
       const docRef = doc(db, "resources", id);
       await updateDoc(docRef, {
-        isFavorite: !currentFav,
+        isFavorite: nextFav,
         updatedAt: serverTimestamp(),
       });
-    } catch (err) {
+      addLog("info", "FIRESTORE", `Preferito aggiornato per risorsa ${id}: ${nextFav ? "Aggiunto" : "Rimosso"}`);
+    } catch (err: any) {
       console.error("Toggle favorite failed:", err);
+      // Revert optimistic update on error
+      setResources((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, isFavorite: currentFav } : item))
+      );
+      setSelectedResourceForDetail((prev) =>
+        prev && prev.id === id ? { ...prev, isFavorite: currentFav } : prev
+      );
+      addLog("error", "FIRESTORE", `Errore salvataggio preferito: ${err.message}`, err);
+    }
+  };
+
+  // Update Reading Progress for Articles
+  const handleUpdateReadingProgress = async (id: string, progress: number) => {
+    try {
+      const resource = resources.find((r) => r.id === id);
+      const clamped = Math.max(0, Math.min(100, Math.round(progress)));
+      const status = clamped === 100 ? "completed" : clamped > 0 ? "in_progress" : "unread";
+
+      const docRef = doc(db, "resources", id);
+      const updatedMetadata = {
+        ...(resource?.metadata || {}),
+        readingProgress: clamped,
+        readingStatus: status,
+      };
+
+      await updateDoc(
+        docRef,
+        sanitizeForFirestore({
+          metadata: updatedMetadata,
+          updatedAt: serverTimestamp(),
+        })
+      );
+
+      // Optimistic update
+      setResources((prev) =>
+        prev.map((item) =>
+          item.id === id
+            ? { ...item, metadata: { ...item.metadata, readingProgress: clamped, readingStatus: status } }
+            : item
+        )
+      );
+
+      if (selectedResourceForDetail && selectedResourceForDetail.id === id) {
+        setSelectedResourceForDetail((prev) =>
+          prev
+            ? { ...prev, metadata: { ...prev.metadata, readingProgress: clamped, readingStatus: status } }
+            : null
+        );
+      }
+
+      addLog("info", "FIRESTORE", `Avanzamento lettura aggiornato per "${resource?.title || id}": ${clamped}%`);
+    } catch (err: any) {
+      console.error("Reading progress update failed:", err);
+      addLog("error", "FIRESTORE", `Errore aggiornamento lettura: ${err.message}`, err);
     }
   };
 
@@ -480,6 +546,7 @@ export default function App() {
       github_repo: 0,
       mcp_server: 0,
       ai_skill: 0,
+      link: 0,
       favorites: 0,
     };
     resources.forEach((r) => {
@@ -547,10 +614,11 @@ export default function App() {
         if (sortBy === "type") {
           const typePriority: Record<ResourceType, number> = {
             knowledge: 1,
-            mcp_server: 2,
-            github_repo: 3,
-            ai_skill: 4,
-            article: 5,
+            link: 2,
+            mcp_server: 3,
+            github_repo: 4,
+            ai_skill: 5,
+            article: 6,
           };
           const diff = (typePriority[a.type] || 99) - (typePriority[b.type] || 99);
           if (diff !== 0) return diff;
@@ -579,6 +647,7 @@ export default function App() {
         onSeedDemo={handleSeedDemoData}
         isSeeding={isSeeding}
         onOpenKnowledgeUpload={() => setIsKnowledgeUploadOpen(true)}
+        onOpenExport={() => setIsExportOpen(true)}
       />
 
       {/* Main Content Area */}
@@ -594,6 +663,7 @@ export default function App() {
           onOpenAddModal={() => setIsAddModalOpen(true)}
           onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
           onOpenDiagnostic={() => setIsDiagnosticOpen(true)}
+          onOpenExport={() => setIsExportOpen(true)}
           user={user}
           onSignIn={handleGoogleSignIn}
           totalCount={counts.all}
@@ -716,6 +786,7 @@ export default function App() {
                   key={item.id}
                   resource={item}
                   onToggleFavorite={handleToggleFavorite}
+                  onUpdateProgress={handleUpdateReadingProgress}
                   onOpenDetail={(res) => {
                     if (res.type === "knowledge") {
                       setSelectedKnowledgeForReader(res);
@@ -761,6 +832,7 @@ export default function App() {
         onClose={() => setSelectedResourceForDetail(null)}
         onUpdate={handleUpdateResource}
         onDelete={handleDeleteResource}
+        onToggleFavorite={handleToggleFavorite}
       />
 
       {/* OKF Knowledge Markdown Reader & Explorer Modal */}
@@ -792,6 +864,7 @@ export default function App() {
         onClose={() => setIsAddModalOpen(false)}
         onAdd={handleManualAdd}
         onAnalyzeWithAI={analyzeWithAI}
+        onAddLog={addLog}
       />
 
       {/* Live System Activity & Diagnostic Drawer */}
@@ -802,6 +875,17 @@ export default function App() {
         onClearLogs={() => setLogs([])}
         userId={user?.uid}
         totalResources={resources.length}
+      />
+
+      {/* Export / Backup Dialog (JSON & CSV) */}
+      <ExportBackupDialog
+        isOpen={isExportOpen}
+        onClose={() => setIsExportOpen(false)}
+        resources={resources}
+        currentCategory={currentCategory}
+        selectedTag={selectedTag}
+        searchQuery={searchQuery}
+        onAddLog={addLog}
       />
     </div>
   );

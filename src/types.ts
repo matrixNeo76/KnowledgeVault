@@ -1,4 +1,4 @@
-export type ResourceType = 'article' | 'github_repo' | 'mcp_server' | 'ai_skill' | 'knowledge';
+export type ResourceType = 'article' | 'github_repo' | 'mcp_server' | 'ai_skill' | 'knowledge' | 'link';
 
 export interface OKFEntity {
   name: string;
@@ -41,10 +41,38 @@ export interface ResourceMetadata {
   triggerKeywords?: string[];
   exampleUsage?: string;
 
-  // Article specific
+  // Article & Web Open Graph specific
   author?: string;
   readingTimeMin?: string | number;
+  readingProgress?: number;
+  readingStatus?: 'unread' | 'in_progress' | 'completed';
   keyTakeaways?: string[];
+  ogTitle?: string;
+  ogDescription?: string;
+  ogImage?: string;
+  favicon?: string;
+  siteName?: string;
+
+  // AI Evaluation, Insights & Score
+  useCases?: string[];
+  pros?: string[];
+  cons?: string[];
+  score?: number; // 1-100 score of utility/relevance
+  scoreRationale?: string;
+
+  // AI Translation (Italian)
+  translatedTitle?: string;
+  translatedSummary?: string;
+  translatedContent?: string;
+  translatedAt?: string;
+  translationLanguage?: string;
+
+  // AI Executive Summary
+  aiExecutiveSummary?: string;
+  aiKeyTakeaways?: string[];
+  aiTargetAudience?: string;
+  aiActionItems?: string[];
+  aiSummarizedAt?: string;
 
   // OKF v0.2 Knowledge specific
   okfVersion?: '0.2';
@@ -115,7 +143,7 @@ export interface DiagnosticLog {
   id: string;
   timestamp: string;
   level: 'info' | 'success' | 'warn' | 'error';
-  category: 'CAPTURE' | 'GEMINI_AI' | 'FIRESTORE' | 'AUTH' | 'OKF_PARSER';
+  category: 'CAPTURE' | 'GEMINI_AI' | 'FIRESTORE' | 'AUTH' | 'OKF_PARSER' | 'SYSTEM' | 'BACKUP';
   message: string;
   details?: any;
 }

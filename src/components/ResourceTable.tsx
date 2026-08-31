@@ -8,10 +8,14 @@ import {
   ExternalLink, 
   Copy, 
   Check, 
-  ChevronRight,
-  BrainCircuit,
-  FileCode,
-  Calendar
+  ChevronRight, 
+  BrainCircuit, 
+  FileCode, 
+  Calendar, 
+  CheckCircle2, 
+  Clock,
+  Award,
+  Globe
 } from "lucide-react";
 import { ResourceItem, ResourceType } from "../types";
 import { formatDate } from "../lib/dateUtils";
@@ -40,6 +44,11 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({
         return {
           label: "GitHub",
           icon: <Github className="w-3 h-3 text-[#A855F7]" />,
+        };
+      case "link":
+        return {
+          label: "Link Web",
+          icon: <Globe className="w-3 h-3 text-[#06B6D4]" />,
         };
       case "mcp_server":
         return {
@@ -124,10 +133,39 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({
 
                 {/* Type Badge */}
                 <td className="py-3.5 px-4 whitespace-nowrap">
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#141414] border border-[#222] text-[#C5A059] font-mono text-[10px]">
-                    {badge.icon}
-                    {badge.label}
-                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#141414] border border-[#222] text-[#C5A059] font-mono text-[10px]">
+                      {badge.icon}
+                      {badge.label}
+                    </span>
+                    {item.type === "article" && item.metadata?.readingProgress !== undefined && (
+                      item.metadata.readingProgress === 100 ? (
+                        <span className="text-[10px] bg-emerald-950/60 text-emerald-300 border border-emerald-700/40 px-1.5 py-0.5 rounded font-mono flex items-center gap-0.5" title="Letto al 100%">
+                          <CheckCircle2 className="w-2.5 h-2.5 text-emerald-400" />
+                          Letto
+                        </span>
+                      ) : item.metadata.readingProgress > 0 ? (
+                        <span className="text-[10px] bg-[#221A0C] text-[#C5A059] border border-[#C5A059]/30 px-1.5 py-0.5 rounded font-mono" title={`Avanzamento: ${item.metadata.readingProgress}%`}>
+                          {item.metadata.readingProgress}%
+                        </span>
+                      ) : null
+                    )}
+                    {typeof item.metadata?.score === "number" && (
+                      <span 
+                        className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-bold flex items-center gap-0.5 border ${
+                          item.metadata.score >= 85
+                            ? "bg-emerald-950/70 text-emerald-300 border-emerald-700/50"
+                            : item.metadata.score >= 70
+                            ? "bg-[#2A210F] text-[#E5C170] border-[#C5A059]/40"
+                            : "bg-[#1C1C1C] text-[#AAA] border-[#333]"
+                        }`}
+                        title={`Valutazione: ${item.metadata.score}/100${item.metadata.scoreRationale ? ` - ${item.metadata.scoreRationale}` : ''}`}
+                      >
+                        <Award className="w-2.5 h-2.5 text-[#C5A059]" />
+                        <span>{item.metadata.score}</span>
+                      </span>
+                    )}
+                  </div>
                 </td>
 
                 {/* Title and brief description */}

@@ -12,7 +12,8 @@ import {
   HelpCircle,
   BrainCircuit,
   UploadCloud,
-  Terminal
+  Terminal,
+  Globe
 } from "lucide-react";
 import { ResourceType } from "../types";
 
@@ -72,6 +73,7 @@ export const CaptureBar: React.FC<CaptureBarProps> = ({
   const typeButtons: { id: ResourceType | "auto"; label: string; icon: React.ReactNode }[] = [
     { id: "auto", label: "Auto AI", icon: <Sparkles className="w-3 h-3 text-[#C5A059]" /> },
     { id: "knowledge", label: "Knowledge (OKF)", icon: <BrainCircuit className="w-3 h-3 text-[#C5A059]" /> },
+    { id: "link", label: "Link Web", icon: <Globe className="w-3 h-3 text-[#06B6D4]" /> },
     { id: "mcp_server", label: "MCP", icon: <Cpu className="w-3 h-3 text-[#38BDF8]" /> },
     { id: "github_repo", label: "GitHub", icon: <Github className="w-3 h-3 text-[#A855F7]" /> },
     { id: "ai_skill", label: "Skill", icon: <Bot className="w-3 h-3 text-[#10B981]" /> },
@@ -83,9 +85,9 @@ export const CaptureBar: React.FC<CaptureBarProps> = ({
       <form onSubmit={handleSubmit} className="relative">
         <div className="bg-[#0A0A0A] border border-[#1F1F1F] hover:border-[#333] focus-within:border-[#C5A059]/80 focus-within:ring-1 focus-within:ring-[#C5A059]/40 rounded-2xl p-2.5 shadow-2xl transition-all">
           {/* Top selection chips */}
-          <div className="flex items-center justify-between px-2 pb-2 border-b border-[#141414]">
-            <div className="flex items-center gap-1.5 overflow-x-auto py-0.5 scrollbar-none">
-              <span className="text-[10px] uppercase font-mono text-[#555] mr-1 hidden sm:inline">
+          <div className="flex items-center justify-between px-2 pb-2 border-b border-[#141414] gap-4">
+            <div className="flex-1 flex items-center gap-1.5 overflow-x-auto py-0.5 scrollbar-none min-w-0">
+              <span className="text-[10px] uppercase font-mono text-[#555] mr-1 hidden sm:inline shrink-0">
                 Tipo:
               </span>
               {typeButtons.map((btn) => {
@@ -95,7 +97,7 @@ export const CaptureBar: React.FC<CaptureBarProps> = ({
                     key={btn.id}
                     type="button"
                     onClick={() => setSelectedType(btn.id)}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] transition-colors whitespace-nowrap ${
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] transition-colors whitespace-nowrap shrink-0 ${
                       isSelected
                         ? "bg-[#1F1F1F] text-[#C5A059] font-medium border border-[#C5A059]/30"
                         : "text-[#666] hover:text-[#BBB] hover:bg-[#111]"
@@ -123,10 +125,16 @@ export const CaptureBar: React.FC<CaptureBarProps> = ({
                   <span>Apri Uploader File OKF</span>
                 </button>
               ) : (
-                <span className="hidden sm:flex items-center gap-1 text-[#666]">
-                  <HelpCircle className="w-3 h-3 text-[#444]" />
-                  Incolla URL o markdown (Invio per salvare, Shift+Invio per a capo)
-                </span>
+                <>
+                  <span className="hidden xl:flex items-center gap-1 text-[#666] whitespace-nowrap">
+                    <HelpCircle className="w-3 h-3 text-[#444]" />
+                    Incolla URL o markdown (Invio per salvare, Shift+Invio per a capo)
+                  </span>
+                  <span className="hidden sm:flex xl:hidden items-center gap-1 text-[#666] whitespace-nowrap">
+                    <HelpCircle className="w-3 h-3 text-[#444]" />
+                    Invio per salvare
+                  </span>
+                </>
               )}
 
               {onOpenDiagnostic && (

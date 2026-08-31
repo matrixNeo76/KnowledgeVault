@@ -10,7 +10,8 @@ import {
   CheckCircle2,
   X,
   Network,
-  Terminal
+  Terminal,
+  Download
 } from "lucide-react";
 import { ViewMode, SortOption } from "../types";
 import { User } from "firebase/auth";
@@ -25,6 +26,7 @@ interface HeaderProps {
   onOpenAddModal: () => void;
   onOpenMobileMenu: () => void;
   onOpenDiagnostic?: () => void;
+  onOpenExport?: () => void;
   user: User | null;
   onSignIn: () => void;
   totalCount: number;
@@ -40,6 +42,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAddModal,
   onOpenMobileMenu,
   onOpenDiagnostic,
+  onOpenExport,
   user,
   onSignIn,
   totalCount,
@@ -136,6 +139,18 @@ export const Header: React.FC<HeaderProps> = ({
             <Network className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           </button>
         </div>
+
+        {/* Export Backup Trigger */}
+        {onOpenExport && (
+          <button
+            onClick={onOpenExport}
+            className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-lg border border-[#2B2B2B] bg-[#111] hover:bg-[#181818] hover:border-[#C5A059]/40 text-[#CCC] hover:text-[#C5A059] text-xs font-mono transition-all shrink-0"
+            title="Esporta Backup Vault (JSON / CSV)"
+          >
+            <Download className="w-3.5 h-3.5 text-[#C5A059]" />
+            <span className="hidden md:inline">Esporta</span>
+          </button>
+        )}
 
         {/* Diagnostic Log Console Trigger */}
         {onOpenDiagnostic && (

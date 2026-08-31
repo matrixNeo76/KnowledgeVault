@@ -11,7 +11,8 @@ import {
   LayoutGrid,
   List,
   Network,
-  RotateCcw
+  RotateCcw,
+  Globe
 } from "lucide-react";
 import { ResourceType, SortOption, ViewMode } from "../types";
 
@@ -23,6 +24,7 @@ interface StatsBannerProps {
     github_repo: number;
     mcp_server: number;
     ai_skill: number;
+    link?: number;
     favorites: number;
   };
   currentCategory: ResourceType | "all" | "favorites";
@@ -58,6 +60,8 @@ export const StatsBanner: React.FC<StatsBannerProps> = ({
         return "Knowledge Vault (OKF v0.2)";
       case "article":
         return "Articoli & Guide";
+      case "link":
+        return "Link & Web Tools";
       case "github_repo":
         return "GitHub Repositories";
       case "mcp_server":
@@ -94,6 +98,10 @@ export const StatsBanner: React.FC<StatsBannerProps> = ({
           <div className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-lg bg-[#0D0D0D] border border-[#1C1C1C] text-[11px] font-mono text-[#AAA] shrink-0">
             <BrainCircuit className="w-3 h-3 text-[#C5A059]" />
             <span>{counts.knowledge || 0} OKF</span>
+          </div>
+          <div className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-lg bg-[#0D0D0D] border border-[#1C1C1C] text-[11px] font-mono text-[#AAA] shrink-0">
+            <Globe className="w-3 h-3 text-[#06B6D4]" />
+            <span>{counts.link || 0} Links</span>
           </div>
           <div className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-lg bg-[#0D0D0D] border border-[#1C1C1C] text-[11px] font-mono text-[#AAA] shrink-0">
             <Cpu className="w-3 h-3 text-[#38BDF8]" />

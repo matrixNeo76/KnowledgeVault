@@ -7,8 +7,8 @@
 ## 1. Modelli e Priorità di Esecuzione
 
 - **Modello Primario**: `gemini-3.7-flash` (massima velocità, precisione analitica e supporto a JSON Schema rigoroso).
-- **Modello di Fallback**: `gemini-2.5-flash` (attivato automaticamente in caso di degradazione della connessione o quota temporanea).
-- **Fallback Euristico Locale**: Nel caso di assenza di connessione o timeout di sicurezza (>15s), l'estrattore a regole locale estrae titolo, tag e frontmatter con latenza 0ms.
+- **Modelli di Fallback Cloud**: `gemini-flash-latest`, `gemini-3.1-flash-lite` (attivati automaticamente in caso di picchi di carico 503, degradazione temporanea o quote).
+- **Fallback Euristico Locale**: Nel caso di indisponibilità di tutti i modelli o timeout (>15s), l'estrattore a regole locale estrae titolo, tag, frontmatter e valutazioni con latenza 0ms.
 
 ---
 
