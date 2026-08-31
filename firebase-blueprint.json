@@ -9,8 +9,8 @@
         },
         "type": {
           "type": "string",
-          "description": "Category of resource: 'article' | 'github_repo' | 'mcp_server' | 'ai_skill' | 'knowledge'",
-          "enum": ["article", "github_repo", "mcp_server", "ai_skill", "knowledge"]
+          "description": "Category of resource: 'article' | 'github_repo' | 'mcp_server' | 'ai_skill' | 'knowledge' | 'link' | 'troubleshooting'",
+          "enum": ["article", "github_repo", "mcp_server", "ai_skill", "knowledge", "link", "troubleshooting"]
         },
         "title": {
           "type": "string",

@@ -15,7 +15,8 @@ import {
   CheckCircle2, 
   Clock,
   Award,
-  Globe
+  Globe,
+  Wrench
 } from "lucide-react";
 import { ResourceItem, ResourceType } from "../types";
 import { formatDate } from "../lib/dateUtils";
@@ -39,6 +40,11 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({
         return {
           label: "OKF v0.2",
           icon: <BrainCircuit className="w-3 h-3 text-[#C5A059]" />,
+        };
+      case "troubleshooting":
+        return {
+          label: "Problema & Fix",
+          icon: <Wrench className="w-3 h-3 text-[#F97316]" />,
         };
       case "github_repo":
         return {

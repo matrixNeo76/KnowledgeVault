@@ -31,7 +31,15 @@ import {
   ListChecks,
   Users,
   RotateCcw,
-  FileText
+  FileText,
+  Wrench,
+  AlertTriangle,
+  Network,
+  Share2,
+  ArrowRight,
+  ChevronRight,
+  Tag,
+  Plus
 } from "lucide-react";
 import Markdown from "react-markdown";
 import { ResourceItem, ResourceType } from "../types";
@@ -40,18 +48,22 @@ import { fetchOpenGraphData, OpenGraphResult } from "../lib/ogUtils";
 
 interface ResourceModalProps {
   resource: ResourceItem | null;
+  allResources?: ResourceItem[];
   onClose: () => void;
   onUpdate: (id: string, updatedData: Partial<ResourceItem>) => Promise<boolean>;
   onDelete: (id: string) => Promise<boolean>;
   onToggleFavorite?: (id: string, currentFav: boolean) => void;
+  onNavigateToResource?: (resource: ResourceItem) => void;
 }
 
 export const ResourceModal: React.FC<ResourceModalProps> = ({
   resource,
+  allResources = [],
   onClose,
   onUpdate,
   onDelete,
   onToggleFavorite,
+  onNavigateToResource,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [copiedSection, setCopiedSection] = useState<string | null>(null);
@@ -94,6 +106,10 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
   const [mcpConfig, setMcpConfig] = useState(resource?.metadata?.configSnippet || "");
   const [systemPrompt, setSystemPrompt] = useState(resource?.metadata?.systemPrompt || "");
   const [installCommand, setInstallCommand] = useState(resource?.metadata?.installCommand || "");
+  const [affectedSystem, setAffectedSystem] = useState(resource?.metadata?.affectedSystem || "");
+  const [rootCause, setRootCause] = useState(resource?.metadata?.rootCause || "");
+  const [attemptedFixesStr, setAttemptedFixesStr] = useState((resource?.metadata?.attemptedFixes || []).join("\n"));
+  const [solutionStepsStr, setSolutionStepsStr] = useState((resource?.metadata?.solutionSteps || []).join("\n"));
   const [markdownContent, setMarkdownContent] = useState(resource?.metadata?.markdownContent || "");
   const [readingProgress, setReadingProgress] = useState<number>(resource?.metadata?.readingProgress ?? (resource as any)?.readingProgress ?? 0);
 
@@ -112,6 +128,8 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
   const [aiKeyTakeawaysStr, setAiKeyTakeawaysStr] = useState((resource?.metadata?.aiKeyTakeaways || []).join("\n"));
   const [aiTargetAudience, setAiTargetAudience] = useState(resource?.metadata?.aiTargetAudience || "");
   const [aiActionItemsStr, setAiActionItemsStr] = useState((resource?.metadata?.aiActionItems || []).join("\n"));
+  const [userNotes, setUserNotes] = useState(resource?.metadata?.userNotes || "");
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   // Synchronize form when resource changes
   React.useEffect(() => {
@@ -124,6 +142,10 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
       setMcpConfig(resource.metadata?.configSnippet || "");
       setSystemPrompt(resource.metadata?.systemPrompt || "");
       setInstallCommand(resource.metadata?.installCommand || "");
+      setAffectedSystem(resource.metadata?.affectedSystem || "");
+      setRootCause(resource.metadata?.rootCause || "");
+      setAttemptedFixesStr((resource.metadata?.attemptedFixes || []).join("\n"));
+      setSolutionStepsStr((resource.metadata?.solutionSteps || []).join("\n"));
       setMarkdownContent(resource.metadata?.markdownContent || "");
       setReadingProgress(resource.metadata?.readingProgress ?? (resource as any)?.readingProgress ?? 0);
       setUseCasesStr((resource.metadata?.useCases || []).join("\n"));
@@ -138,6 +160,7 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
       setAiKeyTakeawaysStr((resource.metadata?.aiKeyTakeaways || []).join("\n"));
       setAiTargetAudience(resource.metadata?.aiTargetAudience || "");
       setAiActionItemsStr((resource.metadata?.aiActionItems || []).join("\n"));
+      setUserNotes(resource.metadata?.userNotes || "");
       setIsEditing(false);
       setInsightMessage(null);
       setTranslationMessage(null);
@@ -360,6 +383,20 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
 
     const updatedMetadata = {
       ...resource.metadata,
+      ...(affectedSystem ? { affectedSystem: affectedSystem.trim() } : {}),
+      ...(rootCause ? { rootCause: rootCause.trim() } : {}),
+      ...(attemptedFixesStr ? {
+        attemptedFixes: attemptedFixesStr
+          .split("\n")
+          .map((s) => s.trim())
+          .filter(Boolean),
+      } : {}),
+      ...(solutionStepsStr ? {
+        solutionSteps: solutionStepsStr
+          .split("\n")
+          .map((s) => s.trim())
+          .filter(Boolean),
+      } : {}),
       ...(mcpConfig ? { configSnippet: mcpConfig } : {}),
       ...(systemPrompt ? { systemPrompt } : {}),
       ...(installCommand ? { installCommand } : {}),
@@ -376,6 +413,7 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
       ...(takeawaysArr.length > 0 ? { aiKeyTakeaways: takeawaysArr } : {}),
       ...(aiTargetAudience ? { aiTargetAudience: aiTargetAudience.trim() } : {}),
       ...(actionItemsArr.length > 0 ? { aiActionItems: actionItemsArr } : {}),
+      ...(userNotes ? { userNotes: userNotes.trim() } : {}),
       ...(type === "article" ? {
         readingProgress: readingProgress,
         readingStatus: (readingProgress === 100 ? "completed" : readingProgress > 0 ? "in_progress" : "unread") as "unread" | "in_progress" | "completed",
@@ -397,19 +435,19 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
     }
   };
 
-  const handleDelete = async () => {
-    if (window.confirm("Sei sicuro di voler eliminare questa risorsa dal database?")) {
-      setIsDeleting(true);
-      const success = await onDelete(resource.id);
-      setIsDeleting(false);
-      if (success) {
-        onClose();
-      }
+  const handleConfirmDelete = async () => {
+    setIsDeleting(true);
+    const success = await onDelete(resource.id);
+    setIsDeleting(false);
+    if (success) {
+      onClose();
     }
   };
 
   const getTypeIcon = (t: ResourceType) => {
     switch (t) {
+      case "troubleshooting":
+        return <Wrench className="w-4 h-4 text-[#F97316]" />;
       case "knowledge":
         return <BrainCircuit className="w-4 h-4 text-[#C5A059]" />;
       case "github_repo":
@@ -575,9 +613,13 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
             )}
 
             <button
-              onClick={handleDelete}
+              onClick={() => setShowDeleteConfirm((prev) => !prev)}
               disabled={isDeleting}
-              className="p-1.5 sm:p-2 text-[#666] hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors shrink-0"
+              className={`p-1.5 sm:p-2 rounded-lg transition-colors shrink-0 ${
+                showDeleteConfirm
+                  ? "bg-rose-950/80 text-rose-300 border border-rose-800/60"
+                  : "text-[#666] hover:text-rose-400 hover:bg-rose-500/10"
+              }`}
               title="Elimina risorsa"
             >
               <Trash2 className="w-4 h-4" />
@@ -592,6 +634,35 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Delete Confirmation In-Modal Banner */}
+        {showDeleteConfirm && (
+          <div className="px-4 py-3 bg-rose-950/90 border-b border-rose-800/60 text-rose-200 text-xs flex flex-wrap items-center justify-between gap-2.5 animate-in slide-in-from-top-2">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+              <span className="font-sans font-medium">Sei sicuro di voler eliminare definitivamente questa risorsa dal database?</span>
+            </div>
+            <div className="flex items-center gap-2 shrink-0 ml-auto">
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(false)}
+                disabled={isDeleting}
+                className="px-3 py-1 bg-[#141414] hover:bg-[#222] text-[#AAA] hover:text-white rounded-lg text-xs font-mono border border-[#333] transition-colors"
+              >
+                Annulla
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                disabled={isDeleting}
+                className="px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-mono font-medium flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
+              >
+                {isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                <span>{isDeleting ? "Eliminazione..." : "Conferma Eliminazione"}</span>
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Dynamic Status / Feedback Banners */}
         {translationMessage && (
@@ -665,6 +736,7 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
                     onChange={(e) => setType(e.target.value as any)}
                     className="w-full bg-[#111] border border-[#262626] rounded-lg p-2.5 text-xs text-[#CCC] focus:outline-none focus:border-[#C5A059]"
                   >
+                    <option value="troubleshooting">Problema & Soluzione (Troubleshooting)</option>
                     <option value="knowledge">Knowledge (OKF v0.2)</option>
                     <option value="link">Link & Web Tool</option>
                     <option value="article">Articolo</option>
@@ -697,6 +769,20 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
                   value={summary}
                   onChange={(e) => setSummary(e.target.value)}
                   className="w-full bg-[#111] border border-[#262626] rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-[#C5A059]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-mono uppercase text-[#C5A059] mb-1 flex items-center gap-1.5">
+                  <FileText className="w-3.5 h-3.5" />
+                  Note Personali & Commenti Utente
+                </label>
+                <textarea
+                  rows={3}
+                  value={userNotes}
+                  onChange={(e) => setUserNotes(e.target.value)}
+                  placeholder="Aggiungi annotazioni, appunti personali o note operative su questa risorsa..."
+                  className="w-full bg-[#111] border border-[#2A2315] rounded-lg p-2.5 text-xs text-[#E5C170] focus:outline-none focus:border-[#C5A059]"
                 />
               </div>
 
@@ -788,6 +874,63 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
                   className="w-full bg-[#111] border border-[#262626] rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-[#C5A059]"
                 />
               </div>
+
+              {type === "troubleshooting" && (
+                <div className="bg-[#140D07] border border-[#F97316]/30 rounded-xl p-4 space-y-3">
+                  <div className="text-xs font-mono uppercase text-[#F97316] font-semibold flex items-center gap-1.5">
+                    <Wrench className="w-3.5 h-3.5" />
+                    <span>Dati Diagnostica & Risoluzione</span>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-mono uppercase text-[#F97316] mb-1">
+                      Sistema / Software Coinvolto
+                    </label>
+                    <input
+                      type="text"
+                      value={affectedSystem}
+                      onChange={(e) => setAffectedSystem(e.target.value)}
+                      placeholder="es. PriMus-Av.usBIM (ACCA) / Windows 11"
+                      className="w-full bg-[#0C0804] border border-[#331D0F] rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-[#F97316]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-mono uppercase text-[#F97316] mb-1">
+                      Causa Scatenante / Root Cause
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={rootCause}
+                      onChange={(e) => setRootCause(e.target.value)}
+                      placeholder="es. Smart App Control (SAC) di Windows ha bloccato borlndmm.dll..."
+                      className="w-full bg-[#0C0804] border border-[#331D0F] rounded-lg p-2.5 text-xs text-[#CCC] focus:outline-none focus:border-[#F97316]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-mono uppercase text-[#888] mb-1">
+                      Tentativi Non Risolutivi (uno per riga)
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={attemptedFixesStr}
+                      onChange={(e) => setAttemptedFixesStr(e.target.value)}
+                      placeholder={"- Rigenerazione cartella .Common\n- Scansione SFC"}
+                      className="w-full font-mono bg-[#0C0804] border border-[#331D0F] rounded-lg p-2.5 text-xs text-[#AAA] focus:outline-none focus:border-[#F97316]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-mono uppercase text-emerald-400 mb-1">
+                      Procedura Risolutiva (un passaggio per riga)
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={solutionStepsStr}
+                      onChange={(e) => setSolutionStepsStr(e.target.value)}
+                      placeholder={"1. Disattivare Smart App Control\n2. Riavviare il computer\n3. Verificare l'avvio"}
+                      className="w-full font-mono bg-[#0C0804] border border-emerald-900/40 rounded-lg p-2.5 text-xs text-[#34D399] focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                </div>
+              )}
 
               {(type === "knowledge" || type === "article") && (
                 <div>
@@ -1448,31 +1591,162 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
                 </div>
               )}
 
-              {/* Summary with Markdown */}
-              <div className="bg-[#111] border border-[#1C1C1C] rounded-xl p-4 sm:p-5">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="text-[11px] font-mono uppercase text-[#666] tracking-wider flex items-center gap-1.5">
-                    <FileText className="w-3.5 h-3.5 text-[#888]" />
-                    <span>Descrizione & Note {isItalianView ? "(Traduzione Italiana)" : "(Originale)"}</span>
+              {/* Troubleshooting & Diagnostic Box */}
+              {resource.type === "troubleshooting" && (
+                <div className="bg-[#140D07] border border-[#F97316]/30 rounded-xl p-4 sm:p-5 space-y-4">
+                  <div className="flex items-center justify-between border-b border-[#F97316]/20 pb-3">
+                    <div className="flex items-center gap-2 text-xs font-mono text-[#F97316]">
+                      <Wrench className="w-4 h-4" />
+                      <span className="font-semibold uppercase tracking-wider">Scheda Diagnostica & Soluzione Problema</span>
+                    </div>
+                    {resource.metadata?.affectedSystem && (
+                      <span className="text-[11px] font-mono bg-[#281508] border border-[#F97316]/40 text-[#FDBA74] px-2.5 py-0.5 rounded-full font-medium">
+                        {resource.metadata.affectedSystem}
+                      </span>
+                    )}
                   </div>
 
-                  {!hasTranslation && (
+                  {resource.metadata?.rootCause && (
+                    <div className="bg-[#0C0804] border border-[#331D0F] rounded-lg p-3 space-y-1">
+                      <div className="text-[10px] font-mono uppercase text-[#F97316] font-semibold">Causa Scatenante / Root Cause:</div>
+                      <p className="text-xs text-[#E5E5E5] leading-relaxed">{resource.metadata.rootCause}</p>
+                    </div>
+                  )}
+
+                  {resource.metadata?.attemptedFixes && resource.metadata.attemptedFixes.length > 0 && (
+                    <div className="bg-[#0C0804] border border-[#331D0F] rounded-lg p-3 space-y-1.5">
+                      <div className="text-[10px] font-mono uppercase text-[#A3A3A3] font-semibold flex items-center gap-1.5">
+                        <ThumbsDown className="w-3.5 h-3.5 text-[#F97316]" />
+                        <span>Tentativi Non Risolutivi / Falsi Positivi:</span>
+                      </div>
+                      <ul className="space-y-1 text-xs text-[#A3A3A3]">
+                        {resource.metadata.attemptedFixes.map((fix, idx) => (
+                          <li key={idx} className="flex items-start gap-2">
+                            <span className="text-[#F97316] font-mono">✕</span>
+                            <span>{fix}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {resource.metadata?.solutionSteps && resource.metadata.solutionSteps.length > 0 && (
+                    <div className="bg-[#06140D] border border-emerald-800/40 rounded-lg p-3 space-y-2">
+                      <div className="text-[11px] font-mono uppercase text-emerald-400 font-semibold flex items-center justify-between">
+                        <span className="flex items-center gap-1.5">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                          <span>Procedura Risolutiva Verificata</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleCopy(resource.metadata?.solutionSteps?.join("\n") || "", "troubleshoot_solution")}
+                          className="text-[10px] font-mono text-emerald-300 hover:text-white bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-700/40 flex items-center gap-1"
+                        >
+                          {copiedSection === "troubleshoot_solution" ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                          <span>{copiedSection === "troubleshoot_solution" ? "Copiato" : "Copia Procedura"}</span>
+                        </button>
+                      </div>
+                      <ol className="space-y-1.5 text-xs text-[#D1FAE5]">
+                        {resource.metadata.solutionSteps.map((step, idx) => (
+                          <li key={idx} className="flex items-start gap-2">
+                            <span className="text-emerald-400 font-mono font-bold shrink-0">{idx + 1}.</span>
+                            <span className="leading-relaxed">{step}</span>
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Summary & Full Original Text Block */}
+              <div className="bg-[#111] border border-[#1C1C1C] rounded-xl p-4 sm:p-5 space-y-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="text-[11px] font-mono uppercase text-[#666] tracking-wider flex items-center gap-1.5">
+                    <FileText className="w-3.5 h-3.5 text-[#888]" />
+                    <span>
+                      {isItalianView ? "Descrizione & Sintesi (Traduzione Italiana)" : "Descrizione & Sintesi AI"}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap">
                     <button
                       type="button"
-                      onClick={() => handleTranslate(false)}
-                      disabled={isTranslating}
-                      className="text-[11px] font-mono text-[#C5A059] hover:text-[#E5C170] flex items-center gap-1 hover:underline"
+                      onClick={() => handleCopy(currentDisplaySummary, "modal_summary")}
+                      className="text-[11px] font-mono text-[#888] hover:text-white flex items-center gap-1"
+                      title="Copia testo sommario"
                     >
-                      <Languages className="w-3 h-3" />
-                      <span>Traduci con AI</span>
+                      {copiedSection === "modal_summary" ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3 text-[#888]" />}
+                      <span>{copiedSection === "modal_summary" ? "Copiato" : "Copia"}</span>
                     </button>
-                  )}
+
+                    {!hasTranslation && (
+                      <button
+                        type="button"
+                        onClick={() => handleTranslate(false)}
+                        disabled={isTranslating}
+                        className="text-[11px] font-mono text-[#C5A059] hover:text-[#E5C170] flex items-center gap-1 hover:underline"
+                      >
+                        <Languages className="w-3 h-3" />
+                        <span>Traduci con AI</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="text-sm leading-relaxed text-[#DDD] space-y-2 prose prose-invert max-w-none">
                   <Markdown>{currentDisplaySummary}</Markdown>
                 </div>
               </div>
+
+              {/* Original Full Input / Text Captured - Always clearly accessible if user input is longer or distinct */}
+              {resource.rawInput && resource.rawInput.trim().length > 0 && resource.rawInput.trim() !== resource.url && (
+                <div className="bg-[#0D0D0D] border border-[#262626] rounded-xl p-4 sm:p-5 space-y-3">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className="text-[11px] font-mono uppercase text-[#C5A059] tracking-wider flex items-center gap-1.5 font-medium">
+                      <Terminal className="w-3.5 h-3.5 text-[#C5A059]" />
+                      <span>Testo Integrale Immesso dall'Utente ({resource.rawInput.length} caratteri)</span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(resource.rawInput || "", "raw_input")}
+                      className="text-[11px] font-mono text-[#AAA] hover:text-white flex items-center gap-1"
+                    >
+                      {copiedSection === "raw_input" ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3 text-[#C5A059]" />}
+                      <span>{copiedSection === "raw_input" ? "Copiato" : "Copia Testo Completo"}</span>
+                    </button>
+                  </div>
+
+                  <div className="text-xs sm:text-sm font-mono text-[#CCC] bg-[#050505] p-3.5 sm:p-4 rounded-lg border border-[#1C1C1C] overflow-x-auto whitespace-pre-wrap max-h-96 overflow-y-auto leading-relaxed scrollbar-thin scrollbar-thumb-[#333]">
+                    {resource.rawInput}
+                  </div>
+                </div>
+              )}
+
+              {/* User Custom Notes & Annotations if available */}
+              {resource.metadata?.userNotes && resource.metadata.userNotes.trim().length > 0 && (
+                <div className="bg-[#120F0A] border border-[#C5A059]/40 rounded-xl p-4 sm:p-5 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="text-[11px] font-mono uppercase text-[#E5C170] tracking-wider flex items-center gap-1.5 font-medium">
+                      <FileText className="w-3.5 h-3.5 text-[#C5A059]" />
+                      <span>Note Personali & Commenti Operativi</span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(resource.metadata!.userNotes!, "user_notes")}
+                      className="text-[11px] font-mono text-[#AAA] hover:text-white flex items-center gap-1"
+                    >
+                      {copiedSection === "user_notes" ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3 text-[#C5A059]" />}
+                      <span>{copiedSection === "user_notes" ? "Copiato" : "Copia Note"}</span>
+                    </button>
+                  </div>
+                  <div className="text-xs sm:text-sm text-[#E2D2B5] leading-relaxed font-sans whitespace-pre-wrap bg-[#1A140A] p-3 rounded-lg border border-[#2D2110]">
+                    {resource.metadata.userNotes}
+                  </div>
+                </div>
+              )}
 
               {/* Technical Evaluation & Insights Card (Score, Use Cases, Pros, Cons) */}
               {(() => {
@@ -1890,6 +2164,196 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
                         <span>Tempo di lettura: <span className="text-[#C5A059]">{resource.metadata.readingTimeMin} min</span></span>
                       )}
                     </div>
+                  </div>
+                );
+              })()}
+
+              {/* Knowledge Graph Connections & Linked Nodes Explorer */}
+              {(() => {
+                // Compute all connected resources and relationships
+                const connectedItems: {
+                  targetResource?: ResourceItem;
+                  targetTitle: string;
+                  relationType: string;
+                  badgeColor: string;
+                  reason: string;
+                  isInternalDoc: boolean;
+                }[] = [];
+
+                const thisEntities = (resource.metadata?.entities || []).map((e: any) => 
+                  (typeof e === "string" ? e : e?.name || "").toLowerCase().trim()
+                ).filter(Boolean);
+
+                const thisTags = (resource.tags || []).map((t) => t.toLowerCase().trim());
+                const thisDomain = resource.metadata?.domain?.toLowerCase().trim();
+
+                // 1. Explicit OKF relations
+                if (resource.metadata?.relations && Array.isArray(resource.metadata.relations)) {
+                  resource.metadata.relations.forEach((rel) => {
+                    const tId = rel.targetId;
+                    const tTitle = rel.targetTitle || rel.target || (rel as any).targetName || tId || "Documento";
+                    const matchedRes = allResources.find((r) => 
+                      (tId && r.id === tId) || 
+                      r.title.toLowerCase().trim() === tTitle.toLowerCase().trim() ||
+                      (tTitle.length >= 4 && r.title.toLowerCase().includes(tTitle.toLowerCase()))
+                    );
+
+                    connectedItems.push({
+                      targetResource: matchedRes,
+                      targetTitle: matchedRes?.title || tTitle,
+                      relationType: rel.relationType || "references",
+                      badgeColor: "bg-[#C5A059]/20 text-[#E5C170] border-[#C5A059]/40",
+                      reason: rel.description || `Relazione ontologica OKF v0.2: ${rel.relationType || "collegato"}`,
+                      isInternalDoc: !!matchedRes,
+                    });
+                  });
+                }
+
+                // 2. Incoming explicit relations from other resources
+                allResources.forEach((other) => {
+                  if (other.id === resource.id) return;
+                  if (other.metadata?.relations && Array.isArray(other.metadata.relations)) {
+                    other.metadata.relations.forEach((rel) => {
+                      const tId = rel.targetId;
+                      const tTitle = (rel.targetTitle || rel.target || (rel as any).targetName || "").toLowerCase().trim();
+                      if (
+                        (tId && tId === resource.id) ||
+                        (tTitle && (resource.title.toLowerCase().trim() === tTitle || resource.title.toLowerCase().includes(tTitle)))
+                      ) {
+                        if (!connectedItems.some((c) => c.targetResource?.id === other.id)) {
+                          connectedItems.push({
+                            targetResource: other,
+                            targetTitle: other.title,
+                            relationType: `Citato da: ${rel.relationType || "references"}`,
+                            badgeColor: "bg-purple-950/60 text-purple-300 border-purple-800/40",
+                            reason: `"${other.title}" dichiara una relazione verso questa risorsa`,
+                            isInternalDoc: true,
+                          });
+                        }
+                      }
+                    });
+                  }
+                });
+
+                // 3. Shared entities and concepts
+                allResources.forEach((other) => {
+                  if (other.id === resource.id) return;
+                  if (connectedItems.some((c) => c.targetResource?.id === other.id)) return;
+
+                  const otherEntities = (other.metadata?.entities || []).map((e: any) => 
+                    (typeof e === "string" ? e : e?.name || "").toLowerCase().trim()
+                  ).filter(Boolean);
+
+                  const commonEnts = thisEntities.filter((e) => otherEntities.includes(e) && e.length > 2);
+                  if (commonEnts.length > 0) {
+                    connectedItems.push({
+                      targetResource: other,
+                      targetTitle: other.title,
+                      relationType: "Entità Condivisa",
+                      badgeColor: "bg-sky-950/60 text-sky-300 border-sky-800/40",
+                      reason: `Entità in comune: ${commonEnts.slice(0, 3).join(", ")}`,
+                      isInternalDoc: true,
+                    });
+                  }
+                });
+
+                // 4. Shared tags
+                allResources.forEach((other) => {
+                  if (other.id === resource.id) return;
+                  if (connectedItems.some((c) => c.targetResource?.id === other.id)) return;
+
+                  const otherTags = (other.tags || []).map((t) => t.toLowerCase().trim());
+                  const sharedTags = thisTags.filter((t) => otherTags.includes(t) && t.length > 1);
+
+                  if (sharedTags.length >= 1) {
+                    connectedItems.push({
+                      targetResource: other,
+                      targetTitle: other.title,
+                      relationType: `#${sharedTags[0]}`,
+                      badgeColor: "bg-amber-950/60 text-amber-300 border-amber-800/40",
+                      reason: `Tag in comune: ${sharedTags.map((t) => "#" + t).join(", ")}`,
+                      isInternalDoc: true,
+                    });
+                  }
+                });
+
+                // 5. Shared Domain (if applicable)
+                if (thisDomain && thisDomain !== "general") {
+                  allResources.forEach((other) => {
+                    if (other.id === resource.id) return;
+                    if (connectedItems.some((c) => c.targetResource?.id === other.id)) return;
+
+                    const otherDomain = other.metadata?.domain?.toLowerCase().trim();
+                    if (otherDomain && otherDomain === thisDomain) {
+                      connectedItems.push({
+                        targetResource: other,
+                        targetTitle: other.title,
+                        relationType: `Dominio: ${resource.metadata?.domain}`,
+                        badgeColor: "bg-emerald-950/60 text-emerald-300 border-emerald-800/40",
+                        reason: `Stesso dominio concettuale (${resource.metadata?.domain})`,
+                        isInternalDoc: true,
+                      });
+                    }
+                  });
+                }
+
+                return (
+                  <div className="bg-[#0B0B0B] border border-[#242424] rounded-xl p-4 sm:p-5 space-y-3">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center gap-2 text-xs font-mono text-[#C5A059] font-medium">
+                        <Network className="w-4 h-4 text-[#C5A059]" />
+                        <span>Nodi e Relazioni nel Knowledge Graph ({connectedItems.length} connessioni attive)</span>
+                      </div>
+
+                      <div className="text-[11px] font-mono text-[#777]">
+                        Grafo Topologico OKF
+                      </div>
+                    </div>
+
+                    {connectedItems.length > 0 ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                        {connectedItems.map((item, idx) => (
+                          <div
+                            key={idx}
+                            onClick={() => {
+                              if (item.targetResource && onNavigateToResource) {
+                                onNavigateToResource(item.targetResource);
+                              }
+                            }}
+                            className={`p-3 rounded-lg border bg-[#121212] flex flex-col justify-between gap-2 transition-all ${
+                              item.targetResource && onNavigateToResource
+                                ? "border-[#262626] hover:border-[#C5A059]/60 hover:bg-[#181818] cursor-pointer group"
+                                : "border-[#1F1F1F]"
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="font-sans text-xs font-medium text-white group-hover:text-[#C5A059] transition-colors line-clamp-2">
+                                {item.targetTitle}
+                              </div>
+                              <span className={`text-[10px] font-mono px-2 py-0.5 rounded border shrink-0 ${item.badgeColor}`}>
+                                {item.relationType}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center justify-between gap-2 pt-1 border-t border-[#1C1C1C] text-[11px] text-[#888]">
+                              <span className="truncate">{item.reason}</span>
+                              {item.targetResource && onNavigateToResource && (
+                                <ChevronRight className="w-3.5 h-3.5 text-[#666] group-hover:text-[#C5A059] shrink-0 transition-transform group-hover:translate-x-0.5" />
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="bg-[#121212] border border-[#1C1C1C] rounded-lg p-3.5 text-center space-y-2">
+                        <p className="text-xs text-[#888] font-sans leading-relaxed">
+                          Nessun altro documento nel Vault condivide attualmente gli stessi tag, entità o collegamenti diretti con questa risorsa.
+                        </p>
+                        <div className="text-[11px] font-mono text-[#AAA]">
+                          💡 <strong className="text-[#C5A059]">Come collegarlo:</strong> Clicca su <em>Modifica</em> per aggiungere tag comuni ad altre risorse (es. <span className="text-[#C5A059]">#windows</span>, <span className="text-[#C5A059]">#os</span>, <span className="text-[#C5A059]">#tools</span>) o aggiungi altri documenti correlati.
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })()}

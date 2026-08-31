@@ -293,12 +293,42 @@ async function fetchOpenGraphMetadata(rawUrl: string, timeoutMs = 4500): Promise
 // Fallback heuristic parser if Gemini API is unavailable or busy
 function fallbackParse(rawText: string, explicitType?: string) {
   const text = rawText.trim();
-  let type: "article" | "github_repo" | "mcp_server" | "ai_skill" | "knowledge" | "link" = (explicitType as any) || "knowledge";
+  let type: "troubleshooting" | "article" | "github_repo" | "mcp_server" | "ai_skill" | "knowledge" | "link" = (explicitType as any) || "knowledge";
   let title = "Nuova Risorsa";
   let summary = "";
   let tags: string[] = [];
   let url = "";
   const metadata: Record<string, any> = {};
+
+  // Check if input is a Troubleshooting / Error log report
+  const isTroubleshoot = explicitType === "troubleshooting" || 
+    (text.toLowerCase().includes("problema") && (text.toLowerCase().includes("soluzione") || text.toLowerCase().includes("risoluzione"))) ||
+    (text.toLowerCase().includes("root cause") || text.toLowerCase().includes("causa:")) ||
+    (text.toLowerCase().includes("errore") && text.toLowerCase().includes(".dll")) ||
+    text.toLowerCase().includes("smart app control");
+
+  if (isTroubleshoot) {
+    type = "troubleshooting";
+    const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+    title = lines[0]?.replace(/^[#*-]+\s*/, "").slice(0, 100) || "Risoluzione Errore Tecnico";
+    summary = lines.slice(1, 4).join(" ").slice(0, 300) || title;
+    tags.push("troubleshooting", "bugfix", "diagnostica");
+
+    if (text.toLowerCase().includes("windows")) tags.push("windows");
+    if (text.toLowerCase().includes("primus") || text.toLowerCase().includes("acca")) tags.push("acca", "primus");
+    if (text.toLowerCase().includes("dll")) tags.push("dll");
+
+    metadata.affectedSystem = text.match(/(?:sistema|software|programma|applicativo)[:\s]+([^\n]+)/i)?.[1]?.trim() || "Sistema Operativo / Software";
+    metadata.rootCause = text.match(/(?:causa|root cause|motivo)[:\s]+([^\n]+)/i)?.[1]?.trim() || "Blocco sicurezza / Conflitto librerie";
+    
+    // Extract solution steps
+    const steps = text.split("\n")
+      .filter(l => /^\d+\.|\bpasso\b|\bstep\b/i.test(l.trim()))
+      .map(l => l.trim().replace(/^\d+\.\s*/, ""));
+    if (steps.length > 0) {
+      metadata.solutionSteps = steps;
+    }
+  } else {
 
   // Check URL pattern
   const urlMatch = text.match(/https?:\/\/[^\s]+/i);
@@ -388,7 +418,7 @@ function fallbackParse(rawText: string, explicitType?: string) {
 
     // Summary
     const cleanParagraph = text.replace(/^[#*-]+\s*/gm, "").replace(/\*\*/g, "").trim();
-    summary = cleanParagraph.slice(0, 300) + (cleanParagraph.length > 300 ? "..." : "");
+    summary = cleanParagraph;
 
     // Extract tags from keywords in text
     tags.push("knowledge", "okf-v0.2");
@@ -428,7 +458,7 @@ function fallbackParse(rawText: string, explicitType?: string) {
     const lines = text.split("\n").filter(l => l.trim().length > 0);
     if (lines.length > 0) {
       title = lines[0].replace(/^#+\s*/, "").slice(0, 100);
-      summary = lines.slice(1).join(" ").slice(0, 300) || lines[0];
+      summary = lines.slice(1).join("\n\n").trim() || lines[0];
     }
     tags.push("knowledge", "dev");
 
@@ -442,8 +472,9 @@ function fallbackParse(rawText: string, explicitType?: string) {
       } catch {}
     }
   }
+}
 
-  if (explicitType && ["article", "github_repo", "mcp_server", "ai_skill", "knowledge", "link"].includes(explicitType)) {
+  if (explicitType && ["troubleshooting", "article", "github_repo", "mcp_server", "ai_skill", "knowledge", "link"].includes(explicitType)) {
     type = explicitType as any;
   }
 
@@ -451,7 +482,7 @@ function fallbackParse(rawText: string, explicitType?: string) {
     type,
     title,
     url,
-    summary: summary || text.slice(0, 300),
+    summary: summary || text,
     tags: Array.from(new Set(tags)),
     metadata,
   };
@@ -735,12 +766,13 @@ app.post("/api/analyze-resource", async (req, res) => {
 Analyze the following text or URL to extract structured information for a developer knowledge base.
 
 Target Categories:
-1. 'github_repo' - GitHub repositories, packages, tools (CRITICAL: any github.com URL must be classified as github_repo unless explicitType says otherwise)
-2. 'mcp_server' - Model Context Protocol servers, tools, connectors for Claude/Gemini/AI agents
-3. 'knowledge' - Architecture documents, specifications, second-brain knowledge notes adhering to OKF v0.2 format
-4. 'ai_skill' - AI System prompts, agents instructions, persona templates, workflow skills
-5. 'article' - Blog posts, research papers, documentation, tutorials, architectural guides
-6. 'link' - Web links, online tools, SaaS platforms, portals, official sites, web apps, API references
+1. 'troubleshooting' - Technical issues, software bugs, DLL/system errors, crash diagnostics, and step-by-step resolutions/workarounds (e.g. Windows Smart App Control, DLL missing, PriMus, runtime errors)
+2. 'github_repo' - GitHub repositories, packages, tools (CRITICAL: any github.com URL must be classified as github_repo unless explicitType says otherwise)
+3. 'mcp_server' - Model Context Protocol servers, tools, connectors for Claude/Gemini/AI agents
+4. 'knowledge' - Architecture documents, specifications, second-brain knowledge notes adhering to OKF v0.2 format
+5. 'ai_skill' - AI System prompts, agents instructions, persona templates, workflow skills
+6. 'article' - Blog posts, research papers, documentation, tutorials, architectural guides
+7. 'link' - Web links, online tools, SaaS platforms, portals, official sites, web apps, API references
 
 User Raw Input:
 """
@@ -761,19 +793,21 @@ Instructions:
 - If input is a generic website or online tool URL (not a blog post or github repo), or if explicitType is 'link', classify as 'link'.
 - Extract a clean, precise title. For GitHub repos, use 'owner/repo' or repo name.
 - If a URL is present or inferred, format as full https:// URL.
-- Write a clear, comprehensive summary (in Italian or English, favoring informative Italian).
+- Write a clear, comprehensive summary in Italian that preserves all essential facts, technical context, details, and user notes from the original input. If the input contains specific instructions, notes, problems, logs or descriptions, ensure they are fully captured in the summary and relevant metadata.
 - Generate 3 to 6 relevant lowercase tags (e.g. ['github', 'typescript', 'open-source', 'agents', 'web-tool']).
 - Fill type-specific metadata:
+  - If troubleshooting: { affectedSystem, rootCause, attemptedFixes: ["string"], solutionSteps: ["string"], problemDescription }
   - If github_repo: { owner, repoName, language, installCommand: "git clone https://github.com/owner/repo.git" }
   - If mcp_server: { protocol: 'stdio' | 'sse', command, args, env, configSnippet, toolsProvided }
   - If ai_skill: { skillType, recommendedModel, systemPrompt, triggerKeywords, exampleUsage }
   - If article: { author, readingTimeMin, keyTakeaways: [], ogDescription, favicon, siteName, domain }
   - If link: { siteName, domain, favicon, ogDescription, ogImage }
   - If knowledge: { domain, docType, okfVersion: '0.2', entities: [], relations: [] }
+- If the user input contains additional personal comments, annotations, or custom notes distinct from the core resource, capture them in metadata.userNotes.
 
 Return pure JSON matching this exact structure:
 {
-  "type": "article" | "github_repo" | "mcp_server" | "ai_skill" | "knowledge" | "link",
+  "type": "troubleshooting" | "article" | "github_repo" | "mcp_server" | "ai_skill" | "knowledge" | "link",
   "title": "string",
   "url": "string",
   "summary": "string",
@@ -786,7 +820,7 @@ Return pure JSON matching this exact structure:
       properties: {
         type: {
           type: Type.STRING,
-          enum: ["article", "github_repo", "mcp_server", "ai_skill", "knowledge", "link"],
+          enum: ["troubleshooting", "article", "github_repo", "mcp_server", "ai_skill", "knowledge", "link"],
         },
         title: { type: Type.STRING },
         url: { type: Type.STRING },
@@ -798,6 +832,12 @@ Return pure JSON matching this exact structure:
         metadata: {
           type: Type.OBJECT,
           properties: {
+            affectedSystem: { type: Type.STRING },
+            rootCause: { type: Type.STRING },
+            attemptedFixes: { type: Type.ARRAY, items: { type: Type.STRING } },
+            solutionSteps: { type: Type.ARRAY, items: { type: Type.STRING } },
+            problemDescription: { type: Type.STRING },
+            userNotes: { type: Type.STRING },
             owner: { type: Type.STRING },
             repoName: { type: Type.STRING },
             language: { type: Type.STRING },

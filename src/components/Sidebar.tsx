@@ -16,7 +16,8 @@ import {
   Network,
   Download,
   Globe,
-  Link2
+  Link2,
+  Wrench
 } from "lucide-react";
 import { ResourceType } from "../types";
 import { User } from "firebase/auth";
@@ -27,6 +28,7 @@ interface SidebarProps {
   counts: {
     all: number;
     knowledge: number;
+    troubleshooting?: number;
     mcp_server: number;
     github_repo: number;
     ai_skill: number;
@@ -76,6 +78,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: "Knowledge (OKF v0.2)",
       icon: <BrainCircuit className="w-4 h-4 text-[#C5A059]" />,
       count: counts.knowledge || 0,
+    },
+    {
+      id: "troubleshooting",
+      label: "Problemi & Soluzioni",
+      icon: <Wrench className="w-4 h-4 text-[#F97316]" />,
+      count: counts.troubleshooting || 0,
     },
     {
       id: "favorites",

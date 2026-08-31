@@ -30,21 +30,21 @@ service cloud.firestore {
       // Allow create if user sets themselves as owner and data is valid
       allow create: if isAuthenticated()
         && request.resource.data.userId == request.auth.uid
-        && request.resource.data.type in ['article', 'github_repo', 'mcp_server', 'ai_skill', 'knowledge', 'link']
+        && request.resource.data.type in ['article', 'github_repo', 'mcp_server', 'ai_skill', 'knowledge', 'link', 'troubleshooting']
         && request.resource.data.title is string
         && request.resource.data.title.size() > 0
         && request.resource.data.title.size() <= 400;
 
-      // Allow update if user owns it and does not change ownership
+      // Allow update if user owns it or for anonymous/migrated items
       allow update: if isAuthenticated()
-        && resource.data.userId == request.auth.uid
-        && request.resource.data.userId == request.auth.uid
-        && request.resource.data.type in ['article', 'github_repo', 'mcp_server', 'ai_skill', 'knowledge', 'link']
+        && (resource.data.userId == request.auth.uid || resource.data.userId == 'anonymous' || !('userId' in resource.data))
+        && request.resource.data.type in ['article', 'github_repo', 'mcp_server', 'ai_skill', 'knowledge', 'link', 'troubleshooting']
         && request.resource.data.title is string
         && request.resource.data.title.size() > 0;
 
-      // Allow delete if user owns the resource
-      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      // Allow delete if authenticated and user owns resource or for anonymous/migrated resources
+      allow delete: if isAuthenticated()
+        && (resource.data.userId == request.auth.uid || resource.data.userId == 'anonymous' || !('userId' in resource.data));
     }
 
     // System logs

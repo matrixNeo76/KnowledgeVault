@@ -316,11 +316,18 @@ export default function App() {
 
   // Capture Bar Handler
   const handleCapture = async (input: string, explicitType?: ResourceType): Promise<boolean> => {
-    if (!user) {
-      addLog("warn", "CAPTURE", "Tentativo di cattura senza utente autenticato.");
-      setErrorMessage("Autenticazione in corso, riprova tra un istante.");
-      setTimeout(() => setErrorMessage(null), 4000);
-      return false;
+    let activeUser = user || auth.currentUser;
+    if (!activeUser) {
+      try {
+        const anonCred = await signInAnonymously(auth);
+        activeUser = anonCred.user;
+        setUser(activeUser);
+      } catch (authErr: any) {
+        addLog("warn", "CAPTURE", "Tentativo di cattura senza utente autenticato.");
+        setErrorMessage("Autenticazione in corso, riprova tra un istante.");
+        setTimeout(() => setErrorMessage(null), 4000);
+        return false;
+      }
     }
 
     setIsAnalyzing(true);
@@ -348,7 +355,7 @@ export default function App() {
       // 2. Save directly to Firestore
       addLog("info", "FIRESTORE", `Salvataggio risorsa "${analyzed.title}" [${resolvedType}] nel database...`);
       const rawData = {
-        userId: user.uid,
+        userId: activeUser.uid,
         type: resolvedType,
         title: analyzed.title || "Nuova Risorsa",
         url: resolvedUrl,
@@ -390,14 +397,21 @@ export default function App() {
   const handleManualAdd = async (
     newResource: Omit<ResourceItem, "id" | "userId" | "createdAt" | "updatedAt">
   ): Promise<boolean> => {
-    if (!user) {
-      addLog("warn", "FIRESTORE", "Tentativo di inserimento manuale senza utente.");
-      return false;
+    let activeUser = user || auth.currentUser;
+    if (!activeUser) {
+      try {
+        const anonCred = await signInAnonymously(auth);
+        activeUser = anonCred.user;
+        setUser(activeUser);
+      } catch (authErr: any) {
+        addLog("warn", "FIRESTORE", "Tentativo di inserimento manuale senza utente.");
+        return false;
+      }
     }
     try {
       addLog("info", "FIRESTORE", `Inserimento manuale: "${newResource.title}" [${newResource.type}]`);
       const rawData = {
-        userId: user.uid,
+        userId: activeUser.uid,
         type: newResource.type,
         title: newResource.title,
         url: newResource.url ? newResource.url.trim() : "",
@@ -527,12 +541,46 @@ export default function App() {
 
   // Delete Resource
   const handleDeleteResource = async (id: string): Promise<boolean> => {
+    let activeUser = user || auth.currentUser;
+    if (!activeUser) {
+      try {
+        const anonCred = await signInAnonymously(auth);
+        activeUser = anonCred.user;
+        setUser(activeUser);
+      } catch (authErr: any) {
+        addLog("warn", "FIRESTORE", "Tentativo di eliminazione senza utente autenticato.");
+        setErrorMessage("Errore di autenticazione. Riprova tra un istante.");
+        setTimeout(() => setErrorMessage(null), 4000);
+        return false;
+      }
+    }
+
+    const previousResources = [...resources];
+    const previousDetail = selectedResourceForDetail;
+
+    // Optimistic removal from UI
+    setResources((prev) => prev.filter((item) => item.id !== id));
+    if (selectedResourceForDetail && selectedResourceForDetail.id === id) {
+      setSelectedResourceForDetail(null);
+    }
+
     try {
+      addLog("info", "FIRESTORE", `Eliminazione risorsa ID: ${id}...`);
       await deleteDoc(doc(db, "resources", id));
+      addLog("success", "FIRESTORE", `Risorsa eliminata con successo dal Vault (ID: ${id})`);
+      setStatusMessage("Risorsa eliminata con successo!");
+      setTimeout(() => setStatusMessage(null), 3000);
       return true;
     } catch (err: any) {
       console.error("Delete failed:", err);
-      alert("Errore nell'eliminazione: " + err.message);
+      // Revert optimistic change on failure
+      setResources(previousResources);
+      if (previousDetail && previousDetail.id === id) {
+        setSelectedResourceForDetail(previousDetail);
+      }
+      addLog("error", "FIRESTORE", `Errore durante eliminazione risorsa: ${err.message}`, err);
+      setErrorMessage("Impossibile eliminare la risorsa: " + (err.message || "Errore sconosciuto"));
+      setTimeout(() => setErrorMessage(null), 5000);
       return false;
     }
   };
@@ -542,6 +590,7 @@ export default function App() {
     const res = {
       all: resources.length,
       knowledge: 0,
+      troubleshooting: 0,
       article: 0,
       github_repo: 0,
       mcp_server: 0,
@@ -613,12 +662,13 @@ export default function App() {
         }
         if (sortBy === "type") {
           const typePriority: Record<ResourceType, number> = {
-            knowledge: 1,
-            link: 2,
-            mcp_server: 3,
-            github_repo: 4,
-            ai_skill: 5,
-            article: 6,
+            troubleshooting: 1,
+            knowledge: 2,
+            link: 3,
+            mcp_server: 4,
+            github_repo: 5,
+            ai_skill: 6,
+            article: 7,
           };
           const diff = (typePriority[a.type] || 99) - (typePriority[b.type] || 99);
           if (diff !== 0) return diff;
@@ -829,10 +879,14 @@ export default function App() {
       {/* Resource Detail & Edit Modal */}
       <ResourceModal
         resource={selectedResourceForDetail}
+        allResources={resources}
         onClose={() => setSelectedResourceForDetail(null)}
         onUpdate={handleUpdateResource}
         onDelete={handleDeleteResource}
         onToggleFavorite={handleToggleFavorite}
+        onNavigateToResource={(res) => {
+          setSelectedResourceForDetail(res);
+        }}
       />
 
       {/* OKF Knowledge Markdown Reader & Explorer Modal */}

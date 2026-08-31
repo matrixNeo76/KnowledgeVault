@@ -12,6 +12,7 @@ import {
   ChevronRight,
   BrainCircuit,
   FileCode,
+  FileText,
   Globe,
   Link as LinkIcon,
   CheckCircle2,
@@ -21,7 +22,8 @@ import {
   ThumbsDown,
   Target,
   Languages,
-  Zap
+  Zap,
+  Wrench
 } from "lucide-react";
 import { ResourceItem, ResourceType } from "../types";
 import { formatDate } from "../lib/dateUtils";
@@ -110,6 +112,12 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
           label: "OKF v0.2 Knowledge",
           icon: <BrainCircuit className="w-3 h-3 text-[#C5A059]" />,
           bg: "bg-[#1C160B] border border-[#C5A059]/40 text-[#C5A059]",
+        };
+      case "troubleshooting":
+        return {
+          label: "Problema & Soluzione",
+          icon: <Wrench className="w-3 h-3 text-[#F97316]" />,
+          bg: "bg-[#241208] border border-[#F97316]/40 text-[#F97316]",
         };
       case "github_repo":
         return {
@@ -309,9 +317,17 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
         </h3>
 
         {/* Summary */}
-        <p className="text-xs text-[#888] leading-relaxed mb-4 line-clamp-3">
+        <p className="text-xs text-[#888] leading-relaxed mb-3 line-clamp-3">
           {resource.summary}
         </p>
+
+        {/* User Notes Preview if present */}
+        {resource.metadata?.userNotes && (
+          <div className="mb-3 bg-[#141009] border border-[#2D2211] rounded-lg p-2.5 text-[11px] text-[#E0C58A] flex items-start gap-2">
+            <FileText className="w-3 h-3 text-[#C5A059] shrink-0 mt-0.5" />
+            <span className="line-clamp-2 leading-relaxed italic">{resource.metadata.userNotes}</span>
+          </div>
+        )}
 
         {/* Open Graph Article Web Preview (Favicon, Domain & Meta Description) */}
         {resource.type === "article" && resource.url && (
@@ -511,6 +527,30 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
                 </span>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Troubleshooting preview if troubleshooting */}
+        {resource.type === "troubleshooting" && (
+          <div className="mb-3.5 bg-[#140D07] border border-[#F97316]/30 rounded-lg p-2.5 space-y-1.5 text-[11px]">
+            {resource.metadata?.affectedSystem && (
+              <div className="text-[#F97316] font-mono text-[10px] font-semibold truncate flex items-center gap-1.5">
+                <Wrench className="w-3 h-3 shrink-0" />
+                <span>{resource.metadata.affectedSystem}</span>
+              </div>
+            )}
+            {resource.metadata?.rootCause && (
+              <div className="text-[#CCC] line-clamp-2 text-[11px]">
+                <span className="text-[#888] font-mono text-[10px] uppercase font-medium">Causa: </span>
+                <span>{resource.metadata.rootCause}</span>
+              </div>
+            )}
+            {resource.metadata?.solutionSteps && resource.metadata.solutionSteps.length > 0 && (
+              <div className="text-emerald-400 font-mono text-[10px] flex items-center gap-1">
+                <CheckCircle2 className="w-3 h-3 shrink-0" />
+                <span>Soluzione in {resource.metadata.solutionSteps.length} passaggi verificata</span>
+              </div>
+            )}
           </div>
         )}
 

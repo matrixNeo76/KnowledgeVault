@@ -23,7 +23,9 @@ import {
   Check,
   HelpCircle,
   Database,
-  Globe
+  Globe,
+  BrainCircuit,
+  Wrench
 } from "lucide-react";
 import { ResourceItem, ResourceType } from "../types";
 
@@ -69,6 +71,11 @@ export const AddResourceDialog: React.FC<AddResourceDialogProps> = ({
   const [mcpConfig, setMcpConfig] = useState("");
   const [systemPrompt, setSystemPrompt] = useState("");
   const [installCommand, setInstallCommand] = useState("");
+  const [affectedSystem, setAffectedSystem] = useState("");
+  const [rootCause, setRootCause] = useState("");
+  const [attemptedFixesStr, setAttemptedFixesStr] = useState("");
+  const [solutionStepsStr, setSolutionStepsStr] = useState("");
+  const [userNotes, setUserNotes] = useState("");
 
   const [aiInputPrompt, setAiInputPrompt] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -145,6 +152,11 @@ export const AddResourceDialog: React.FC<AddResourceDialogProps> = ({
         if (data.metadata?.configSnippet) setMcpConfig(data.metadata.configSnippet);
         if (data.metadata?.systemPrompt) setSystemPrompt(data.metadata.systemPrompt);
         if (data.metadata?.installCommand) setInstallCommand(data.metadata.installCommand);
+        if (data.metadata?.affectedSystem) setAffectedSystem(data.metadata.affectedSystem);
+        if (data.metadata?.rootCause) setRootCause(data.metadata.rootCause);
+        if (Array.isArray(data.metadata?.attemptedFixes)) setAttemptedFixesStr(data.metadata.attemptedFixes.join("\n"));
+        if (Array.isArray(data.metadata?.solutionSteps)) setSolutionStepsStr(data.metadata.solutionSteps.join("\n"));
+        if (data.metadata?.userNotes) setUserNotes(data.metadata.userNotes);
       }
     } catch (e) {
       console.error(e);
@@ -170,8 +182,27 @@ export const AddResourceDialog: React.FC<AddResourceDialogProps> = ({
       .filter((t) => t.length > 0);
 
     const metadata: Record<string, any> = {};
+    if (type === "troubleshooting") {
+      if (affectedSystem) metadata.affectedSystem = affectedSystem;
+      if (rootCause) metadata.rootCause = rootCause;
+      if (attemptedFixesStr) {
+        metadata.attemptedFixes = attemptedFixesStr
+          .split("\n")
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0);
+      }
+      if (solutionStepsStr) {
+        metadata.solutionSteps = solutionStepsStr
+          .split("\n")
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0);
+      }
+      metadata.okfVersion = "0.2";
+      metadata.docType = "guide";
+    }
     if (type === "mcp_server" && mcpConfig) metadata.configSnippet = mcpConfig;
     if (type === "ai_skill" && systemPrompt) metadata.systemPrompt = systemPrompt;
+    if (userNotes.trim()) metadata.userNotes = userNotes.trim();
     if (type === "github_repo") {
       const ghRegex = /(?:https?:\/\/)?(?:www\.)?github\.com\/([a-zA-Z0-9._-]+)\/([a-zA-Z0-9._-]+)/i;
       const matchGh = (cleanUrl || title).match(ghRegex);
@@ -506,13 +537,15 @@ export const AddResourceDialog: React.FC<AddResourceDialogProps> = ({
                   <label className="block text-[11px] font-mono uppercase text-[#666] mb-1.5">
                     Categoria Risorsa *
                   </label>
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                     {[
-                      { id: "github_repo", label: "GitHub Repo", icon: <Github className="w-3.5 h-3.5" /> },
-                      { id: "link", label: "Link Web", icon: <Globe className="w-3.5 h-3.5" /> },
-                      { id: "mcp_server", label: "MCP Server", icon: <Cpu className="w-3.5 h-3.5" /> },
-                      { id: "ai_skill", label: "AI Skill", icon: <Bot className="w-3.5 h-3.5" /> },
-                      { id: "article", label: "Articolo", icon: <BookOpen className="w-3.5 h-3.5" /> },
+                      { id: "troubleshooting", label: "Problema & Fix", icon: <Wrench className="w-3.5 h-3.5 text-[#F97316]" /> },
+                      { id: "knowledge", label: "Knowledge (OKF)", icon: <BrainCircuit className="w-3.5 h-3.5 text-[#C5A059]" /> },
+                      { id: "github_repo", label: "GitHub Repo", icon: <Github className="w-3.5 h-3.5 text-[#A855F7]" /> },
+                      { id: "mcp_server", label: "MCP Server", icon: <Cpu className="w-3.5 h-3.5 text-[#38BDF8]" /> },
+                      { id: "ai_skill", label: "AI Skill", icon: <Bot className="w-3.5 h-3.5 text-[#10B981]" /> },
+                      { id: "article", label: "Articolo", icon: <BookOpen className="w-3.5 h-3.5 text-[#F59E0B]" /> },
+                      { id: "link", label: "Link Web", icon: <Globe className="w-3.5 h-3.5 text-[#06B6D4]" /> },
                     ].map((cat) => (
                       <button
                         key={cat.id}
@@ -575,7 +608,74 @@ export const AddResourceDialog: React.FC<AddResourceDialogProps> = ({
                   />
                 </div>
 
+                {/* Optional Custom User Notes */}
+                <div>
+                  <label className="block text-[11px] font-mono uppercase text-[#C5A059] mb-1 flex items-center gap-1.5">
+                    <FileText className="w-3.5 h-3.5" />
+                    Note & Commenti Personali (Opzionale)
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={userNotes}
+                    onChange={(e) => setUserNotes(e.target.value)}
+                    placeholder="Aggiungi appunti personali, istruzioni o dettagli d'uso su questa risorsa..."
+                    className="w-full bg-[#111] border border-[#2A2315] rounded-lg p-2.5 text-xs text-[#E5C170] focus:outline-none focus:border-[#C5A059]"
+                  />
+                </div>
+
                 {/* Specific fields */}
+                {type === "troubleshooting" && (
+                  <div className="space-y-3 bg-[#141414] border border-[#262626] rounded-xl p-3">
+                    <div>
+                      <label className="block text-[11px] font-mono uppercase text-[#F97316] mb-1">
+                        Sistema / Software Coinvolto
+                      </label>
+                      <input
+                        type="text"
+                        value={affectedSystem}
+                        onChange={(e) => setAffectedSystem(e.target.value)}
+                        placeholder="es. PriMus-Av.usBIM (ACCA) / Windows 11 KB5121003"
+                        className="w-full bg-[#0A0A0A] border border-[#333] rounded-lg p-2 text-xs text-white focus:outline-none focus:border-[#F97316]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-mono uppercase text-[#F97316] mb-1">
+                        Causa Scatenante / Diagnosi Tecnica
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={rootCause}
+                        onChange={(e) => setRootCause(e.target.value)}
+                        placeholder="es. Lo Smart App Control (SAC) di Windows ha bloccato borlndmm.dll..."
+                        className="w-full bg-[#0A0A0A] border border-[#333] rounded-lg p-2 text-xs text-[#E0E0E0] focus:outline-none focus:border-[#F97316]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-mono uppercase text-[#888] mb-1">
+                        Tentativi Non Risolutivi (uno per riga)
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={attemptedFixesStr}
+                        onChange={(e) => setAttemptedFixesStr(e.target.value)}
+                        placeholder="es. Rigenerazione cartella .Common&#10;Scansione SFC / DISM"
+                        className="w-full font-mono bg-[#0A0A0A] border border-[#333] rounded-lg p-2 text-xs text-[#AAA] focus:outline-none focus:border-[#F97316]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-mono uppercase text-[#10B981] mb-1">
+                        Procedura Risolutiva Definitiva (un passaggio per riga)
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={solutionStepsStr}
+                        onChange={(e) => setSolutionStepsStr(e.target.value)}
+                        placeholder="es. 1. Aprire Sicurezza di Windows&#10;2. Controllo app e browser > Impostazioni Controllo app intelligente&#10;3. Disattivare e riavviare"
+                        className="w-full font-mono bg-[#0A0A0A] border border-[#333] rounded-lg p-2 text-xs text-[#34D399] focus:outline-none focus:border-[#10B981]"
+                      />
+                    </div>
+                  </div>
+                )}
                 {type === "mcp_server" && (
                   <div>
                     <label className="block text-[11px] font-mono uppercase text-[#666] mb-1">

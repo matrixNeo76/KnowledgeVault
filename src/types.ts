@@ -1,4 +1,4 @@
-export type ResourceType = 'article' | 'github_repo' | 'mcp_server' | 'ai_skill' | 'knowledge' | 'link';
+export type ResourceType = 'article' | 'github_repo' | 'mcp_server' | 'ai_skill' | 'knowledge' | 'link' | 'troubleshooting';
 
 export interface OKFEntity {
   name: string;
@@ -73,6 +73,17 @@ export interface ResourceMetadata {
   aiTargetAudience?: string;
   aiActionItems?: string[];
   aiSummarizedAt?: string;
+
+  // Troubleshooting & Problem Resolution specific
+  affectedSystem?: string;
+  rootCause?: string;
+  attemptedFixes?: string[];
+  solutionSteps?: string[];
+  problemDescription?: string;
+  errorLog?: string;
+
+  // User Notes & Custom Annotations
+  userNotes?: string;
 
   // OKF v0.2 Knowledge specific
   okfVersion?: '0.2';

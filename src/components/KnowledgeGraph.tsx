@@ -414,6 +414,8 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
   // Color mapping per node type
   const getNodeColor = (type: ResourceType | "concept" | "entity") => {
     switch (type) {
+      case "troubleshooting":
+        return "#F97316"; // Bright Orange for Troubleshooting / Diagnostica
       case "knowledge":
         return "#C5A059"; // Champagne gold for OKF Knowledge
       case "mcp_server":
@@ -945,6 +947,10 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
             Legenda Nodi & Relazioni
           </div>
           <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+            <div className="flex items-center gap-2">
+              <div className="w-2.5 h-2.5 rounded-full bg-[#F97316]" />
+              <span className="text-[#DDD]">Problemi & Fix</span>
+            </div>
             <div className="flex items-center gap-2">
               <div className="w-2.5 h-2.5 rounded-full bg-[#C5A059]" />
               <span className="text-[#DDD]">Knowledge OKF</span>
