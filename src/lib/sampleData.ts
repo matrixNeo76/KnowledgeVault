@@ -11,8 +11,14 @@ export const initialSampleResources: Omit<ResourceItem, "id" | "userId" | "creat
     isFavorite: true,
     metadata: {
       okfVersion: "0.2",
+      version: "1.2.0",
+      author: "Core Architecture Team & adlibros",
+      status: "stable",
+      license: "MIT",
       domain: "Knowledge Systems & AI Architecture",
       docType: "specification",
+      dependencies: ["Node.js >= 18", "Cloud Firestore", "D3.js v7", "@google/genai", "Vite & React 18"],
+      prerequisites: ["Node.js 18+", "Firebase Firestore Project", "Google Gemini API Key"],
       entities: [
         { name: "Knowledge Vault", type: "system", description: "Piattaforma centrale per documentazione e ontologia AI" },
         { name: "OKF v0.2", type: "standard", description: "Open Knowledge Format specification" },
@@ -28,11 +34,58 @@ export const initialSampleResources: Omit<ResourceItem, "id" | "userId" | "creat
       ],
       markdownContent: `---
 okf_version: "0.2"
+version: "1.2.0"
+author: "Core Architecture Team & adlibros"
+status: "stable"
+license: "MIT"
 title: "Knowledge Vault: Panoramica e Architettura OKF v0.2 (README)"
 type: "specification"
 domain: "Knowledge Systems & AI Architecture"
 tags: ["knowledge", "readme", "okf-v0.2", "architecture", "overview", "ai-agents"]
 created_at: "2026-08-29T10:00:00Z"
+dependencies:
+  - "Node.js >= 18"
+  - "Cloud Firestore"
+  - "D3.js v7"
+  - "@google/genai"
+  - "Vite & React 18"
+prerequisites:
+  - "Node.js 18+"
+  - "Firebase Firestore Project"
+  - "Google Gemini API Key"
+entities:
+  - name: "Knowledge Vault"
+    type: "system"
+    description: "Piattaforma centrale per documentazione e ontologia AI"
+  - name: "OKF v0.2"
+    type: "standard"
+    description: "Open Knowledge Format specification"
+  - name: "KnowledgeGraph Engine"
+    type: "component"
+    description: "Motore di visualizzazione topologica a forze D3"
+  - name: "Cloud Firestore"
+    type: "database"
+    description: "Database NoSQL realtime e persistente"
+  - name: "Gemini 3.7 Flash"
+    type: "ai_model"
+    description: "Motore di elaborazione e strutturazione semantica"
+relations:
+  - target_title: "Protocolli Operativi per Agenti Autonomi (AGENTS.md)"
+    relation_type: "governs"
+    weight: 0.95
+    description: "Definisce il quadro di riferimento per le operazioni degli agenti"
+  - target_title: "Specifiche Operative Claude Code e Toolchain (CLAUDE.md)"
+    relation_type: "implements"
+    weight: 0.9
+    description: "Fornisce le linee guida di interazione per Claude"
+  - target_title: "Google Gemini AI Engine: Linee Guida e Prompt (GEMINI.md)"
+    relation_type: "integrates"
+    weight: 0.9
+    description: "Utilizza Gemini come motore di inferenza principale"
+  - target_title: "Architettura di Sistema Full-Stack (ARCHITECTURE.md)"
+    relation_type: "documents"
+    weight: 1.0
+    description: "Espone l'architettura tecnica dettagliata"
 ---
 
 # Knowledge Vault (OKF v0.2)
@@ -41,18 +94,70 @@ created_at: "2026-08-29T10:00:00Z"
 
 ---
 
-## 1. Visione del Progetto
-Il **Knowledge Vault** è un hub avanzato per sviluppatori, ingegneri del prompt e agenti IA (Claude Code, Gemini, Copilot) che trasforma la documentazione tecnica in un **grafo topologico di conoscenza interconnessa**.
+## 1. Visione del Progetto & Obiettivi
+Il **[[Knowledge Vault]]** è un hub avanzato per sviluppatori, ingegneri del prompt e agenti IA (Claude Code, Gemini, Copilot) che trasforma la documentazione tecnica eterogenea in un **grafo topologico di conoscenza interconnessa**.
+
+L'obiettivo primario è superare la frammentazione dei formati tecnici attraverso lo standard **[[OKF v0.2]]** (Open Knowledge Format), che arricchisce ogni frammento documentale con un frontmatter YAML rigoroso contenente entità canoniche, tag semantici, relazioni pesate e collegamenti al grafo di conoscenza.
+
+\`\`\`
++-------------------------------------------------------------------------+
+|                           KNOWLEDGE VAULT                               |
+|                                                                         |
+|   +-------------------+   +--------------------+   +----------------+   |
+|   |  Capture Bar &    |   |  Gemini 3.7 Flash  |   |  OKF v0.2      |   |
+|   |  Multi-Format In  |-->|  Structured Engine |-->|  Serializer    |   |
+|   +-------------------+   +--------------------+   +----------------+   |
+|                                                            |            |
+|                                                            v            |
+|   +-------------------+   +--------------------+   +----------------+   |
+|   |  KnowledgeGraph   |<--|  Cloud Firestore   |<--|  User & Agent  |   |
+|   |  D3.js Topology   |   |  Realtime Sync     |   |  Security Rules|   |
+|   +-------------------+   +--------------------+   +----------------+   |
++-------------------------------------------------------------------------+
+\`\`\`
 
 ---
 
 ## 2. Funzionalità Chiave dell'Applicativo
-- **Grafo Topologico D3 Force Simulation**: Simulazione a forze fisiche con risoluzione relazionale su 5 livelli (relazioni OKF, entità comuni, citazioni nel testo, tag, domini), supporto a nodi Hub Concetto, zoom continuo, fullscreen ed etichette semantiche lungo gli archi.
-- **Cattura Intelligente & Gemini 3.7 / 2.5 Flash Engine**: Inserimento istantaneo di URL, repository GitHub, server MCP, prompt IA e documenti con parsing strutturato e fallback locale.
-- **Standard OKF v0.2**: Frontmatter YAML rigoroso con entità, relazioni pesate, trigger keywords e compatibilità completa per esportazione markdown.
-- **Knowledge Reader**: Visualizzatore Markdown con ispezione YAML e scheda dedicata "Grafo & Relazioni" con calcolo della matrice di affinità.
-- **Persistenza Realtime Cloud Firestore**: Sincronizzazione multi-device immediata, autenticazione Google / Ospite e regole di sicurezza per utente.
-- **Console di Diagnostica & Telemetria**: Monitoraggio real-time di eventi AUTH, FIRESTORE, CAPTURE e GEMINI con log scaricabile in formato JSON.
+
+### A. Grafo Topologico D3 Force Simulation
+- **Simulazione a Forze Fisiche**: Disposizione automatica dei nodi con repulsione elettrostatica (\`d3.forceManyBody\`), collisione anticompenetrazione (\`d3.forceCollide\`) e vincolo di centratura.
+- **Risoluzione Relazionale Multilivello**: 
+  1. *Relazioni OKF v0.2 Esplicite*: Archi direzionali color Oro Champagne con freccia (\`marker-end\`) e peso 1.0.
+  2. *Entità Ontologiche Condivise*: Archi Ciano (\`weight: 0.85-1.0\`).
+  3. *Menzioni nel Testo (Wikilinks)*: Archi Viola (\`weight: 0.80\`).
+  4. *Tag Comuni & Domini*: Archi Ambra Tratteggiati e Smeraldo.
+- **Nodi Hub Concetto**: Raggruppamento dinamico dei nodi per entità o per dominio di appartenenza.
+- **Interattività**: Zoom continuo (0.2x - 5x), drag & drop dei nodi con fissaggio coordinate (\`fx\`, \`fy\`), evidenziazione di vicinato al passaggio del mouse.
+
+### B. Motore di Cattura Intelligente & Gemini AI
+- **Analisi Eterogenea Istantanea**: Inserimento tramite prompt di testo, link web, repository GitHub, server MCP o file Markdown.
+- **Structured Output Rigoroso**: Generazione di JSON conforme a schema tramite \`gemini-3.7-flash\` con fallback resiliente a \`gemini-flash-latest\` e parser euristico locale a 0ms di latenza.
+- **Traduzione & Localizzazione Tecnica**: Traduzione istantanea in italiano con mantenimento rigoroso di frammenti di codice, comandi bash e schemi JSON.
+- **Sintesi Esecutiva & Valutazione AI**: Calcolo del punteggio di utilità (1-100), casi d'uso concreti, pro, contro e action items.
+
+### C. Standard OKF v0.2 (Open Knowledge Format)
+Ogni risorsa possiede un'identità ontologica precisa:
+- **Tipi di Documento Supportati**: \`concept\`, \`specification\`, \`architecture\`, \`guide\`, \`snippet\`, \`troubleshooting\`.
+- **Compatibilità Portatile**: Esportazione in file \`.okf.md\` standardizzati, compatibili con Obsidian, Logseq e qualsiasi parser CommonMark.
+
+### D. Persistenza Realtime Cloud Firestore
+- **Sincronizzazione Reattiva**: Utilizzo di \`onSnapshot\` per aggiornamenti istantanei in tempo reale.
+- **Isolamento Multi-Utente**: Autenticazione con Google Popup o sessione Ospite (Anonymous Auth), con regole Firestore che proteggono i dati dell'utente (\`where("userId", "==", uid)\`).
+
+---
+
+## 3. Guida Rapida all'Uso del Vault
+
+### Inserire una Nuova Risorsa
+1. Cliccare sulla **Barra di Cattura** in alto o premere il pulsante **"+ Aggiungi Risorsa"**.
+2. Digitare un URL (es. \`https://github.com/anthropics/anthropic-quickstarts\`), una stringa di configurazione MCP o incollare un testo descrittivo.
+3. Il sistema estrae automaticamente i metadati, genera la scheda tecnica e collega il nodo al grafo topologico.
+
+### Esplorare il Grafo delle Connessioni
+1. Cliccare su **"Grafo Topologico"** nella barra laterale sinistra.
+2. Usare la rotella del mouse per zoomare e trascinare i nodi per riorganizzare la vista.
+3. Cliccare su un nodo per aprire il **[[KnowledgeReader]]** o il dettaglio della risorsa.
 `
     }
   },
@@ -67,8 +172,14 @@ Il **Knowledge Vault** è un hub avanzato per sviluppatori, ingegneri del prompt
     isFavorite: true,
     metadata: {
       okfVersion: "0.2",
+      version: "1.1.0",
+      author: "Autonomous Governance Committee",
+      status: "stable",
+      license: "Apache-2.0",
       domain: "Autonomous Agents & Governance",
       docType: "guide",
+      dependencies: ["OKF v0.2 Specification", "Cloud Firestore Rules", "Express Security Middleware"],
+      prerequisites: ["AI Studio Container Environment", "Authentication Token"],
       entities: [
         { name: "Autonomous Agent", type: "concept", description: "Agente IA in grado di eseguire compiti e aggiornare il vault" },
         { name: "OKF v0.2", type: "standard", description: "Specifiche del formato dati accettato" },
@@ -82,19 +193,109 @@ Il **Knowledge Vault** è un hub avanzato per sviluppatori, ingegneri del prompt
       ],
       markdownContent: `---
 okf_version: "0.2"
+version: "1.1.0"
+author: "Autonomous Governance Committee"
+status: "stable"
+license: "Apache-2.0"
 title: "Protocolli Operativi per Agenti Autonomi (AGENTS.md)"
 type: "guide"
 domain: "Autonomous Agents & Governance"
 tags: ["knowledge", "agents", "protocol", "okf-v0.2", "governance"]
 created_at: "2026-08-29T10:15:00Z"
+dependencies:
+  - "OKF v0.2 Specification"
+  - "Cloud Firestore Rules"
+  - "Express Security Middleware"
+prerequisites:
+  - "AI Studio Container Environment"
+  - "Authentication Token"
+entities:
+  - name: "Autonomous Agent"
+    type: "concept"
+    description: "Agente IA in grado di eseguire compiti e aggiornare il vault"
+  - name: "OKF v0.2"
+    type: "standard"
+    description: "Specifiche del formato dati accettato"
+  - name: "Cloud Firestore"
+    type: "database"
+    description: "Storage autoritativo per la conoscenza"
+  - name: "KnowledgeGraph Engine"
+    type: "component"
+    description: "Grafo semantico per la navigazione delle relazioni"
+relations:
+  - target_title: "Knowledge Vault: Panoramica e Architettura OKF v0.2 (README)"
+    relation_type: "references"
+    weight: 0.9
+  - target_title: "Specifiche Operative Claude Code e Toolchain (CLAUDE.md)"
+    relation_type: "coordinates_with"
+    weight: 0.85
+  - target_title: "Google Gemini AI Engine: Linee Guida e Prompt (GEMINI.md)"
+    relation_type: "uses_engine"
+    weight: 0.9
 ---
 
-# Protocolli Operativi per Agenti Autonomi
+# Protocolli Operativi per Agenti Autonomi (AGENTS.md)
 
-## 1. Regole di Inserimento Risorse
-1. **Validazione dello Schema OKF v0.2**: L'agente non deve mai inserire testo non strutturato senza aver prima eseguito l'estrazione delle entità e delle relazioni.
-2. **Nomi Canonici delle Entità**: Per garantire che il KnowledgeGraph crei i collegamenti corretti, utilizzare nomi standardizzati (es. \`Model Context Protocol\`, \`TypeScript\`, \`Cloud Firestore\`).
-3. **Mantenimento dei Tag Semantici**: Allegare sempre almeno 3 tag rilevanti in formato lowercase.
+> **Regole di Ingaggio, Vincoli di Sviluppo e Standard di Esecuzione per Agenti AI nel Knowledge Vault**
+
+---
+
+## 1. Principi Fondamentali di Governance
+
+Tutti gli agenti autonomi (compresi Claude Code, Gemini Agent, Cursor e sub-agenti di ingestione) che interagiscono con il Vault devono rispettare rigorosamente i seguenti protocolli operativi:
+
+### A. Conformità Rigorosa allo Standard OKF v0.2
+Ogni documento generato, modificato o importato nel Vault deve includere il blocco frontmatter YAML valido con le seguenti proprietà minime obbligatorie:
+- \`okf_version: "0.2"\`
+- \`title\`: Titolo chiaro, canonico e privo di prefissi ridondanti
+- \`type\`: Uno tra \`concept\`, \`specification\`, \`architecture\`, \`guide\`, \`tool_description\`, \`prompt_skill\`
+- \`domain\`: Ambito di applicazione (es. \`Knowledge Systems & AI Architecture\`, \`Data Engineering\`, \`Security\`)
+- \`tags\`: Almeno 3-7 etichette in lettere minuscole
+- \`entities\`: Array di oggetti con \`name\`, \`type\` e \`description\`
+- \`relations\`: Array di relazioni pesate con \`target_title\`, \`relation_type\` e \`weight\`
+
+### B. Isolamento e Sicurezza Cloud
+- **Zero API Key nel Bundle Client**: Nessuna chiave privata o credenziale deve transitare nel codice frontend. Tutte le richieste AI devono passare per le rotte Express sicure \`/api/*\`.
+- **Filtro Utente Firestore**: Qualsiasi operazione di lettura o scrittura su Firestore deve verificare il parametro \`where("userId", "==", uid)\` per rispettare le regole di sicurezza \`firestore.rules\`.
+
+---
+
+## 2. Flusso di Ingestione Risorse (Pipeline in 4 Fasi)
+
+\`\`\`
+  [Raw Input / URL / File]
+             |
+             v
+   (Fase 1: Parsing) --------> Invia payload a /api/analyze-resource o /api/process-knowledge
+             |
+             v
+   (Fase 2: Validazione) ----> Verifica presenza di title, summary, tags, entities, relations
+             |
+             v
+   (Fase 3: Persistenza) ----> Scrittura Firestore con userId, createdAt e updatedAt
+             |
+             v
+   (Fase 4: Telemetria) -----> Emissione evento strutturato nel log di diagnostica
+\`\`\`
+
+1. **Fase 1 (Parsing Semantico)**: Inviare il payload grezzo a \`/api/analyze-resource\` o \`/api/process-knowledge\`.
+2. **Fase 2 (Validazione Strutturale)**: Verificare che l'output contenga un riassunto esaustivo, entità nominate e relazioni topologiche coerenti.
+3. **Fase 3 (Persistenza Atomica)**: Scrivere il documento su Firestore allegando \`userId\`, \`createdAt: serverTimestamp()\` e \`updatedAt: serverTimestamp()\`.
+4. **Fase 4 (Notifica & Logging)**: Emettere un log strutturato con categoria \`CAPTURE\` o \`FIRESTORE\` per mantenere tracciabilità nella console di diagnostica.
+
+---
+
+## 3. Gestione dei Nomi Canonici delle Entità
+Per consentire al motore D3 di tracciare correttamente gli archi nel grafo senza creare nodi duplicati o frammentati, gli agenti devono utilizzare nomi canonici internazionalmente riconosciuti:
+
+| Entità Raw / Sinonimo | Denominazione Canonica Obbligatoria |
+| :--- | :--- |
+| \`mcp\`, \`model context proto\` | \`Model Context Protocol\` |
+| \`claude-cli\`, \`claude terminal\` | \`Claude Code\` |
+| \`gemini-flash\`, \`gemini 3.7\` | \`Gemini 3.7 Flash\` |
+| \`ts\`, \`typescript lang\` | \`TypeScript\` |
+| \`firestore db\`, \`google firestore\` | \`Cloud Firestore\` |
+| \`d3\`, \`d3js\` | \`D3.js\` |
 `
     }
   },
@@ -109,8 +310,14 @@ created_at: "2026-08-29T10:15:00Z"
     isFavorite: true,
     metadata: {
       okfVersion: "0.2",
+      version: "1.0.4",
+      author: "Anthropic Tooling & Engineering",
+      status: "stable",
+      license: "MIT",
       domain: "Developer Tooling & CLI",
       docType: "guide",
+      dependencies: ["@anthropic-ai/claude-code", "TypeScript 5.x", "Node.js 18+", "Vite 6.x"],
+      prerequisites: ["Claude Terminal CLI installed", "Anthropic Account / API Access"],
       entities: [
         { name: "Claude Code", type: "tool", description: "Agente CLI per terminale sviluppato da Anthropic" },
         { name: "Anthropic", type: "organization", description: "Sviluppatore di Claude e specifiche MCP" },
@@ -124,25 +331,89 @@ created_at: "2026-08-29T10:15:00Z"
       ],
       markdownContent: `---
 okf_version: "0.2"
+version: "1.0.4"
+author: "Anthropic Tooling & Engineering"
+status: "stable"
+license: "MIT"
 title: "Specifiche Operative Claude Code e Toolchain (CLAUDE.md)"
 type: "guide"
 domain: "Developer Tooling & CLI"
 tags: ["knowledge", "claude", "anthropic", "cli", "workflow", "typescript"]
 created_at: "2026-08-29T10:20:00Z"
+dependencies:
+  - "@anthropic-ai/claude-code"
+  - "TypeScript 5.x"
+  - "Node.js 18+"
+  - "Vite 6.x"
+prerequisites:
+  - "Claude Terminal CLI installed"
+  - "Anthropic Account / API Access"
+entities:
+  - name: "Claude Code"
+    type: "tool"
+    description: "Agente CLI per terminale sviluppato da Anthropic"
+  - name: "Anthropic"
+    type: "organization"
+    description: "Sviluppatore di Claude e specifiche MCP"
+  - name: "TypeScript"
+    type: "language"
+    description: "Linguaggio di implementazione del progetto"
+  - name: "KnowledgeGraph Engine"
+    type: "component"
+    description: "Componente interattivo di rendering del grafo"
+relations:
+  - target_title: "Claude Code: Guida al Terminale Agentico"
+    relation_type: "documents"
+    weight: 0.95
+  - target_title: "Architettura di Sistema Full-Stack (ARCHITECTURE.md)"
+    relation_type: "relates_to"
+    weight: 0.88
+  - target_title: "Guida Completa al Model Context Protocol (MCP)"
+    relation_type: "uses_protocol"
+    weight: 0.92
 ---
 
-# Specifiche Operative Claude Code (CLAUDE.md)
+# Specifiche Operative Claude Code e Toolchain (CLAUDE.md)
 
-## 1. Comandi Essenziali
-- **Dev Server**: \`npm run dev\`
-- **Controllo Tipi**: \`npm run lint\` (\`tsc --noEmit\`)
-- **Compilazione**: \`npm run build\`
-- **Start Produzione**: \`npm run start\`
+> **Manuale Operativo di Sviluppo, Standard di Codifica e Comandi Toolchain per Claude Code**
 
-## 2. Best Practice per il Vault
-- Utilizzare sempre colori ad alto contrasto per i link del grafo topologico.
-- Mantenere le definizioni dei tipi in \`src/types.ts\`.
-- Testare la coerenza delle relazioni bidirezionali prima di ogni rilascio.
+---
+
+## 1. Comandi di Esecuzione & Verifica
+
+Per mantenere la build sempre verde e validare le modifiche al codice:
+
+\`\`\`bash
+# 1. Avvio Server di Sviluppo Full-Stack (Express + Vite Middleware su porta 3000)
+npm run dev
+
+# 2. Controllo di Sintassi & TypeScript Type-Checking
+npm run lint
+
+# 3. Compilazione Produzione (Bundle Vite SPA + Esbuild Node CJS per server.ts)
+npm run build
+
+# 4. Avvio Produzione
+npm run start
+\`\`\`
+
+---
+
+## 2. Standard di Codifica & Linee Guida Architetturali
+
+### A. TypeScript & Rigore dei Tipi
+- Mantenere tutti i tipi e le interfacce condivise in \`src/types.ts\`.
+- Non usare \`any\` per strutture dati centrali (come \`ResourceItem\`, \`OKFEntity\`, \`GraphNode\`, \`GraphLink\`).
+- Utilizzare enums standard ed evitare destructuring di namespace.
+
+### B. Gestione dello Stato & Ottimizzazione React
+- **Prevenzione Infinite Re-render**: Non passare mai oggetti o array instabili come dipendenze dei \`useEffect\`.
+- **Memoizzazione Grafo D3**: La simulazione fisica di D3 deve essere isolata in un \`useRef\` e montata solo all'apertura o al cambio di dataset.
+- **Sanitizzazione Firestore**: Tutti i payload diretti a Firestore devono passare attraverso \`sanitizeForFirestore\` per rimuovere campi \`undefined\` ed evitare crash di scrittura.
+
+### C. Pattern di Presentazione Modal & Reader
+- I modali e le finestre di dialogo devono supportare la chiusura con tasto **Escape**, click sul backdrop e pulsanti di chiusura evidenti con contrasto cromatico elevato.
+- Le sezioni Markdown devono essere completamente formattate con stili \`prose prose-invert\`, font leggibile e syntax highlighting per i blocchi di codice.
 `
     }
   },
@@ -157,8 +428,14 @@ created_at: "2026-08-29T10:20:00Z"
     isFavorite: true,
     metadata: {
       okfVersion: "0.2",
+      version: "2.1.0",
+      author: "Google Cloud & AI Engineering",
+      status: "stable",
+      license: "Apache-2.0",
       domain: "AI Model Engineering & Inference",
       docType: "specification",
+      dependencies: ["@google/genai", "express", "zod", "Node.js 18+"],
+      prerequisites: ["GEMINI_API_KEY environment variable", "Google Cloud Project"],
       entities: [
         { name: "Gemini 3.7 Flash", type: "ai_model", description: "Modello primario per generazione di schemi JSON strutturati" },
         { name: "Gemini 2.5 Flash", type: "ai_model", description: "Modello secondario ad alta velocità e resilienza" },
@@ -172,20 +449,131 @@ created_at: "2026-08-29T10:20:00Z"
       ],
       markdownContent: `---
 okf_version: "0.2"
+version: "2.1.0"
+author: "Google Cloud & AI Engineering"
+status: "stable"
+license: "Apache-2.0"
 title: "Google Gemini AI Engine: Linee Guida e Prompt (GEMINI.md)"
 type: "specification"
 domain: "AI Model Engineering & Inference"
 tags: ["knowledge", "gemini", "ai-engine", "json-schema", "prompt-engineering"]
 created_at: "2026-08-29T10:25:00Z"
+dependencies:
+  - "@google/genai"
+  - "express"
+  - "zod"
+  - "Node.js 18+"
+prerequisites:
+  - "GEMINI_API_KEY environment variable"
+  - "Google Cloud Project"
+entities:
+  - name: "Gemini 3.7 Flash"
+    type: "ai_model"
+    description: "Modello primario per generazione di schemi JSON strutturati"
+  - name: "Gemini 2.5 Flash"
+    type: "ai_model"
+    description: "Modello secondario ad alta velocità e resilienza"
+  - name: "Google GenAI SDK"
+    type: "sdk"
+    description: "Libreria ufficiale per comunicazioni server-side sicure"
+  - name: "OKF v0.2"
+    type: "standard"
+    description: "Struttura di destinazione per le estrazioni del modello"
+relations:
+  - target_title: "Knowledge Vault: Panoramica e Architettura OKF v0.2 (README)"
+    relation_type: "powers"
+    weight: 0.95
+  - target_title: "Architettura di Sistema Full-Stack (ARCHITECTURE.md)"
+    relation_type: "integrates_into"
+    weight: 0.9
+  - target_title: "Gemini 2.5 Structured Extractor"
+    relation_type: "implements_skill"
+    weight: 0.95
 ---
 
-# Google Gemini AI Engine Guidelines
+# Google Gemini AI Engine: Linee Guida e Prompt (GEMINI.md)
 
-## 1. Pipeline di Analisi
-1. **Ricezione Payload**: Il client invia il testo, snippet o URL a \`/api/analyze-resource\`.
-2. **Generazione Strutturata**: Il server invoca \`gemini-3.7-flash\` con \`responseMimeType: "application/json"\`.
-3. **Estrazione Ontologica**: Il modello produce entità, relazioni pesate, tag e frontmatter YAML.
-4. **Timeout e Fallback**: Se la chiamata supera i 15 secondi, interviene l'estrattore euristico locale garantendo disponibilità al 100%.
+> **Linee Guida per l'Orchestrazione del Modello Gemini, Parsing Strutturato e Gestione Resiliente del Fallback**
+
+---
+
+## 1. Modelli Supportati & Gerarchia di Esecuzione
+
+Il backend di Knowledge Vault orchestra le chiamate di inferenza tramite l'SDK ufficiale \`@google/genai\` rispettando la seguente pipeline di fallback in caso di rate-limiting (429) o indisponibilità temporanea (503):
+
+\`\`\`
+[Richiesta Client /api/*]
+          |
+          v
++-----------------------+   Successo
+| 1. gemini-3.7-flash   |-------------> JSON Validato (Latenza ~800ms)
++-----------------------+
+          | Errore / Quota
+          v
++-----------------------+   Successo
+| 2. gemini-flash-latest|-------------> JSON Validato
++-----------------------+
+          | Errore / Quota
+          v
++-----------------------+   Successo
+| 3. gemini-3.1-flash-l |-------------> JSON Validato
++-----------------------+
+          | Timeout (>20s) o indisponibilità
+          v
++-----------------------+
+| 4. Fallback Euristico |-------------> Parser Locale a Regole (0ms Latenza)
++-----------------------+
+\`\`\`
+
+---
+
+## 2. Schema di Risposta JSON Structured Output
+
+L'endpoint principale \`/api/analyze-resource\` e il nuovo generatore approfondito \`/api/expand-documentation\` utilizzano JSON schema rigorosi con validazione dei tipi:
+
+\`\`\`typescript
+const okfAnalysisSchema = {
+  type: Type.OBJECT,
+  properties: {
+    type: { type: Type.STRING }, // 'knowledge' | 'github_repo' | 'mcp_server' | 'ai_skill' | 'article'
+    title: { type: Type.STRING },
+    summary: { type: Type.STRING }, // Sintesi esecutiva in italiano
+    tags: { type: Type.ARRAY, items: { type: Type.STRING } },
+    metadata: {
+      type: Type.OBJECT,
+      properties: {
+        okfVersion: { type: Type.STRING }, // "0.2"
+        domain: { type: Type.STRING },
+        docType: { type: Type.STRING },
+        entities: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              name: { type: Type.STRING },
+              type: { type: Type.STRING },
+              description: { type: Type.STRING }
+            }
+          }
+        },
+        relations: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              targetTitle: { type: Type.STRING },
+              relationType: { type: Type.STRING },
+              weight: { type: Type.NUMBER },
+              description: { type: Type.STRING }
+            }
+          }
+        },
+        markdownContent: { type: Type.STRING } // Documentazione tecnica integrale OKF
+      }
+    }
+  }
+};
+\`\`\`
 `
     }
   },
@@ -200,8 +588,14 @@ created_at: "2026-08-29T10:25:00Z"
     isFavorite: true,
     metadata: {
       okfVersion: "0.2",
+      version: "2.0.0",
+      author: "System Architect & adlibros",
+      status: "stable",
+      license: "MIT",
       domain: "Software Architecture & Distributed Systems",
       docType: "architecture",
+      dependencies: ["React 18", "Express 4.x", "Firebase JS SDK 10+", "D3.js v7", "Tailwind CSS"],
+      prerequisites: ["Node.js 18+", "Firebase Firestore Security Rules"],
       entities: [
         { name: "KnowledgeGraph Engine", type: "component", description: "Motore di simulazione a forze D3" },
         { name: "Cloud Firestore", type: "database", description: "Database NoSQL scalabile per memorizzazione persistente" },
@@ -215,19 +609,113 @@ created_at: "2026-08-29T10:25:00Z"
       ],
       markdownContent: `---
 okf_version: "0.2"
+version: "2.0.0"
+author: "System Architect & adlibros"
+status: "stable"
+license: "MIT"
 title: "Architettura di Sistema Full-Stack (ARCHITECTURE.md)"
 type: "architecture"
 domain: "Software Architecture & Distributed Systems"
 tags: ["knowledge", "architecture", "full-stack", "d3-graph", "firestore", "express"]
 created_at: "2026-08-29T10:30:00Z"
+dependencies:
+  - "React 18"
+  - "Express 4.x"
+  - "Firebase JS SDK 10+"
+  - "D3.js v7"
+  - "Tailwind CSS"
+prerequisites:
+  - "Node.js 18+"
+  - "Firebase Firestore Security Rules"
+entities:
+  - name: "KnowledgeGraph Engine"
+    type: "component"
+    description: "Motore di simulazione a forze D3"
+  - name: "Cloud Firestore"
+    type: "database"
+    description: "Database NoSQL scalabile per memorizzazione persistente"
+  - name: "Express Server"
+    type: "backend"
+    description: "Backend proxy per API protette e inferenza AI"
+  - name: "Knowledge Vault"
+    type: "system"
+    description: "Applicazione complessiva"
+relations:
+  - target_title: "Knowledge Vault: Panoramica e Architettura OKF v0.2 (README)"
+    relation_type: "detailed_in"
+    weight: 1.0
+  - target_title: "Motore Topologico D3 e Calcolo Relazioni (KnowledgeGraph.tsx)"
+    relation_type: "contains"
+    weight: 0.95
+  - target_title: "Google Gemini AI Engine: Linee Guida e Prompt (GEMINI.md)"
+    relation_type: "communicates_with"
+    weight: 0.9
 ---
 
-# Architettura di Sistema Full-Stack
+# Architettura di Sistema Full-Stack (ARCHITECTURE.md)
 
-## 1. Topologia di Flusso Dati
-- **Frontend SPA**: React 18 con rendering D3 e stato reattivo Firestore.
-- **Backend Proxy**: Express 4/5 per gestione protetta delle chiavi API e isolamento dell'SDK Google GenAI.
-- **Database & Identity**: Firestore per persistenza documenti e Firebase Auth per isolamento multi-utente.
+> **Specifiche Architetturali Dettagliate, Schema dei Moduli e Topologia del Flusso Dati**
+
+---
+
+## 1. Topologia dei Componenti di Sistema
+
+Il Knowledge Vault adotta un'architettura **Full-Stack reattiva e modulare** progettata per combinare la velocità di un client React 18 con la sicurezza e l'isolamento di un backend Express:
+
+\`\`\`
++-------------------------------------------------------------------------------+
+|                            CLIENT BROWSER (SPA)                               |
+|                                                                               |
+|  +---------------------+   +---------------------+   +---------------------+  |
+|  | Header & CaptureBar |   |  ResourceCard/Table |   |  KnowledgeGraph     |  |
+|  | (Ingestione Rapida) |   |  (Esplorazione)     |   |  (D3 Force Engine)  |  |
+|  +---------------------+   +---------------------+   +---------------------+  |
+|             |                         |                         |             |
+|  +-------------------------------------------------------------------------+  |
+|  |                     ResourceModal & KnowledgeReader                     |  |
+|  |        (Viewer Markdown, OKF Spec, Insights AI, Traduzione)             |  |
+|  +-------------------------------------------------------------------------+  |
++-------------------------------------------------------------------------------+
+       | (Sottoscrizione Realtime onSnapshot)               | (Chiamate API Proxy)
+       v                                                    v
++------------------------------+             +----------------------------------+
+|   CLOUD FIRESTORE & AUTH     |             |      EXPRESS BACKEND SERVER      |
+|                              |             |                                  |
+| - Collezione: /resources     |             | - POST /api/analyze-resource     |
+| - Autenticazione: Google/Anon|             | - POST /api/process-knowledge    |
+| - Regole per utente (RBAC)   |             | - POST /api/expand-documentation |
+| - Query indicizzate          |             | - POST /api/translate-resource   |
++------------------------------+             | - POST /api/generate-insights    |
+                                             +----------------------------------+
+                                                            | (SDK Google GenAI)
+                                                            v
+                                             +----------------------------------+
+                                             |       GOOGLE GEMINI API          |
+                                             | - gemini-3.7-flash (Primario)    |
+                                             | - gemini-flash-latest            |
+                                             +----------------------------------+
+\`\`\`
+
+---
+
+## 2. Strato di Storage & Persistenza Cloud Firestore
+
+### Struttura del Documento Firestore (\`/resources/{docId}\`)
+- \`userId\`: String (Identificativo univoco dell'utente autenticato)
+- \`type\`: String (\`knowledge\`, \`github_repo\`, \`mcp_server\`, \`ai_skill\`, \`article\`, \`troubleshooting\`, \`link\`)
+- \`title\`: String (Titolo della risorsa)
+- \`summary\`: String (Sintesi esecutiva in italiano)
+- \`tags\`: Array<String>
+- \`isFavorite\`: Boolean
+- \`metadata\`: Map (Metadati verticali, \`entities\`, \`relations\`, \`markdownContent\`, \`configSnippet\`, \`systemPrompt\`)
+- \`createdAt\`: Timestamp
+- \`updatedAt\`: Timestamp
+
+---
+
+## 3. Gestione della Sicurezza e Isolamento
+1. **Protezione Credenziali**: Le chiavi segrete come \`GEMINI_API_KEY\` sono memorizzate esclusivamente nelle variabili d'ambiente del server e non vengono mai inoltrate al client.
+2. **Access Control**: Le regole di sicurezza \`firestore.rules\` impediscono a qualsiasi utente di leggere o manipolare le risorse di altri utenti.
 `
     }
   },
@@ -242,8 +730,14 @@ created_at: "2026-08-29T10:30:00Z"
     isFavorite: false,
     metadata: {
       okfVersion: "0.2",
+      version: "1.4.2",
+      author: "Graph & Visualization Lab",
+      status: "stable",
+      license: "MIT",
       domain: "Data Visualization & Graph Theory",
       docType: "guide",
+      dependencies: ["d3 ^7.9.0", "@types/d3 ^7.4.3", "lucide-react", "React 18"],
+      prerequisites: ["SVG Canvas DOM context", "Normalized OKF Resource Dataset"],
       entities: [
         { name: "KnowledgeGraph Engine", type: "component", description: "Engine basato su D3 v7 force simulation" },
         { name: "D3.js", type: "library", description: "Libreria per visualizzazioni dati guidate da documenti" },
@@ -255,22 +749,99 @@ created_at: "2026-08-29T10:30:00Z"
       ],
       markdownContent: `---
 okf_version: "0.2"
+version: "1.4.2"
+author: "Graph & Visualization Lab"
+status: "stable"
+license: "MIT"
 title: "Motore Topologico D3 e Calcolo Relazioni (KnowledgeGraph.tsx)"
 type: "guide"
 domain: "Data Visualization & Graph Theory"
 tags: ["knowledge", "d3", "graph", "topology", "algorithms", "physics-simulation"]
 created_at: "2026-08-29T10:35:00Z"
+dependencies:
+  - "d3 ^7.9.0"
+  - "@types/d3 ^7.4.3"
+  - "lucide-react"
+  - "React 18"
+prerequisites:
+  - "SVG Canvas DOM context"
+  - "Normalized OKF Resource Dataset"
+entities:
+  - name: "KnowledgeGraph Engine"
+    type: "component"
+    description: "Engine basato su D3 v7 force simulation"
+  - name: "D3.js"
+    type: "library"
+    description: "Libreria per visualizzazioni dati guidate da documenti"
+  - name: "OKF v0.2"
+    type: "standard"
+    description: "Specifica ontologica che alimenta i nodi del grafo"
+relations:
+  - target_title: "Architettura di Sistema Full-Stack (ARCHITECTURE.md)"
+    relation_type: "part_of"
+    weight: 0.95
+  - target_title: "Knowledge Vault: Panoramica e Architettura OKF v0.2 (README)"
+    relation_type: "features_in"
+    weight: 0.9
 ---
 
-# Motore Topologico D3 e Calcolo Relazioni
+# Motore Topologico D3 e Calcolo Relazioni (KnowledgeGraph.tsx)
 
-## 1. Gerarchia di Risoluzione degli Archi
-Il componente valuta ogni coppia di documenti ed assegna un arco pesato:
-1. **Relazioni OKF v0.2 Dirette** (Oro Champagne): Peso 1.0, freccia direzionale.
-2. **Entità Ontologiche Condivise** (Ciano): Peso 0.85–1.0.
-3. **Menzioni nel Testo** (Viola): Peso 0.80.
-4. **Tag Comuni** (Ambra Tratteggiata): Peso 0.60–0.95.
-5. **Dominio Congiunto** (Smeraldo): Peso 0.55.
+> **Specifiche dell'Algoritmo di Simulazione a Forze Fisiche, Calcolo Pesi e Rendering Interattivo SVG**
+
+---
+
+## 1. Algoritmo di Risoluzione Relazionale su 5 Livelli
+
+Il motore topologico analizza l'intero dataset di risorse calcolando la matrice di affinità tra tutte le coppie di documenti:
+
+\`\`\`
+LIVELLO 1: Relazioni OKF v0.2 Dirette (Colore: #C5A059 Oro Champagne)
+           -> Peso: 1.0 (Freccia direzionale attiva)
+
+LIVELLO 2: Entità Ontologiche Condivise (Colore: #06B6D4 Ciano Elettrico)
+           -> Peso: 0.85 - 1.0 (In base al numero di entità comuni)
+
+LIVELLO 3: Citazioni Semantiche & Wikilinks (Colore: #A855F7 Viola Ametista)
+           -> Peso: 0.80 (Rilevamento [[Nome Documento]])
+
+LIVELLO 4: Tag Semantici Comuni (Colore: #F59E0B Ambra Tratteggiata)
+           -> Peso: 0.60 - 0.95 (Formula: min(0.95, 0.5 + tagCount * 0.15))
+
+LIVELLO 5: Dominio di Conoscenza Congiunto (Colore: #10B981 Smeraldo)
+           -> Peso: 0.55
+\`\`\`
+
+---
+
+## 2. Configurazione della Simulazione Fisica D3
+
+La simulazione è configurata per garantire stabilità visiva ed evitare oscillazioni infinite:
+
+\`\`\`typescript
+const simulation = d3.forceSimulation<GraphNode>(nodes)
+  // 1. Vincolo di connessione tra nodi collegati da archi
+  .force("link", d3.forceLink<GraphNode, GraphLink>(links)
+    .id((d) => d.id)
+    .distance((d) => 120 / (d.weight || 0.7))
+    .strength((d) => Math.min(1.0, (d.weight || 0.5) * 0.8))
+  )
+  // 2. Repulsione elettrostatica tra tutti i nodi
+  .force("charge", d3.forceManyBody().strength(-380).distanceMax(600))
+  // 3. Collisione fisica per evitare sovrapposizione visiva
+  .force("collide", d3.forceCollide<GraphNode>().radius((d) => (d.isEntityNode ? 22 : 36)).iterations(3))
+  // 4. Centratura nel canvas
+  .force("center", d3.forceCenter(width / 2, height / 2).strength(0.08))
+  // 5. Smorzamento velocità (Alpha decay)
+  .alphaDecay(0.022);
+\`\`\`
+
+---
+
+## 3. Gestione del Drag & Drop e Zoom
+
+- **Drag Handler**: Quando l'utente trascina un nodo, le coordinate \`fx\` e \`fy\` vengono fissate. All'evento \`dragEnd\`, le coordinate rimangono bloccate per consentire la riorganizzazione manuale del layout.
+- **Zoom & Pan**: Supporto completo per zoom da 0.2x a 5x con preservazione della matrice di trasformazione SVG.
 `
     }
   },
@@ -303,16 +874,60 @@ type: "concept"
 domain: "AI Development Tools"
 tags: ["knowledge", "claude", "anthropic", "cli", "agentic-ai", "git"]
 created_at: "2026-08-29T10:40:00Z"
+entities:
+  - name: "Claude Code"
+    type: "tool"
+    description: "Agentic CLI tool"
+  - name: "Anthropic"
+    type: "organization"
+    description: "Creatore di Claude e del Model Context Protocol"
+  - name: "Git"
+    type: "tool"
+    description: "Sistema di controllo versione integrato nel loop agentico"
+relations:
+  - target_title: "Specifiche Operative Claude Code e Toolchain (CLAUDE.md)"
+    relation_type: "documented_by"
+    weight: 0.95
+  - target_title: "Guida Completa al Model Context Protocol (MCP)"
+    relation_type: "leverages"
+    weight: 0.9
 ---
 
-# Claude Code
+# Claude Code: Guida al Terminale Agentico
 
-**Claude Code** è uno strumento a riga di comando (CLI) agentico sviluppato da Anthropic che porta l'intelligenza di Claude direttamente all'interno del terminale di sviluppo.
+> **Guida Completa all'Utilizzo di Claude Code nel Workflow Quotidiano di Ingegneria del Software**
 
-## Caratteristiche Principali
-- **Loop Agentico Autonomo**: Esegue modifiche multi-file, lancia test e verifica compilazioni in autonomia.
-- **Integrazione Git**: Genera commit informativi, gestisce branch e risolve conflitti.
-- **Compatibilità MCP**: Connette server e strumenti esterni per interrogare database e documentazioni.
+---
+
+## 1. Panoramica dello Strumento
+
+**Claude Code** è un tool agentico a riga di comando (CLI) sviluppato da **Anthropic** che si integra direttamente nel terminale di sviluppo. A differenza dei plugin di completamento codice tradizionali, Claude Code opera con un ciclo iterativo (Agentic Loop) in grado di:
+1. Analizzare la struttura dell'intero repository.
+2. Identificare i file rilevanti per un determinato bug o task.
+3. Proporre ed eseguire modifiche multi-file coordinate.
+4. Eseguire test automatici e compilatori per verificare la correttezza della soluzione prima di completare il turno.
+
+---
+
+## 2. Comandi Principali & Workflow
+
+\`\`\`bash
+# Avvio sessione interattiva nella cartella del progetto
+claude
+
+# Esecuzione di un task specifico senza entrare in shell interattiva
+claude "Risolvi l'errore di tipo TypeScript in src/components/KnowledgeGraph.tsx"
+
+# Revisione dei file modificati e generazione commit semantico Git
+claude "Esamina i file modificati e crea un commit con messaggio convenzionale"
+\`\`\`
+
+---
+
+## 3. Best Practice per l'Interazione con il Vault
+
+- **Fornire Contesto Chiaro**: Specificare i file rilevanti (\`src/types.ts\`, \`server.ts\`, \`ResourceModal.tsx\`) per restringere il raggio di ricerca dell'agente.
+- **Integrazione con MCP**: Utilizzare i server MCP (es. PostgreSQL MCP Server o Filesystem MCP) per consentire a Claude Code di interagire con database e tool esterni.
 `
     }
   },
@@ -341,7 +956,44 @@ created_at: "2026-08-29T10:40:00Z"
         "Standard aperto per interoperabilità tool/dati",
         "Supporto trasporti stdio per locale e SSE per server remoti",
         "Separazione netta tra Client, Server e Host"
-      ]
+      ],
+      markdownContent: `---
+okf_version: "0.2"
+title: "Guida Completa al Model Context Protocol (MCP)"
+type: "guide"
+domain: "AI Protocols & Agentic Tooling"
+tags: ["article", "mcp", "architecture", "ai-agents", "standards"]
+created_at: "2026-08-29T10:45:00Z"
+---
+
+# Guida Completa al Model Context Protocol (MCP)
+
+> **Lo Standard Aperto per Connettere Modelli di Linguaggio e Agenti a Strumenti e Basi di Dati Esterne**
+
+---
+
+## 1. Cos'è il Model Context Protocol?
+
+Il **Model Context Protocol (MCP)** è uno standard aperto promosso da Anthropic che stabilisce un protocollo comune di comunicazione tra:
+- **Host / Client MCP**: L'applicazione che esegue o orchestra l'LLM (es. Claude Desktop, Claude Code, Cursor, Knowledge Vault).
+- **Server MCP**: Moduli indipendenti e leggeri che espongono dati e capacità operative specifiche (es. query a database SQL, operazioni su disco, chiamate a API REST).
+
+\`\`\`
++---------------------+              +-----------------------+
+|  Host (Client LLM)  | <--- JSON --->|  MCP Server (Postgres)|
+|  - Claude Desktop   |      RPC     |  - Tool: query_sql    |
+|  - Agentic Runtime  |      2.0     |  - Resource: schemas  |
++---------------------+              +-----------------------+
+\`\`\`
+
+---
+
+## 2. Tipologie di Capacità Esposte dai Server MCP
+
+1. **Tools (Chiamate a Funzione)**: Azioni eseguibili dal modello con parametri tipizzati (es. \`execute_sql\`, \`read_file\`, \`git_status\`).
+2. **Resources (Documenti & Dati)**: Contenuti leggibili che possono essere iniettati nel contesto del prompt tramite URI dedicate (\`postgres://schemas/public\`).
+3. **Prompts (Template Predefiniti)**: Pattern di conversazione e prompt strutturati pronti all'uso.
+`
     }
   },
 
@@ -373,7 +1025,49 @@ created_at: "2026-08-29T10:40:00Z"
           }
         }
       }, null, 2),
-      toolsProvided: ["query", "list_tables", "describe_table"]
+      toolsProvided: ["query", "list_tables", "describe_table"],
+      markdownContent: `---
+okf_version: "0.2"
+title: "PostgreSQL MCP Server"
+type: "tool_description"
+domain: "Database Tooling & MCP"
+tags: ["mcp", "postgresql", "database", "agents", "tools"]
+created_at: "2026-08-29T10:50:00Z"
+---
+
+# PostgreSQL MCP Server
+
+> **Integrazione Database Relazionale Sicura per Agenti e Assistenti LLM tramite Protocollo MCP**
+
+---
+
+## 1. Configurazione Rapida (JSON Snippet)
+
+Aggiungere al file di configurazione del client MCP (\`claude_desktop_config.json\`):
+
+\`\`\`json
+{
+  "mcpServers": {
+    "postgres": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-postgres",
+        "postgresql://username:password@localhost:5432/my_database"
+      ]
+    }
+  }
+}
+\`\`\`
+
+---
+
+## 2. Tool Forniti al Modello
+
+- \`query\`: Esegue query SQL (consigliata modalità read-only con transazione in sola lettura).
+- \`list_tables\`: Restituisce l'elenco delle tabelle e viste disponibili nel database.
+- \`describe_table\`: Ispeziona colonne, tipi di dato, vincoli e chiavi esterne di una tabella.
+`
     }
   },
 
@@ -405,7 +1099,48 @@ created_at: "2026-08-29T10:40:00Z"
           }
         }
       }, null, 2),
-      toolsProvided: ["read_file", "write_file", "list_directory", "search_files"]
+      toolsProvided: ["read_file", "write_file", "list_directory", "search_files"],
+      markdownContent: `---
+okf_version: "0.2"
+title: "Filesystem MCP Server"
+type: "tool_description"
+domain: "Local Development & File Operations"
+tags: ["mcp", "filesystem", "node", "local-dev"]
+created_at: "2026-08-29T10:55:00Z"
+---
+
+# Filesystem MCP Server
+
+> **Accesso Sandboxed e Sicuro al Filesystem Locale per Assistenti AI**
+
+---
+
+## 1. Configurazione del Server
+
+\`\`\`json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/Users/developer/Projects"
+      ]
+    }
+  }
+}
+\`\`\`
+
+---
+
+## 2. Capacità Operative
+
+- \`read_file\`: Lettura del contenuto completo o parziale di un file.
+- \`write_file\`: Creazione o sovrascrittura di file all'interno delle cartelle autorizzate.
+- \`list_directory\`: Esplorazione ricorsiva o a singolo livello delle directory.
+- \`search_files\`: Ricerca con pattern glob e keyword.
+`
     }
   },
 
@@ -429,7 +1164,29 @@ created_at: "2026-08-29T10:40:00Z"
         { targetTitle: "Specifiche Operative Claude Code e Toolchain (CLAUDE.md)", relationType: "guides", weight: 0.88, description: "Fornisce criteri di qualità per Claude" }
       ],
       systemPrompt: "Sei un Principal Software Architect. Analizza il codice fornito valutando:\n1. Robustezza e type-safety in TypeScript\n2. Performance e re-render avoidance in React\n3. Principi SOLID e pulizia del design architetturale\n4. Copertura dei casi limite e gestione errori",
-      triggerKeywords: ["review", "refactor", "audit", "optimize"]
+      triggerKeywords: ["review", "refactor", "audit", "optimize"],
+      markdownContent: `---
+okf_version: "0.2"
+title: "Senior Code Reviewer & Architect"
+type: "prompt_skill"
+domain: "AI Skills & Code Quality"
+tags: ["skill", "prompt", "code-review", "architecture", "typescript"]
+created_at: "2026-08-29T11:00:00Z"
+---
+
+# Senior Code Reviewer & Architect
+
+> **System Prompt e Linee Guida di Revisione per Architetti del Software e Ingegneri Principali**
+
+\`\`\`markdown
+Sei un Principal Software Architect & Senior Code Reviewer.
+Analizza il codice sorgente fornito esaminando i seguenti pilastri:
+1. Type Safety & Rigore TypeScript: eliminazione di \`any\`, corretta tipizzazione di generici e unioni discriminate.
+2. React Lifecycle & Performance: stabilità dei puntatori di funzione (\`useCallback\`), memoizzazione calcoli pesanti (\`useMemo\`), prevenzione re-render inutili.
+3. Clean Code & Principi SOLID: separazione netta delle responsabilità, modularità e leggibilità.
+4. Resilienza & Edge Cases: gestione di timeout, risposte nulle o parziali, gestione errori asincroni.
+\`\`\`
+`
     }
   },
 
@@ -453,7 +1210,26 @@ created_at: "2026-08-29T10:40:00Z"
         { targetTitle: "Knowledge Vault: Panoramica e Architettura OKF v0.2 (README)", relationType: "powers_extraction", weight: 0.9, description: "Alimenta la barra di cattura rapida del vault" }
       ],
       systemPrompt: "Estrai esclusivamente oggetti JSON conformi allo schema specificato. Non includere blocchi markdown ```json o testo di accompagnamento. Valida tutti i tipi prima dell'emissione.",
-      triggerKeywords: ["json", "extract", "parse", "schema"]
+      triggerKeywords: ["json", "extract", "parse", "schema"],
+      markdownContent: `---
+okf_version: "0.2"
+title: "Gemini 2.5 Structured Extractor"
+type: "prompt_skill"
+domain: "Structured Output & Data Parsing"
+tags: ["skill", "gemini", "json-schema", "prompt"]
+created_at: "2026-08-29T11:05:00Z"
+---
+
+# Gemini Structured Extractor
+
+> **Pattern Operativo per Estrazione Dati Strutturati con Gemini Flash e Response Schema Rigido**
+
+\`\`\`markdown
+Estrai esclusivamente oggetti JSON validi conformi allo schema fornito.
+Non includere spiegazioni conversazionali o blocchi di markdown.
+Sanitizza tutti i campi stringa e converti date in formato ISO 8601 UTC.
+\`\`\`
+`
     }
   },
 
@@ -477,7 +1253,29 @@ created_at: "2026-08-29T10:40:00Z"
       relations: [
         { targetTitle: "Guida Completa al Model Context Protocol (MCP)", relationType: "implements", weight: 0.95, description: "Implementazione ufficiale dei server di riferimento" },
         { targetTitle: "PostgreSQL MCP Server", relationType: "contains", weight: 0.9, description: "Modulo server PostgreSQL contenuto nella repo" }
-      ]
+      ],
+      markdownContent: `---
+okf_version: "0.2"
+title: "modelcontextprotocol/servers"
+type: "specification"
+domain: "Open Source Tooling"
+tags: ["github", "mcp", "open-source", "servers", "tools", "anthropic"]
+created_at: "2026-08-29T11:10:00Z"
+---
+
+# modelcontextprotocol/servers
+
+> **Collezione Ufficiale di Server MCP di Riferimento Sviluppati da Anthropic e dalla Community Open Source**
+
+---
+
+## 1. Server Inclusi nella Repository
+- \`src/postgres\`: Interrogazione e analisi database PostgreSQL.
+- \`src/filesystem\`: Accesso controllato a cartelle e file locali.
+- \`src/git\`: Esecuzione di comandi \`git diff\`, \`log\`, \`branch\`.
+- \`src/sqlite\`: Gestione di database leggeri serverless.
+- \`src/fetch\`: Download e conversione in Markdown di pagine web.
+`
     }
   },
 
@@ -500,7 +1298,27 @@ created_at: "2026-08-29T10:40:00Z"
       ],
       relations: [
         { targetTitle: "Claude Code: Guida al Terminale Agentico", relationType: "references", weight: 0.85, description: "Esempi di orchestrazione e workflow agentico" }
-      ]
+      ],
+      markdownContent: `---
+okf_version: "0.2"
+title: "anthropics/anthropic-quickstarts"
+type: "guide"
+domain: "Agentic AI & Reference Implementations"
+tags: ["github", "claude", "anthropic", "quickstart", "agents", "python", "typescript"]
+created_at: "2026-08-29T11:15:00Z"
+---
+
+# anthropics/anthropic-quickstarts
+
+> **Architetture di Riferimento e Template Pronti all'Uso per Applicazioni Basate su Claude**
+
+---
+
+## Modelli e Progetti Inclusi
+- **Computer Use Demo**: Guida all'interazione autonoma di Claude con il desktop.
+- **Customer Support Agent**: Agente conversazionale con tool routing e database lookup.
+- **Financial Analysis Orchestrator**: Estrazione di dati e generazione di report finanziari.
+`
     }
   },
 
@@ -523,7 +1341,29 @@ created_at: "2026-08-29T10:40:00Z"
       ],
       relations: [
         { targetTitle: "Google Gemini AI Engine: Linee Guida e Prompt (GEMINI.md)", relationType: "complements", weight: 0.9, description: "Esempi pratici e pattern di implementazione" }
-      ]
+      ],
+      markdownContent: `---
+okf_version: "0.2"
+title: "google-gemini/cookbook"
+type: "guide"
+domain: "Google Gemini AI & SDK Tutorials"
+tags: ["github", "gemini", "google", "cookbook", "python", "ai-engine"]
+created_at: "2026-08-29T11:20:00Z"
+---
+
+# google-gemini/cookbook
+
+> **Raccolta di Esempi di Codice, Notebook e Pattern Avanzati per l'Utilizzo dell'API Google Gemini**
+
+---
+
+## Argomenti Trattati
+1. **Structured Outputs**: Come vincolare le risposte con schemi JSON rigorosi.
+2. **Multimodal Analysis**: Elaborazione congiunta di testo, immagini, audio e video.
+3. **Function Calling & Tool Use**: Connessione sicura tra modelli Gemini e backend esterni.
+4. **Embeddings & Semantic Search**: Generazione di vettori di embedding per sistemi RAG.
+`
     }
   }
 ];
+

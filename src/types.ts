@@ -86,9 +86,19 @@ export interface ResourceMetadata {
   userNotes?: string;
 
   // OKF v0.2 Knowledge specific
-  okfVersion?: '0.2';
+  okfVersion?: '0.2' | string;
+  version?: string;
+  docVersion?: string;
+  maintainer?: string;
+  status?: 'draft' | 'stable' | 'active' | 'deprecated' | 'experimental' | 'archived' | string;
+  license?: string;
+  dependencies?: string[];
+  prerequisites?: string[];
+  requirements?: string[];
+  changelog?: string;
+  targetAudience?: string;
   domain?: string;
-  docType?: 'concept' | 'specification' | 'architecture' | 'guide' | 'snippet' | 'research' | 'paper';
+  docType?: 'concept' | 'specification' | 'architecture' | 'guide' | 'snippet' | 'research' | 'paper' | 'tool_description' | 'prompt_skill' | string;
   entities?: (string | OKFEntity)[];
   relations?: OKFRelation[];
   markdownContent?: string;

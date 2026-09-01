@@ -215,12 +215,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
 
             <button
-              onClick={onSeedDemo}
+              onClick={() => onSeedDemo()}
               disabled={isSeeding}
               className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg bg-[#0F0F0F] hover:bg-[#141414] border border-[#2B2B2B] hover:border-[#C5A059]/40 text-[#AAA] hover:text-[#C5A059] text-xs font-mono transition-all shadow-xs"
+              title="Sincronizza e aggiorna la suite documentale completa OKF v0.2 (README, AGENTS, CLAUDE, GEMINI, ARCHITECTURE, ecc.)"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isSeeding ? "animate-spin text-[#C5A059]" : "text-[#C5A059]"}`} />
-              <span>{isSeeding ? "Caricamento Docs..." : "Carica Documentazione OKF v0.2"}</span>
+              <span>{isSeeding ? "Sincronizzazione OKF..." : "Sincronizza Suite OKF v0.2"}</span>
             </button>
             {onOpenExport && (
               <button

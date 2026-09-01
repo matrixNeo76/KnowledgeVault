@@ -39,7 +39,9 @@ import {
   ArrowRight,
   ChevronRight,
   Tag,
-  Plus
+  Plus,
+  Download,
+  Eye
 } from "lucide-react";
 import Markdown from "react-markdown";
 import { ResourceItem, ResourceType } from "../types";
@@ -84,6 +86,12 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
 
   const [isGeneratingInsights, setIsGeneratingInsights] = useState(false);
   const [insightMessage, setInsightMessage] = useState<string | null>(null);
+
+  const [isExpandingDoc, setIsExpandingDoc] = useState(false);
+  const [expandDocMessage, setExpandDocMessage] = useState<string | null>(null);
+
+  // Active view tab inside dialog: 'overview' | 'doc' | 'graph' | 'evaluation'
+  const [activeModalTab, setActiveModalTab] = useState<"overview" | "doc" | "graph" | "evaluation">("overview");
 
   // Fetch OG if article and missing
   React.useEffect(() => {
@@ -349,6 +357,64 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
     }
   };
 
+  // AI Documentation Deepening & Expansion Handler
+  const handleExpandDocumentation = async () => {
+    if (!resource) return;
+    setIsExpandingDoc(true);
+    setExpandDocMessage(null);
+    try {
+      const res = await fetch("/api/expand-documentation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          resource,
+          existingResources: allResources?.slice(0, 25) || [],
+        }),
+      });
+      const data = await res.json();
+      if (data?.success && data?.data) {
+        const { markdownContent: expandedMd, summary: newSummary, domain, docType, entities, relations } = data.data;
+
+        setMarkdownContent(expandedMd);
+        setSummary(newSummary || summary);
+
+        await onUpdate(resource.id, {
+          summary: newSummary || resource.summary,
+          metadata: {
+            ...resource.metadata,
+            markdownContent: expandedMd,
+            domain: domain || resource.metadata?.domain,
+            docType: docType || resource.metadata?.docType,
+            entities: entities || resource.metadata?.entities,
+            relations: relations || resource.metadata?.relations,
+          },
+        });
+        setExpandDocMessage("✨ Documentazione tecnica OKF v0.2 approfondita ed estesa con successo!");
+        setActiveModalTab("doc");
+        setTimeout(() => setExpandDocMessage(null), 4000);
+      } else {
+        setExpandDocMessage("⚠️ Impossibile espandere la documentazione.");
+      }
+    } catch (err: any) {
+      console.error("Expand documentation error:", err);
+      setExpandDocMessage("⚠️ Errore durante l'espansione della documentazione.");
+    } finally {
+      setIsExpandingDoc(false);
+    }
+  };
+
+  const handleDownloadMarkdown = () => {
+    const rawContent = resource.metadata?.markdownContent || markdownContent || `# ${resource.title}\n\n${resource.summary}`;
+    const filename = `${resource.title.toLowerCase().replace(/[^a-z0-9]/g, "-")}.okf.md`;
+    const blob = new Blob([rawContent], { type: "text/markdown;charset=utf-8;" });
+    const urlBlob = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = urlBlob;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(urlBlob);
+  };
+
   const handleSave = async () => {
     setIsSaving(true);
     const tagsArray = tagsStr
@@ -520,6 +586,27 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
 
           {/* Quick AI & Utility Header Actions */}
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 flex-wrap justify-end">
+            {/* AI Documentation Deepening Button */}
+            <button
+              type="button"
+              onClick={handleExpandDocumentation}
+              disabled={isExpandingDoc}
+              className="flex items-center gap-1.5 text-xs font-mono px-2.5 sm:px-3 py-1.5 rounded-lg border transition-all shrink-0 bg-[#C5A059] hover:bg-[#D5B069] text-black font-semibold shadow-sm"
+              title="Genera o approfondisci la documentazione tecnica OKF v0.2 con Google Gemini"
+            >
+              {isExpandingDoc ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-black" />
+                  <span className="hidden xs:inline">Espansione AI...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-3.5 h-3.5 text-black" />
+                  <span className="hidden xs:inline">Approfondisci AI</span>
+                </>
+              )}
+            </button>
+
             {/* AI Translation Button */}
             <button
               type="button"
@@ -570,6 +657,16 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
                   <span className="hidden xs:inline">{hasExecutiveSummary ? "⚡ Riassunto" : "Riassumi AI"}</span>
                 </>
               )}
+            </button>
+
+            {/* Download .okf.md */}
+            <button
+              type="button"
+              onClick={handleDownloadMarkdown}
+              className="p-1.5 sm:p-2 text-[#AAA] hover:text-white bg-[#141414] hover:bg-[#1E1E1E] border border-[#2B2B2B] rounded-lg transition-colors shrink-0"
+              title="Scarica documento OKF in formato .okf.md"
+            >
+              <Download className="w-3.5 h-3.5 text-[#C5A059]" />
             </button>
 
             {resource.url && (
@@ -665,6 +762,21 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
         )}
 
         {/* Dynamic Status / Feedback Banners */}
+        {expandDocMessage && (
+          <div className="px-4 py-2 bg-emerald-950/80 border-b border-emerald-800/40 text-emerald-300 text-xs font-mono flex items-center justify-between gap-2 animate-in slide-in-from-top-2">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>{expandDocMessage}</span>
+            </div>
+            <button 
+              onClick={() => setExpandDocMessage(null)}
+              className="text-emerald-400 hover:text-white"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
         {translationMessage && (
           <div className="px-4 py-2 bg-emerald-950/80 border-b border-emerald-800/40 text-emerald-300 text-xs font-mono flex items-center justify-between gap-2 animate-in slide-in-from-top-2">
             <div className="flex items-center gap-2">
@@ -691,6 +803,72 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
               className="text-[#C5A059] hover:text-white"
             >
               <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
+        {/* Modal Navigation Tabs */}
+        {!isEditing && (
+          <div className="px-4 sm:px-6 border-b border-[#1A1A1A] bg-[#0A0A0A] flex items-center gap-2 sm:gap-4 overflow-x-auto whitespace-nowrap">
+            <button
+              onClick={() => setActiveModalTab("overview")}
+              className={`py-2.5 sm:py-3 text-xs font-medium border-b-2 transition-colors flex items-center gap-1.5 shrink-0 ${
+                activeModalTab === "overview"
+                  ? "border-[#C5A059] text-white font-semibold"
+                  : "border-transparent text-[#777] hover:text-[#BBB]"
+              }`}
+            >
+              <BookOpen className="w-3.5 h-3.5 text-[#C5A059]" />
+              <span>Panoramica</span>
+            </button>
+
+            <button
+              onClick={() => setActiveModalTab("doc")}
+              className={`py-2.5 sm:py-3 text-xs font-medium border-b-2 transition-colors flex items-center gap-1.5 shrink-0 ${
+                activeModalTab === "doc"
+                  ? "border-[#C5A059] text-white font-semibold"
+                  : "border-transparent text-[#777] hover:text-[#BBB]"
+              }`}
+            >
+              <FileCode className="w-3.5 h-3.5 text-[#C5A059]" />
+              <span>Documentazione OKF .md</span>
+              <span className="text-[10px] font-mono text-[#AAA] bg-[#161616] px-1.5 py-0.2 rounded border border-[#2A2A2A]">
+                {((resource.metadata?.markdownContent || markdownContent || "").replace(/^---[\s\S]*?---\n*/, "").trim().split(/\s+/).filter(Boolean).length || 0)} parole
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveModalTab("graph")}
+              className={`py-2.5 sm:py-3 text-xs font-medium border-b-2 transition-colors flex items-center gap-1.5 shrink-0 ${
+                activeModalTab === "graph"
+                  ? "border-[#C5A059] text-white font-semibold"
+                  : "border-transparent text-[#777] hover:text-[#BBB]"
+              }`}
+            >
+              <Network className="w-3.5 h-3.5 text-[#C5A059]" />
+              <span>Connessioni & Grafo</span>
+              {((resource.metadata?.relations?.length || 0) + (resource.metadata?.entities?.length || 0) > 0) && (
+                <span className="text-[10px] font-mono text-[#AAA] bg-[#161616] px-1.5 py-0.2 rounded border border-[#2A2A2A]">
+                  {(resource.metadata?.relations?.length || 0)} link
+                </span>
+              )}
+            </button>
+
+            <button
+              onClick={() => setActiveModalTab("evaluation")}
+              className={`py-2.5 sm:py-3 text-xs font-medium border-b-2 transition-colors flex items-center gap-1.5 shrink-0 ${
+                activeModalTab === "evaluation"
+                  ? "border-[#C5A059] text-white font-semibold"
+                  : "border-transparent text-[#777] hover:text-[#BBB]"
+              }`}
+            >
+              <Award className="w-3.5 h-3.5 text-[#C5A059]" />
+              <span>Valutazione & Score</span>
+              {typeof resource.metadata?.score === "number" && resource.metadata.score > 0 && (
+                <span className="text-[10px] font-mono text-[#C5A059] bg-[#221A0C] px-1.5 py-0.2 rounded border border-[#C5A059]/40 font-bold">
+                  {resource.metadata.score}/100
+                </span>
+              )}
             </button>
           </div>
         )}

@@ -566,32 +566,34 @@ app.post("/api/process-knowledge", async (req, res) => {
       tags: r.tags || [],
     }));
 
-    const prompt = `You are an expert Knowledge Graph Architect and Technical Writer.
-Convert and enhance the following raw text/document into the Open Knowledge Format (OKF v0.2) specification.
+    const prompt = `You are a Principal Software Architect, Ontologist, and Senior Technical Writer.
+Your task is to transform the provided raw text or document into an authoritative, deeply detailed, and comprehensive Open Knowledge Format (OKF v0.2) specification in Italian (with standard English technical terms/code).
 
 Raw Document content (Filename: "${filename || 'document'}"):
 """
-${rawText.slice(0, 8000)}
+${rawText.slice(0, 15000)}
 """
 
-Existing resources currently in the user's Vault for cross-linking:
+Existing resources in the user's Vault for topological cross-linking:
 ${JSON.stringify(contextList, null, 2)}
 
-OKF v0.2 Guidelines:
-1. Extract a clear and authoritative title.
-2. Write an executive summary in Italian.
-3. Identify 3-7 technical tags.
-4. Determine domain (e.g. 'ai-agents', 'mcp-ecosystem', 'backend-architecture', 'database', 'frontend', 'security').
-5. Determine docType: 'concept' | 'specification' | 'architecture' | 'guide' | 'snippet' | 'research'.
-6. Extract key entities: array of objects with { name: string, type: string, description: string }.
-7. Build semantic relations with other existing items or key entities:
-   array of { targetId?: string, targetTitle: string, relationType: 'references' | 'implements' | 'depends_on' | 'extends' | 'related', weight: number (0.1-1.0), description?: string }.
-8. Generate the complete Markdown body adhering to OKF v0.2:
-   - Include the full YAML frontmatter block starting with --- and ending with ---
-   - Frontmatter must include: okf_version: "0.2", title, type, domain, tags, entities, relations, created_at.
-   - In the markdown body, insert wikilinks [[Target Title]] or [[Key Concept]] for related entities.
+Strict OKF v0.2 & Content Depth Rules:
+1. 'title': Clear, canonical title without redundant marketing prefixes.
+2. 'summary': A dense, highly descriptive 2-4 sentence executive summary in Italian.
+3. 'tags': 4 to 8 relevant lowercase technical tags.
+4. 'domain': E.g. "AI Systems & Inference", "Cloud Architecture", "Developer Tooling", "Database Engineering", "Security".
+5. 'docType': "concept" | "specification" | "architecture" | "guide" | "tool_description" | "prompt_skill".
+6. 'entities': Array of 3 to 8 canonical entities with { name: string, type: string, description: string }.
+7. 'relations': Array of weighted relations to existing vault items or key concepts { targetTitle: string, relationType: 'references' | 'implements' | 'governs' | 'integrates' | 'extends', weight: number (0.5 to 1.0), description: string }.
+8. 'markdownContent': A rich, comprehensive, multi-section Markdown document (AT LEAST 400-800 words):
+   - MUST start with the valid YAML frontmatter block enclosed in --- with okf_version: "0.2", title, type, domain, tags, created_at, entities, and relations.
+   - Section 1: Panoramica Esecutiva & Obiettivi (with executive value proposition)
+   - Section 2: Specifiche Tecniche & Architettura (with workflow diagrams in ASCII/code blocks)
+   - Section 3: Pattern Implementativi, Snippet di Codice o Comandi CLI
+   - Section 4: Ontologia, Collegamenti e Interoperabilità (use [[Wikilinks]] to reference concepts and vault titles)
+   - Section 5: Best Practice, Sicurezza e Considerazioni di Produzione
 
-Return JSON matching the schema.`;
+Return JSON strictly matching the schema.`;
 
     const schema = {
       type: Type.OBJECT,
@@ -634,7 +636,7 @@ Return JSON matching the schema.`;
 
     let parsed: any = null;
     try {
-      const generated = await generateWithGeminiFallback(prompt, schema);
+      const generated = await generateWithGeminiFallback(prompt, schema, 25000);
       if (generated?.text) {
         parsed = JSON.parse(generated.text);
       }
@@ -642,7 +644,7 @@ Return JSON matching the schema.`;
       console.warn("AI generation failed for process-knowledge, using fallback parser:", e?.message);
     }
 
-    if (parsed && parsed.title) {
+    if (parsed && parsed.title && parsed.markdownContent) {
       return res.json({
         result: {
           type: "knowledge",
@@ -651,7 +653,7 @@ Return JSON matching the schema.`;
           tags: parsed.tags || ["knowledge", "okf-v0.2"],
           metadata: {
             okfVersion: "0.2",
-            domain: parsed.domain || "general",
+            domain: parsed.domain || "Knowledge Architecture",
             docType: parsed.docType || "concept",
             entities: parsed.entities || [],
             relations: parsed.relations || [],
@@ -667,17 +669,17 @@ Return JSON matching the schema.`;
     const inferredTitle = filename?.replace(/\.[^/.]+$/, "") || lines[0]?.replace(/^#+\s*/, "").slice(0, 100) || "Documento Knowledge";
     const okfDoc = rawText.startsWith("---")
       ? rawText
-      : `---\nokf_version: "0.2"\ntitle: "${inferredTitle}"\ntype: "concept"\ndomain: "software-engineering"\ntags: ["knowledge", "okf-v0.2"]\ncreated_at: "${new Date().toISOString()}"\nentities:\n  - name: "${inferredTitle}"\n    type: "concept"\nrelations:\n  - target_title: "Knowledge Vault"\n    relation_type: "references"\n    weight: 0.85\n---\n\n# ${inferredTitle}\n\n${rawText}`;
+      : `---\nokf_version: "0.2"\ntitle: "${inferredTitle}"\ntype: "concept"\ndomain: "Software Architecture"\ntags: ["knowledge", "okf-v0.2"]\ncreated_at: "${new Date().toISOString()}"\nentities:\n  - name: "${inferredTitle}"\n    type: "concept"\n    description: "Elemento cardine del documento"\nrelations:\n  - target_title: "Knowledge Vault: Panoramica e Architettura OKF v0.2 (README)"\n    relation_type: "references"\n    weight: 0.85\n---\n\n# ${inferredTitle}\n\n> **Documentazione tecnica generata per il Knowledge Vault (OKF v0.2)**\n\n---\n\n## 1. Panoramica Esecutiva\n${rawText}\n\n---\n\n## 2. Dettagli Architetturali & Note Operative\n- Risorsa registrata all'interno dell'ontologia del Vault.\n- Compatibile con l'esplorazione topologica nel Grafo D3.\n`;
 
     return res.json({
       result: {
         type: "knowledge",
         title: inferredTitle,
-        summary: rawText.slice(0, 280) + "...",
+        summary: rawText.slice(0, 280) + (rawText.length > 280 ? "..." : ""),
         tags: ["knowledge", "okf-v0.2", "doc"],
         metadata: {
           okfVersion: "0.2",
-          domain: "software-engineering",
+          domain: "Software Architecture",
           docType: "concept",
           markdownContent: okfDoc,
           entities: [{ name: inferredTitle, type: "concept", description: "Concetto primario" }],
@@ -686,6 +688,7 @@ Return JSON matching the schema.`;
             targetTitle: c.title,
             relationType: "references",
             weight: 0.8,
+            description: "Collegamento semantico nel Vault",
           })),
         },
       },
@@ -713,6 +716,201 @@ Return JSON matching the schema.`;
       source: "fallback-error",
       error: error?.message,
     });
+  }
+});
+
+// API: Expand or Generate In-Depth OKF v0.2 Technical Documentation on Demand
+app.post("/api/expand-documentation", async (req, res) => {
+  try {
+    const { resource, existingResources = [] } = req.body;
+    if (!resource || !resource.title) {
+      return res.status(400).json({ error: "Resource object with title is required" });
+    }
+
+    const {
+      title,
+      type = "knowledge",
+      summary = "",
+      url = "",
+      tags = [],
+      metadata = {},
+      rawInput = "",
+    } = resource;
+
+    const currentContent = metadata.markdownContent || rawInput || summary || "";
+    const contextList = (existingResources as any[]).slice(0, 25).map((r) => ({
+      title: r.title,
+      type: r.type,
+      tags: r.tags || [],
+    }));
+
+    const prompt = `You are a World-Class Principal Software Architect and Lead Technical Author.
+Create an EXHAUSTIVE, IN-DEPTH, AND PROFESSIONAL Open Knowledge Format (OKF v0.2) Technical Documentation file for the following resource:
+
+Resource Context:
+- Title: "${title}"
+- Type: "${type}"
+- URL: "${url || 'N/A'}"
+- Summary: "${summary}"
+- Tags: ${JSON.stringify(tags)}
+- Existing Document/Context: """${currentContent.slice(0, 8000)}"""
+- Type Specific Info: ${JSON.stringify(metadata, null, 2)}
+
+Vault Cross-Reference Pool:
+${JSON.stringify(contextList, null, 2)}
+
+Requirements for the Generated Documentation:
+1. Length & Depth: Must be a rich, comprehensive technical guide (500 to 1000+ words).
+2. Language: Professional Italian for prose and explanations, standard English for technical identifiers, code, commands, and schemas.
+3. YAML Frontmatter: Must begin with valid YAML starting with --- and ending with --- containing:
+   - okf_version: "0.2"
+   - title: "${title}"
+   - type: "${metadata.docType || 'guide'}"
+   - domain: "${metadata.domain || 'Software Architecture'}"
+   - tags: ${JSON.stringify(tags.length > 0 ? tags : ['knowledge', 'okf-v0.2'])}
+   - created_at: "${new Date().toISOString()}"
+   - entities: array of { name, type, description }
+   - relations: array of { target_title, relation_type, weight, description }
+4. Document Sections to Include in the Markdown Body:
+   # ${title}
+   > Executive blockquote summary with key value proposition
+   ---
+   ## 1. Panoramica Esecutiva & Scopo del Progetto
+   (Detailed context, architectural motivations, problem solved, and key capabilities)
+   ## 2. Architettura Tecnica & Diagramma di Flusso
+   (Include ASCII diagrams or component breakdown)
+   ## 3. Guida Operativa, Comandi CLI & Snippet di Codice
+   (Concrete, copy-pasteable bash/TypeScript/JSON/config snippets with inline comments)
+   ## 4. Ontologia, Entità & Connessioni Topologiche
+   (Incorporate [[Wikilinks]] pointing to related concepts or tools in the vault)
+   ## 5. Linee Guida di Produzione, Resilienza e Sicurezza
+   (Error handling, performance tips, security considerations)
+
+5. Structured Output Fields:
+   - 'expandedMarkdown': The full, complete Markdown document starting with YAML frontmatter.
+   - 'enhancedSummary': An updated 2-3 sentence executive abstract in Italian.
+   - 'entities': Array of 4 to 8 identified entities { name, type, description }.
+   - 'relations': Array of 3 to 6 weighted topological relations { targetTitle, relationType, weight, description }.
+   - 'domain': Refined technical domain.
+   - 'docType': Refined docType ('concept' | 'specification' | 'architecture' | 'guide' | 'tool_description').
+
+Return pure JSON matching the schema.`;
+
+    const schema = {
+      type: Type.OBJECT,
+      properties: {
+        expandedMarkdown: { type: Type.STRING },
+        enhancedSummary: { type: Type.STRING },
+        domain: { type: Type.STRING },
+        docType: { type: Type.STRING },
+        entities: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              name: { type: Type.STRING },
+              type: { type: Type.STRING },
+              description: { type: Type.STRING },
+            },
+            required: ["name", "type"],
+          },
+        },
+        relations: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              targetTitle: { type: Type.STRING },
+              relationType: { type: Type.STRING },
+              weight: { type: Type.NUMBER },
+              description: { type: Type.STRING },
+            },
+            required: ["targetTitle", "relationType"],
+          },
+        },
+      },
+      required: ["expandedMarkdown", "enhancedSummary", "entities", "relations"],
+    };
+
+    let result: any = null;
+    try {
+      const generated = await generateWithGeminiFallback(prompt, schema, 30000);
+      if (generated?.text) {
+        result = JSON.parse(generated.text);
+      }
+    } catch (err: any) {
+      console.warn("AI generation failed for expand-documentation, using fallback:", err?.message);
+    }
+
+    if (result && result.expandedMarkdown) {
+      return res.json({
+        success: true,
+        source: "gemini",
+        data: {
+          markdownContent: result.expandedMarkdown,
+          summary: result.enhancedSummary || summary,
+          domain: result.domain || metadata.domain || "Knowledge Systems",
+          docType: result.docType || metadata.docType || "specification",
+          entities: result.entities || metadata.entities || [],
+          relations: result.relations || metadata.relations || [],
+        },
+      });
+    }
+
+    // Heuristic fallback generator
+    const fallbackMarkdown = `---
+okf_version: "0.2"
+title: "${title}"
+type: "${metadata.docType || 'specification'}"
+domain: "${metadata.domain || 'Software Architecture'}"
+tags: ${JSON.stringify(tags.length > 0 ? tags : ['knowledge', 'okf-v0.2'])}
+created_at: "${new Date().toISOString()}"
+entities:
+  - name: "${title}"
+    type: "concept"
+    description: "Risorsa centrale documentata nel Vault"
+relations:
+  - target_title: "Knowledge Vault: Panoramica e Architettura OKF v0.2 (README)"
+    relation_type: "references"
+    weight: 0.9
+    description: "Collegamento al sistema centrale"
+---
+
+# ${title}
+
+> **Documentazione Tecnica Dettagliata (OKF v0.2)**
+
+---
+
+## 1. Panoramica Esecutiva
+${summary || `La risorsa **${title}** fa parte del patrimonio di conoscenza del Knowledge Vault.`}
+
+---
+
+## 2. Dettagli Tecnici & Architettura
+${currentContent.replace(/^---[\s\S]*?---\n*/, "") || "Nessun contenuto sorgente aggiuntivo."}
+
+---
+
+## 3. Integrazione con il Grafo Topologico
+Questa risorsa è collegata all'ontologia del Vault ed esplorabile tramite la vista [[KnowledgeGraph]].
+`;
+
+    return res.json({
+      success: true,
+      source: "fallback",
+      data: {
+        markdownContent: fallbackMarkdown,
+        summary: summary || `Documentazione tecnica per ${title}`,
+        domain: metadata.domain || "Software Architecture",
+        docType: metadata.docType || "specification",
+        entities: metadata.entities || [{ name: title, type: "concept", description: "Risorsa centrale" }],
+        relations: metadata.relations || [],
+      },
+    });
+  } catch (error: any) {
+    console.error("Expand documentation error:", error);
+    res.status(500).json({ error: error?.message || "Failed to expand documentation" });
   }
 });
 

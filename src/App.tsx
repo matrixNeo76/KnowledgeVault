@@ -246,27 +246,53 @@ export default function App() {
     }
   };
 
-  // Seed / Sync system documentation suite & demo data
-  const handleSeedDemoData = async () => {
-    if (!user) return;
+  // Seed / Sync system documentation suite & demo data with deep OKF v0.2 specifications
+  const handleSeedDemoData = async (forceOverwrite = false) => {
+    const activeUser = user || auth.currentUser;
+    if (!activeUser) return;
     setIsSeeding(true);
-    addLog("info", "CAPTURE", "Inizializzazione suite documentale OKF v0.2 nel Vault...");
+    addLog("info", "CAPTURE", "Inizializzazione e allineamento suite documentale OKF v0.2 nel Vault...");
     try {
       let addedCount = 0;
-      let skippedCount = 0;
+      let updatedCount = 0;
 
       for (const sample of initialSampleResources) {
-        // Check if resource with same title already exists in user's vault
-        const existing = resources.find((r) => r.title.trim().toLowerCase() === sample.title.trim().toLowerCase());
+        // Match existing resource by exact title or canonical URL
+        const existing = resources.find(
+          (r) =>
+            r.title.trim().toLowerCase() === sample.title.trim().toLowerCase() ||
+            (sample.url && r.url && r.url.trim().toLowerCase() === sample.url.trim().toLowerCase())
+        );
+
         if (existing) {
-          skippedCount++;
+          const currentMdLen = (existing.metadata?.markdownContent || "").length;
+          const sampleMdLen = (sample.metadata?.markdownContent || "").length;
+
+          // Update if forceOverwrite is requested, or if the stored document is short/incomplete (< 500 chars)
+          if (forceOverwrite || currentMdLen < 500 || (sampleMdLen > currentMdLen + 200 && existing.type === "knowledge")) {
+            const itemToUpdate = sanitizeForFirestore({
+              title: sample.title,
+              summary: sample.summary,
+              type: sample.type,
+              tags: sample.tags,
+              isFavorite: sample.isFavorite ?? existing.isFavorite ?? false,
+              metadata: {
+                ...existing.metadata,
+                ...sample.metadata,
+                markdownContent: sample.metadata?.markdownContent || existing.metadata?.markdownContent,
+              },
+              updatedAt: serverTimestamp(),
+            });
+            await updateDoc(doc(db, "resources", existing.id), itemToUpdate);
+            updatedCount++;
+          }
           continue;
         }
 
         const itemToSave = sanitizeForFirestore({
           ...sample,
           url: sample.url || "",
-          userId: user.uid,
+          userId: activeUser.uid,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
@@ -274,17 +300,17 @@ export default function App() {
         addedCount++;
       }
 
-      if (addedCount > 0) {
-        addLog("success", "CAPTURE", `Caricate ${addedCount} nuove documentazioni di sistema OKF v0.2!`);
-        setStatusMessage(`Caricate ${addedCount} documentazioni e nodi relazionali OKF v0.2!`);
+      if (addedCount > 0 || updatedCount > 0) {
+        addLog("success", "CAPTURE", `Sincronizzazione OKF v0.2 completata: ${addedCount} nuove, ${updatedCount} aggiornate con specifiche esaustive!`);
+        setStatusMessage(`Suite OKF v0.2 allineata: ${addedCount} create, ${updatedCount} aggiornate con documentazione completa.`);
       } else {
-        addLog("info", "CAPTURE", "Tutti i documenti di sistema sono già presenti nel Vault.");
-        setStatusMessage("Tutti i documenti del sistema sono già sincronizzati nel Vault.");
+        addLog("info", "CAPTURE", "Tutti i documenti del Vault sono già allineati alle specifiche complete OKF v0.2.");
+        setStatusMessage("I documenti del Vault sono già aggiornati alle specifiche complete OKF v0.2.");
       }
-      setTimeout(() => setStatusMessage(null), 3500);
+      setTimeout(() => setStatusMessage(null), 4000);
     } catch (err: any) {
       console.error("Seed error:", err);
-      addLog("error", "CAPTURE", `Errore caricamento documentazione: ${err.message}`, err);
+      addLog("error", "CAPTURE", `Errore sincronizzazione documentazione: ${err.message}`, err);
       setErrorMessage("Errore nel caricamento della documentazione: " + (err.message || ""));
       setTimeout(() => setErrorMessage(null), 5000);
     } finally {
@@ -694,7 +720,7 @@ export default function App() {
         onSignOut={handleSignOut}
         isOpenMobile={isMobileMenuOpen}
         onCloseMobile={() => setIsMobileMenuOpen(false)}
-        onSeedDemo={handleSeedDemoData}
+        onSeedDemo={() => handleSeedDemoData(true)}
         isSeeding={isSeeding}
         onOpenKnowledgeUpload={() => setIsKnowledgeUploadOpen(true)}
         onOpenExport={() => setIsExportOpen(true)}
@@ -804,11 +830,11 @@ export default function App() {
                 ) : (
                   <>
                     <button
-                      onClick={handleSeedDemoData}
+                      onClick={() => handleSeedDemoData(true)}
                       disabled={isSeeding}
                       className="px-4 py-2 rounded-lg bg-[#141414] hover:bg-[#1E1E1E] border border-[#333] text-xs text-[#C5A059] transition-colors"
                     >
-                      {isSeeding ? "Caricamento Docs..." : "Carica Documentazione OKF v0.2"}
+                      {isSeeding ? "Sincronizzazione OKF..." : "Sincronizza Suite OKF v0.2"}
                     </button>
                     <button
                       onClick={() => setIsKnowledgeUploadOpen(true)}
@@ -894,6 +920,7 @@ export default function App() {
         resource={selectedKnowledgeForReader}
         allResources={resources}
         onClose={() => setSelectedKnowledgeForReader(null)}
+        onUpdate={handleUpdateResource}
         onNavigateToResource={(res) => {
           if (res.type === "knowledge") {
             setSelectedKnowledgeForReader(res);

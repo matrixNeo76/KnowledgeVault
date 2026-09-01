@@ -10,7 +10,9 @@ import {
   FileCode, 
   ArrowRight,
   ExternalLink,
-  BookOpen
+  BookOpen,
+  Sparkles,
+  Loader2
 } from "lucide-react";
 import Markdown from "react-markdown";
 import { ResourceItem } from "../types";
@@ -20,6 +22,7 @@ interface KnowledgeReaderProps {
   allResources: ResourceItem[];
   onClose: () => void;
   onNavigateToResource: (resource: ResourceItem) => void;
+  onUpdate?: (id: string, updatedData: Partial<ResourceItem>) => Promise<boolean>;
 }
 
 export const KnowledgeReader: React.FC<KnowledgeReaderProps> = ({
@@ -27,9 +30,12 @@ export const KnowledgeReader: React.FC<KnowledgeReaderProps> = ({
   allResources,
   onClose,
   onNavigateToResource,
+  onUpdate,
 }) => {
   const [activeTab, setActiveTab] = useState<"document" | "okf_spec" | "graph_links">("document");
   const [copied, setCopied] = useState(false);
+  const [isExpanding, setIsExpanding] = useState(false);
+  const [expandMessage, setExpandMessage] = useState<string | null>(null);
 
   // Escape key handler
   React.useEffect(() => {
@@ -61,6 +67,48 @@ export const KnowledgeReader: React.FC<KnowledgeReaderProps> = ({
     link.download = filename;
     link.click();
     URL.revokeObjectURL(url);
+  };
+
+  const handleExpandWithAI = async () => {
+    if (!resource) return;
+    setIsExpanding(true);
+    setExpandMessage(null);
+    try {
+      const res = await fetch("/api/expand-documentation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          resource,
+          existingResources: allResources.slice(0, 30),
+        }),
+      });
+      const data = await res.json();
+      if (data?.success && data?.data) {
+        const { markdownContent, summary, domain, docType, entities, relations } = data.data;
+        if (onUpdate) {
+          await onUpdate(resource.id, {
+            summary: summary || resource.summary,
+            metadata: {
+              ...resource.metadata,
+              markdownContent,
+              domain: domain || resource.metadata?.domain,
+              docType: docType || resource.metadata?.docType,
+              entities: entities || resource.metadata?.entities,
+              relations: relations || resource.metadata?.relations,
+            },
+          });
+        }
+        setExpandMessage("✨ Documentazione OKF v0.2 approfondita ed estesa con successo!");
+        setTimeout(() => setExpandMessage(null), 4000);
+      } else {
+        setExpandMessage("⚠️ Impossibile espandere la documentazione.");
+      }
+    } catch (err: any) {
+      console.error("Expand documentation error:", err);
+      setExpandMessage("⚠️ Errore durante l'elaborazione.");
+    } finally {
+      setIsExpanding(false);
+    }
   };
 
   // Find linked resources from OKF relations & shared ontology
@@ -146,6 +194,9 @@ export const KnowledgeReader: React.FC<KnowledgeReaderProps> = ({
                     {resource.metadata.docType}
                   </span>
                 )}
+                <span className="text-[9px] sm:text-[10px] font-mono text-[#777] bg-[#121212] px-1.5 py-0.5 rounded shrink-0">
+                  {contentBody.trim().split(/\s+/).filter(Boolean).length} parole
+                </span>
               </div>
               <h2 className="text-sm sm:text-lg font-serif text-white font-medium truncate mt-0.5">
                 {resource.title}
@@ -155,6 +206,26 @@ export const KnowledgeReader: React.FC<KnowledgeReaderProps> = ({
 
           {/* Right Action & Prominent Close Buttons */}
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            {/* AI Expand Documentation Button */}
+            <button
+              onClick={handleExpandWithAI}
+              disabled={isExpanding}
+              className="flex items-center gap-1.5 text-xs text-black bg-[#C5A059] hover:bg-[#D5B069] font-medium px-2.5 sm:px-3 py-1.5 rounded-lg transition-colors shadow-sm shrink-0"
+              title="Genera ed espandi la documentazione tecnica in modo approfondito con Google Gemini"
+            >
+              {isExpanding ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-black" />
+                  <span className="hidden sm:inline">Espansione AI...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-3.5 h-3.5 text-black" />
+                  <span className="hidden sm:inline">Approfondisci con AI</span>
+                </>
+              )}
+            </button>
+
             <button
               onClick={handleCopyMarkdown}
               className="flex items-center gap-1 text-xs text-[#AAA] hover:text-white bg-[#141414] hover:bg-[#1E1E1E] border border-[#2B2B2B] px-2 sm:px-3 py-1.5 rounded-lg transition-colors shrink-0"
@@ -190,6 +261,16 @@ export const KnowledgeReader: React.FC<KnowledgeReaderProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Status Message */}
+        {expandMessage && (
+          <div className="px-4 py-2 bg-emerald-950/80 border-b border-emerald-800/40 text-emerald-300 text-xs font-mono flex items-center justify-between gap-2 animate-in slide-in-from-top-2">
+            <span>{expandMessage}</span>
+            <button onClick={() => setExpandMessage(null)} className="text-emerald-400 hover:text-white">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
 
         {/* Tabs Navigation */}
         <div className="px-3 sm:px-6 border-b border-[#1A1A1A] bg-[#0A0A0A] flex items-center gap-2 sm:gap-4 overflow-x-auto whitespace-nowrap">
