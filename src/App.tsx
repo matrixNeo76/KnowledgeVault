@@ -594,15 +594,20 @@ export default function App() {
 
       if (analysis.hasConflicts) {
         setConflictAnalysis(analysis);
-        setIsConflictModalOpen(true);
+        // Apply safe non-destructive union seamlessly without intrusive popups
+        setResources(analysis.mergedResources);
+        saveLocalResources(analysis.mergedResources, user.uid, rawFiles);
         setQuotaExceeded(false);
+        wasQuotaExceededRef.current = false;
+        setLastSyncTime(new Date());
+        updateCacheTimestamp();
         addLog(
-          "info",
+          "success",
           "FIRESTORE",
-          `Rilevati ${analysis.localNewerCount + analysis.localOnlyCount} elementi locali e ${analysis.remoteNewerCount + analysis.remoteOnlyCount} elementi Firestore. Proposta di merge pronta.`
+          `Sincronizzazione completata: ${analysis.mergedResources.length} risorse allineate in sicurezza.`
         );
-        setStatusMessage(`Rilevate differenze tra dati locali e cloud (${analysis.localOnlyCount + analysis.localNewerCount} modifiche). Proposta di merge aperta.`);
-        setTimeout(() => setStatusMessage(null), 5000);
+        setStatusMessage(`Sincronizzazione completata: ${analysis.mergedResources.length} risorse allineate.`);
+        setTimeout(() => setStatusMessage(null), 4000);
       } else {
         if (items.length > 0) {
           setResources(items);
@@ -799,42 +804,34 @@ export default function App() {
           // If items were received from Firestore:
           // If local memory has significantly more items than Firestore (e.g. user had 100+ items and cloud has fewer):
           if (currentLocalCount > items.length && currentLocalCount > 15) {
-            // Run conflict analysis / safe merge rather than blindly wiping out local items!
+            // Run safe merge non-destructively rather than interrupting the user with intrusive dialogs!
             const analysis = analyzeResourceConflicts(currentLocalItems, items);
-            if (analysis.hasConflicts) {
-              setConflictAnalysis(analysis);
-              setIsConflictModalOpen(true);
-              addLog(
-                "warn",
-                "FIRESTORE",
-                `Rilevate ${currentLocalCount} risorse locali contro ${items.length} remote. Bloccata la sovrascrittura distruttiva e proposta unione.`
-              );
-              setIsLoadingResources(false);
-              return;
-            }
+            setConflictAnalysis(analysis);
+            setResources(analysis.mergedResources);
+            saveLocalResources(analysis.mergedResources, user.uid, rawFiles);
+            addLog(
+              "info",
+              "FIRESTORE",
+              `Unione sicura completata in background: ${analysis.mergedResources.length} risorse preservate.`
+            );
+            setIsLoadingResources(false);
+            return;
           }
 
           if (wasQuotaExceededRef.current) {
             // Transitioned from Quota Exceeded back to Online!
             const analysis = analyzeResourceConflicts(resourcesRef.current, items);
-            if (analysis.hasConflicts) {
-              setConflictAnalysis(analysis);
-              setIsConflictModalOpen(true);
-              setQuotaExceeded(false);
-              addLog(
-                "info",
-                "FIRESTORE",
-                `Transizione da Quota Esaurita a Online: rilevate ${analysis.localNewerCount + analysis.localOnlyCount} modifiche locali e ${analysis.remoteNewerCount + analysis.remoteOnlyCount} cloud. Proposta di merge automatico attivata.`
-              );
-              setStatusMessage(`Riconnessione Firestore riuscita: rilevate ${analysis.localOnlyCount + analysis.localNewerCount} modifiche locali da unificare.`);
-              setTimeout(() => setStatusMessage(null), 5000);
-            } else {
-              setResources(items);
-              saveLocalResources(items, user.uid, rawFiles);
-              setQuotaExceeded(false);
-              wasQuotaExceededRef.current = false;
-              saveQuotaExceededStatus(false);
-            }
+            setConflictAnalysis(analysis);
+            setResources(analysis.mergedResources);
+            saveLocalResources(analysis.mergedResources, user.uid, rawFiles);
+            setQuotaExceeded(false);
+            wasQuotaExceededRef.current = false;
+            saveQuotaExceededStatus(false);
+            addLog(
+              "info",
+              "FIRESTORE",
+              `Riconnessione cloud completata: ${analysis.mergedResources.length} risorse sincronizzate.`
+            );
           } else {
             setResources(items);
             saveLocalResources(items, user.uid, rawFiles);

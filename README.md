@@ -8,6 +8,7 @@
 [![D3.js](https://img.shields.io/badge/Visualization-D3.js%20v7-F9A03C.svg)](https://d3js.org/)
 [![Google Gemini](https://img.shields.io/badge/AI%20Engine-Gemini%203.7%20%2F%202.5%20Flash-8E75B2.svg)](https://ai.google.dev/)
 [![Firebase](https://img.shields.io/badge/Database-Cloud%20Firestore-FFCA28.svg)](https://firebase.google.com/)
+[![Persistenza Multi-Livello](https://img.shields.io/badge/Storage-3--Layer%20Resilient-2E7D32.svg)](#6--architettura-di-persistenza-continua-a-3-livelli)
 
 ---
 
@@ -17,7 +18,7 @@
 
 A differenza dei comuni wiki o bookmark manager statici, Knowledge Vault trasforma ogni informazione (file markdown, repository GitHub, server MCP, prompt di sistema o articoli tecnici) in un **nodo ontologico interconnesso** governato dallo standard aperto **OKF v0.2 (Open Knowledge Format)**. 
 
-Attraverso un **motore fisico a grafo in D3.js** e l'orchestrazione di **Google Gemini 3.7 / 2.5 Flash**, la piattaforma analizza, categorizza, correla e rende immediatamente interrogabile ed esportabile l'intero corpus di conoscenza tecnica.
+Attraverso un **motore fisico a grafo in D3.js**, un'**architettura di persistenza continua a 3 livelli** (Browser, Server locale e Cloud) e l'orchestrazione di **Google Gemini 3.7 / 2.5 Flash**, la piattaforma analizza, categorizza, correla e rende immediatamente interrogabile, resiliente ed esportabile l'intero corpus di conoscenza tecnica.
 
 ---
 
@@ -44,8 +45,8 @@ Attraverso un **motore fisico a grafo in D3.js** e l'orchestrazione di **Google 
   - *Configurazioni e Server MCP* (creazione istantanea di snippet JSON `mcpServers` compatibili con Claude Desktop e Claude Code).
   - *AI Prompts & Skills* (identificazione del ruolo di sistema, modello consigliato e parole chiave di trigger).
   - *Documenti Tecnici OKF v0.2*.
-- **Structured JSON Schema via Gemini**: Output rigorosamente validato tramite `@google/genai` TypeScript SDK con latenza minima.
-- **Fallback Euristico Locale a Latenza Zero**: Se la connessione o le API esterne sono degradate, interviene un motore di parsing a regole per garantire continuità di servizio al 100%.
+- **Structured JSON Schema via Gemini**: Output rigorosamente tipizzato e validato tramite `@google/genai` TypeScript SDK con latenza minima.
+- **Fallback Euristico Locale a Latenza Zero**: Se la connessione o le API esterne sono temporaneamente degradate o limitate da quote, interviene un motore di parsing a regole per garantire continuità di servizio al 100% con latenza 0ms.
 
 ---
 
@@ -77,25 +78,55 @@ Attraverso un **motore fisico a grafo in D3.js** e l'orchestrazione di **Google 
 
 ---
 
-### 6. 🔒 Persistenza Cloud Firestore & Autenticazione
-- **Sincronizzazione Realtime Multi-Device**: Aggiornamento reattivo immediato tramite listener `onSnapshot` di Google Cloud Firestore.
-- **Autenticazione Flessibile**:
-  - Accesso sicuro tramite **Google Account (Firebase Auth)**.
-  - Accesso immediato con **Sessione Anonima / Ospite**.
-- **Regole di Sicurezza Granulari (`firestore.rules`)**:
-  - Isolamento rigoroso per `userId` (ogni utente accede solo alle proprie risorse).
-  - Validazione dei tipi di campo e vincoli sui formati supportati.
+### 6. 🛡️ Architettura di Persistenza Continua a 3 Livelli
+Per garantire che **nessun dato venga mai perso** (anche in assenza di connessione, con cache del browser svuotata o in caso di esaurimento quote giornaliere del cloud), il Vault implementa un'architettura resiliente a tre livelli:
+
+```
+[ Livello 1: Client ]   IndexedDB + LocalStorage (Latenza 0ms, cache persistente nel browser)
+         ▲
+         │ Sincronizzazione automatica
+         ▼
+[ Livello 2: Server ]   File locale 'data/vault-backup.json' + 20 Snapshot Storici di rotazione
+         ▲
+         │ Background Auto-Sync
+         ▼
+[ Livello 3: Cloud ]    Google Cloud Firestore (Sincronizzazione realtime & sicurezza multi-utente)
+```
+
+1. **Livello 1 (Client / Browser)**:
+   - Archiviazione immediata in memoria e in **IndexedDB** (`localforage`) con fallback in **LocalStorage**.
+   - Avvio istantaneo con latenza di caricamento 0ms.
+   - **Safety Shield**: se una query remota restituisce 0 record (es. utente non ancora loggato o sessione provvisoria), lo scudo blocca qualsiasi sovrascrittura distruttiva, preservando i dati locali.
+2. **Livello 2 (Server Backend Resiliente)**:
+   - Scrittura continua su disco nel file server `data/vault-backup.json` tramite API `/api/vault/backup`.
+   - **Sistema di Snapshot Storici**: archiviazione a rotazione delle ultime 20 revisioni con timestamp per consentire il ripristino istantaneo in caso di emergenza.
+   - API dedicate: `/api/vault/backup-status`, `/api/vault/snapshots`, `/api/vault/restore-snapshot`.
+3. **Livello 3 (Google Cloud Firestore)**:
+   - Sincronizzazione reattiva in tempo reale tramite `onSnapshot`.
+   - **Auto-Sync in Background**: le nuove risorse acquisite offline o in locale vengono caricate automaticamente su Firestore non appena disponibile la connessione, senza richiedere interventi manuali o finestre bloccanti.
+   - **Deduplicazione Intelligente per Firma**: accoppiamento automatico tra ID locali e remoti per URL e Titolo, evitando la creazione di duplicati fittizi.
+4. **Pannello di Controllo "Stato Persistenza a 3 Livelli" (`PersistenceStatusModal`)**:
+   - Cruscotto interattivo per monitorare in tempo reale lo stato dei 3 livelli, le dimensioni su disco, l'ora dell'ultimo backup e le azioni di sincronizzazione/esportazione.
 
 ---
 
-### 7. 🛠️ Console di Diagnostica & Telemetria di Sistema
+### 7. 📊 Monitoraggio Quote & Telemetria AI/Database (`QuotaMonitorView`)
+- **Dashboard Dedicata di Diagnostica Quote**:
+  - **Google Cloud Firestore Tracker**: monitoraggio in tempo reale delle operazioni di lettura (`reads`), scrittura (`writes`) ed eliminazione rispetto alle soglie del Free Tier (50.000 letture/giorno).
+  - **Conto alla Rovescia Reset Quota**: calcolo preciso del countdown fino alla mezzanotte del fuso orario di riferimento di Google Cloud.
+  - **Gemini AI Engine Telemetria**: monitoraggio chiamate API, RPM (Requests Per Minute), RPD (Requests Per Day), TPM (Tokens Per Minute stimati) e latenza media delle risposte.
+  - **Registro Eventi & Errori**: storico dettagliato di tutte le operazioni e degli eventuali codici di errore (es. `RESOURCE_EXHAUSTED`, timeout di rete).
+
+---
+
+### 8. 🛠️ Console di Diagnostica & Gestione Account
 - **Drawer di Diagnostica Realtime**: Monitoraggio continuo e cronologia degli eventi di sistema con categorie dedicate:
-  - `AUTH` (login, logout, session state).
-  - `FIRESTORE` (operazioni di read, add, update, delete).
-  - `CAPTURE` (analisi input, sanitizzazione payload).
-  - `GEMINI_AI` (chiamate al modello, token usage, fallback).
-- **Esportazione Log di Sistema**: Download del report di telemetria in formato JSON per auditing e debugging.
-- **Inizializzazione Suite Documentale**: Pulsante dedicato per pre-caricare l'intera suite documentale del sistema (*README, AGENTS, CLAUDE, GEMINI, ARCHITECTURE, ecc.*) con le relazioni ontologiche predefinite.
+  - `AUTH` (login Google, sessione ospite anonima, UID).
+  - `FIRESTORE` (operazioni di read, write, snapshot e sync).
+  - `CAPTURE` (analisi input, parsing, estrazione metadati).
+  - `GEMINI_AI` (chiamate al modello, token, fallback).
+- **Esportazione Completa del Vault**: Download dell'intero archivio in formato JSON conforme OKF v0.2 per backup e migrazione.
+- **Inizializzazione Suite Documentale**: Pulsante per pre-caricare l'intera suite documentale di sistema (*README, AGENTS, CLAUDE, GEMINI, ARCHITECTURE, ecc.*) con le relazioni ontologiche predefinite.
 
 ---
 
@@ -138,83 +169,92 @@ Corpo della documentazione formattato in Markdown con tabelle, blocchi di codice
 ## 🏗️ Architettura & Stack Tecnologico
 
 ```
-+-------------------------------------------------------------------------+
-|                              CLIENT (React 18 + SPA)                    |
-|                                                                         |
-|  +---------------------+   +---------------------+   +---------------+  |
-|  |   KnowledgeGraph    |   |   KnowledgeReader   |   |   QuickBar    |  |
-|  |  (D3 Force Network) |   |  (Markdown + OKF)   |   | & Diagnostics |  |
-|  +----------^----------+   +----------^----------+   +-------^-------+  |
-|             |                         |                      |          |
-|             +-------------------------+----------------------+          |
-|                                       |                                 |
-|                           [ React State & Context ]                     |
-+---------------------------------------|---------------------------------+
++-----------------------------------------------------------------------------------------+
+|                                CLIENT (React 19 + Vite SPA)                             |
+|                                                                                         |
+|  +---------------------+   +---------------------+   +-------------------------------+  |
+|  |   KnowledgeGraph    |   |   KnowledgeReader   |   | QuotaMonitor & Telemetry View |  |
+|  |  (D3 Force Network) |   |  (Markdown + OKF)   |   | (Firestore & Gemini Realtime) |  |
+|  +----------^----------+   +----------^----------+   +---------------^---------------+  |
+|             |                         |                              |                  |
+|             +-------------------------+------------------------------+                  |
+|                                       |                                                 |
+|                   [ React State + IndexedDB Local Cache (Level 1) ]                     |
++---------------------------------------|-------------------------------------------------+
                                         |
            +----------------------------+----------------------------+
-           | (Auth & Firestore Sync)                                 | (REST API)
+           | (Auth & Firestore Sync)                                 | (REST API & Server Backup)
            v                                                         v
-+-----------------------+                         +-----------------------+
-|  Cloud Firestore &    |                         |     Express Server    |
-|  Firebase Auth        |                         |       (server.ts)     |
-|                       |                         |                       |
-| - collection("resources")                       | - /api/analyze-resource
-| - Security rules per UID                        | - /api/ai-chat        |
-| - Realtime onSnapshot                           | - Google GenAI SDK    |
-+-----------------------+                         +-----------^-----------+
-                                                              |
-                                                              v
-                                                  +-----------------------+
-                                                  | Gemini 3.7 / 2.5 Flash|
-                                                  |  (Structured Output)  |
-                                                  +-----------------------+
++-----------------------+                         +---------------------------------------+
+|  Cloud Firestore      |                         |     Express Server (Level 2 Backup)   |
+|  (Level 3 Cloud)      |                         |               (server.ts)             |
+|                       |                         |                                       |
+| - collection("res")   |                         | - /api/vault/backup (data/backup.json)|
+| - Security rules UID  |                         | - /api/vault/snapshots (20 revisions) |
+| - Realtime onSnapshot |                         | - /api/analyze-resource (Gemini SDK)  |
++-----------------------+                         +-------------------^-------------------+
+                                                                      |
+                                                                      v
+                                                          +-----------------------+
+                                                          | Gemini 3.7 / 2.5 Flash|
+                                                          |  (Structured Output)  |
+                                                          +-----------------------+
 ```
 
 | Layer | Tecnologie e Librerie |
 |---|---|
 | **Frontend Framework** | React 19 / 18, TypeScript 5.8, Vite 6 |
 | **Data Visualization** | D3.js v7 (`d3-force`, `d3-zoom`, `d3-selection`) |
-| **Styling & Icons** | Tailwind CSS v4, Lucide React, Framer Motion |
-| **Content Rendering** | React Markdown, JetBrains Mono & Instrument Serif typography |
-| **Backend & Proxy** | Node.js, Express, `tsx` runtime, `esbuild` compiler |
+| **Styling & UI** | Tailwind CSS v4, Lucide React, Framer Motion |
+| **Content Rendering** | React Markdown, JetBrains Mono & Instrument Serif |
+| **Client Storage (L1)** | IndexedDB (`localforage`), LocalStorage, In-Memory State |
+| **Backend & Server (L2)**| Node.js, Express, `vault-backup.json`, rotazione snapshot, `esbuild` |
+| **Cloud Storage (L3)** | Google Cloud Firestore (NoSQL realtime) & Firebase Auth |
 | **AI Inference** | `@google/genai` TypeScript SDK (Gemini 3.7 Flash & 2.5 Flash) |
-| **Database & Auth** | Google Cloud Firestore (NoSQL realtime) & Firebase Authentication |
 
 ---
 
 ## 📦 Struttura del Progetto
 
 ```
-├── .env.example              # Documentazione variabili d'ambiente (GEMINI_API_KEY)
-├── README.md                 # Panoramica completa e documentazione di riferimento
-├── AGENTS.md                 # Regole e protocolli per agenti autonomi
-├── CLAUDE.md                 # Specifiche per Claude Code e workflow CLI
-├── GEMINI.md                 # Linee guida prompt engineering e schema Gemini
-├── ARCHITECTURE.md           # Dettaglio architetturale completo del sistema
-├── firestore.rules           # Regole di sicurezza per Google Cloud Firestore
-├── firebase-blueprint.json   # Schema e indici del database Firestore
-├── server.ts                 # Server Express con endpoint API e Vite middleware
-├── package.json              # Dipendenze e script di build
+├── .env.example                       # Documentazione variabili d'ambiente (GEMINI_API_KEY)
+├── README.md                          # Panoramica completa e documentazione di riferimento
+├── AGENTS.md                          # Regole e protocolli operativi per agenti autonomi
+├── CLAUDE.md                          # Specifiche per Claude Code e workflow CLI
+├── GEMINI.md                          # Linee guida prompt engineering e schema Gemini
+├── ARCHITECTURE.md                    # Dettaglio architetturale completo del sistema
+├── firestore.rules                    # Regole di sicurezza per Google Cloud Firestore
+├── firebase-blueprint.json            # Schema e indici del database Firestore
+├── server.ts                          # Server Express con backup endpoints e Vite middleware
+├── data/
+│   └── vault-backup.json              # File di backup persistente del server (Livello 2)
 ├── src/
-│   ├── main.tsx              # Entry point React
-│   ├── App.tsx               # Controller applicativo principale
-│   ├── types.ts              # Interfacce TypeScript e schemi dati OKF v0.2
+│   ├── main.tsx                       # Entry point React
+│   ├── App.tsx                        # Controller applicativo e sincronizzazione a 3 livelli
+│   ├── types.ts                       # Interfacce TypeScript e schemi dati OKF v0.2
 │   ├── lib/
-│   │   ├── firebase.ts       # Inizializzazione Firebase Auth e Firestore
-│   │   ├── sampleData.ts     # Suite documentale predefinita OKF v0.2
-│   │   └── utils.ts          # Utility di formattazione e parsing
+│   │   ├── firebase.ts                # Inizializzazione Firebase Auth e Firestore
+│   │   ├── quotaTelemetry.ts          # Motore di telemetria quote Firestore e Gemini
+│   │   ├── conflictResolver.ts        # Algoritmo di riconciliazione e unione sicura
+│   │   ├── dateUtils.ts               # Utility per parsing e normalizzazione timestamp
+│   │   ├── sampleData.ts              # Suite documentale predefinita OKF v0.2
+│   │   └── utils.ts                   # Utility di formattazione e parsing
 │   └── components/
-│       ├── KnowledgeGraph.tsx        # Motore visualizzazione a grafo topologico D3
-│       ├── KnowledgeReader.tsx       # Lettore Markdown & ispettore ontologico
-│       ├── CaptureBar.tsx            # Barra di cattura rapida intelligente
-│       ├── KnowledgeUploadDialog.tsx # Modale di upload e parsing documenti OKF
-│       ├── ResourceCard.tsx          # Card interattiva con badge per categoria
-│       ├── ResourceTable.tsx         # Vista tabellare avanzata
-│       ├── ResourceModal.tsx         # Modale dettaglio e modifica risorsa
-│       ├── Sidebar.tsx               # Barra laterale di navigazione e filtri
-│       ├── Header.tsx                # Intestazione con search, auth e profilo
-│       ├── StatsBanner.tsx           # Metriche aggregate e KPI della knowledge
-│       └── DiagnosticDrawer.tsx      # Console di telemetria e log di sistema
+│       ├── KnowledgeGraph.tsx         # Motore visualizzazione a grafo topologico D3
+│       ├── KnowledgeReader.tsx        # Lettore Markdown & ispettore ontologico
+│       ├── CaptureBar.tsx             # Barra di cattura rapida intelligente
+│       ├── KnowledgeUploadDialog.tsx  # Modale di upload e parsing documenti OKF
+│       ├── ResourceCard.tsx           # Card interattiva con badge per categoria
+│       ├── ResourceTable.tsx          # Vista tabellare avanzata
+│       ├── ResourceModal.tsx          # Modale dettaglio e modifica risorsa
+│       ├── Sidebar.tsx                # Barra laterale di navigazione, filtri e account
+│       ├── Header.tsx                 # Intestazione con ricerca, auth e controlli vista
+│       ├── StatsBanner.tsx            # Metriche aggregate e KPI della knowledge
+│       ├── SyncStatusBanner.tsx       # Banner real-time di stato persistenza e quote
+│       ├── PersistenceStatusModal.tsx # Cruscotto di controllo persistenza a 3 livelli
+│       ├── QuotaMonitorView.tsx       # Vista analitica monitoraggio quote e telemetria
+│       ├── ConflictResolutionModal.tsx# Modale per la verifica e allineamento versioni
+│       └── DiagnosticDrawer.tsx       # Console di telemetria e log di sistema
 ```
 
 ---
@@ -255,3 +295,4 @@ npm run start
 ## 📄 Licenza
 
 Distribuito sotto licenza **MIT**. Realizzato per la community open-source di sviluppatori ed ingegneri AI.
+

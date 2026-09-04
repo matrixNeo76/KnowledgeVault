@@ -114,11 +114,11 @@ export const SyncStatusBanner: React.FC<SyncStatusBannerProps> = ({
         {hasPendingConflicts && onOpenConflictModal && (
           <button
             onClick={onOpenConflictModal}
-            className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-[#C5A059]/20 hover:bg-[#C5A059]/30 border border-[#C5A059]/50 text-[#E5C170] text-[11px] font-semibold animate-pulse transition-all cursor-pointer"
-            title="Confronta modifiche locali con Firestore e applica il merge"
+            className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-[#1C160B] hover:bg-[#2A2012] border border-[#C5A059]/40 text-[#E5C170] text-[11px] font-medium transition-all cursor-pointer"
+            title="Visualizza allineamento tra memoria locale e Firestore"
           >
-            <GitMerge className="w-3.5 h-3.5 text-[#E5C170]" />
-            <span>{conflictCount || "Modifiche"} da unificare</span>
+            <GitMerge className="w-3.5 h-3.5 text-[#C5A059]" />
+            <span>Allineamento versioni</span>
           </button>
         )}
 

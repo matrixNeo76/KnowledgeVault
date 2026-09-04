@@ -53,12 +53,43 @@ export function analyzeResourceConflicts(
   const localMap = new Map<string, ResourceItem>();
   const remoteMap = new Map<string, ResourceItem>();
 
-  localItems.forEach((item) => {
-    if (item.id) localMap.set(item.id, item);
+  // Helper function to create a canonical resource signature
+  const getResourceSignature = (item: ResourceItem): string => {
+    if (item.url && item.url.trim().length > 3) {
+      return `url:${item.url.trim().toLowerCase().replace(/\/$/, "")}`;
+    }
+    return `title:${item.type}:${item.title.trim().toLowerCase()}`;
+  };
+
+  // Build remote signature index to detect when a local-ID document is actually already on remote
+  const remoteSigMap = new Map<string, ResourceItem>();
+  remoteItems.forEach((item) => {
+    if (item.id) {
+      remoteMap.set(item.id, item);
+      remoteSigMap.set(getResourceSignature(item), item);
+    }
   });
 
-  remoteItems.forEach((item) => {
-    if (item.id) remoteMap.set(item.id, item);
+  // Map local items, consolidating any temp local IDs if a remote match already exists
+  localItems.forEach((item) => {
+    if (!item.id) return;
+
+    // Check if this is a temp local ID that matches a remote resource by signature
+    const isTempId = item.id.startsWith("local-") || item.id.startsWith("conv-") || item.id.startsWith("seed-");
+    if (isTempId) {
+      const sig = getResourceSignature(item);
+      const matchedRemote = remoteSigMap.get(sig);
+      if (matchedRemote) {
+        // Associate this local item with the remote ID instead of keeping a split identity
+        localMap.set(matchedRemote.id, {
+          ...item,
+          id: matchedRemote.id,
+        });
+        return;
+      }
+    }
+
+    localMap.set(item.id, item);
   });
 
   const allIds = new Set<string>([...localMap.keys(), ...remoteMap.keys()]);

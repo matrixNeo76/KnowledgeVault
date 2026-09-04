@@ -114,14 +114,14 @@ export const ConflictResolutionModal: React.FC<ConflictResolutionModalProps> = (
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-base font-semibold text-white tracking-tight">
-                  Risoluzione Conflitti & Sincronizzazione Cloud
+                  Allineamento & Sincronizzazione Cloud
                 </h2>
                 <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-950/60 border border-emerald-500/40 text-emerald-400 font-medium">
-                  Riconnessione Firestore
+                  Stato Risorse
                 </span>
               </div>
               <p className="text-xs text-[#888] mt-0.5">
-                Il sistema ha rilevato modifiche salvate in locale durante il periodo di quota esaurita.
+                Verifica della coerenza tra la copia locale nel tuo dispositivo e la replica Google Cloud Firestore.
               </p>
             </div>
           </div>
@@ -349,15 +349,15 @@ export const ConflictResolutionModal: React.FC<ConflictResolutionModalProps> = (
               {isApplying ? (
                 <>
                   <RotateCw className="w-3.5 h-3.5 animate-spin" />
-                  <span>Applicazione Merge...</span>
+                  <span>Allineamento in corso...</span>
                 </>
               ) : (
                 <>
                   <GitMerge className="w-3.5 h-3.5" />
                   <span>
                     {Object.keys(customResolutions).length > 0
-                      ? `Applica Risoluzione Personalizzata (${finalItems.length})`
-                      : `Applica Merge Automatico (${analysis.mergedResources.length} risorse)`}
+                      ? `Conferma Selezione (${finalItems.length})`
+                      : `Conferma e Allinea (${analysis.mergedResources.length} risorse)`}
                   </span>
                 </>
               )}
