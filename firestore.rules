@@ -47,6 +47,25 @@ service cloud.firestore {
         && (resource.data.userId == request.auth.uid || resource.data.userId == 'anonymous' || !('userId' in resource.data));
     }
 
+    // Rules for raw_files collection (Staging buffer for PDF, images, TXT, MD)
+    match /raw_files/{fileId} {
+      allow read: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        resource.data.userId == 'anonymous'
+      );
+      allow create: if isAuthenticated()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.fileName is string;
+      allow update: if isAuthenticated()
+        && (resource.data.userId == request.auth.uid || resource.data.userId == 'anonymous');
+      allow delete: if isAuthenticated()
+        && (resource.data.userId == request.auth.uid || resource.data.userId == 'anonymous');
+
+      match /chunks/{chunkId} {
+        allow read, write: if isAuthenticated();
+      }
+    }
+
     // System logs
     match /system_logs/{logId} {
       allow read, create: if isAuthenticated();

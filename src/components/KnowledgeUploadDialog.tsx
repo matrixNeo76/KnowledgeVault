@@ -10,6 +10,7 @@ import {
   AlertCircle
 } from "lucide-react";
 import { ResourceItem } from "../types";
+import { localFallbackAnalyzeResource } from "../lib/fallbackParser";
 
 interface KnowledgeUploadDialogProps {
   isOpen: boolean;
@@ -86,25 +87,39 @@ export const KnowledgeUploadDialog: React.FC<KnowledgeUploadDialogProps> = ({
         tags: r.tags || [],
       }));
 
-      const res = await fetch("/api/process-knowledge", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          text: inputText.trim(),
-          filename: fileName || "documento.md",
-          existingResources: trimmedResources,
-        }),
-      });
+      let result: any = null;
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 25000);
 
-      if (!res.ok) {
-        throw new Error(`Errore HTTP ${res.status}: Impossibile elaborare il testo.`);
+        const res = await fetch("/api/process-knowledge", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
+          body: JSON.stringify({
+            text: inputText.trim(),
+            filename: fileName || "documento.md",
+            existingResources: trimmedResources,
+          }),
+        });
+        clearTimeout(timeoutId);
+
+        if (res.ok) {
+          const data = await res.json();
+          result = data.result;
+        }
+      } catch (netErr: any) {
+        console.warn("[Knowledge Upload] Server endpoint error or timeout, applying local fallback:", netErr?.message);
       }
 
-      const data = await res.json();
-      const result = data.result;
-
-      if (!result) {
-        throw new Error("Risposta del server non valida.");
+      if (!result || !result.title) {
+        const fallback = localFallbackAnalyzeResource(inputText.trim(), "knowledge");
+        result = {
+          title: fileName ? fileName.replace(/\.[^/.]+$/, "") : fallback.title,
+          summary: fallback.summary,
+          tags: fallback.tags,
+          metadata: fallback.metadata,
+        };
       }
 
       const ok = await onUploadProcessedDoc({

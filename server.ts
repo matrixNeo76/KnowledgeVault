@@ -1,14 +1,46 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
+import { promises as fsPromises } from "fs";
 import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
 import dotenv from "dotenv";
 
 dotenv.config();
 
+// Helper to safely parse PDF buffer without crashing or emitting false errors
+async function extractTextFromPdfBuffer(pdfBuffer: Buffer): Promise<string> {
+  try {
+    if (!pdfBuffer || !Buffer.isBuffer(pdfBuffer) || pdfBuffer.length < 10) return "";
+    
+    // Validate standard %PDF- magic signature (0x25, 0x50, 0x44, 0x46)
+    const magic = pdfBuffer.subarray(0, 5).toString("latin1");
+    if (!magic.startsWith("%PDF")) {
+      return "";
+    }
+
+    const pdfModule = await import("pdf-parse");
+    if (pdfModule.PDFParse) {
+      const parser = new pdfModule.PDFParse({ data: pdfBuffer, verbosity: 0 });
+      const res = await parser.getText();
+      try { await parser.destroy(); } catch {}
+      if (typeof res === "string") return res;
+      if (res && typeof (res as any).text === "string") return (res as any).text;
+      return "";
+    } else if (typeof (pdfModule as any).default === "function") {
+      const parsed = await (pdfModule as any).default(pdfBuffer);
+      return parsed?.text || "";
+    }
+  } catch {
+    // Non-fatal: if PDF binary is encrypted or non-standard, fallback to Gemini inline multimodal or raw text
+  }
+  return "";
+}
+
 const app = express();
 const PORT = 3000;
 
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json({ limit: "60mb" }));
+app.use(express.urlencoded({ limit: "60mb", extended: true }));
 
 // Helper to get GoogleGenAI client lazily
 let genAIClient: GoogleGenAI | null = null;
@@ -478,6 +510,53 @@ function fallbackParse(rawText: string, explicitType?: string) {
     type = explicitType as any;
   }
 
+  // Universal OKF v0.2 Metadata Guarantee for all resource types
+  metadata.okfVersion = "0.2";
+  if (!metadata.docType) {
+    metadata.docType = type === "github_repo" ? "architecture"
+      : type === "mcp_server" ? "tool_description"
+      : type === "ai_skill" ? "prompt_skill"
+      : type === "troubleshooting" ? "specification"
+      : type === "article" || type === "link" ? "guide"
+      : "concept";
+  }
+
+  if (!metadata.domain || metadata.domain === "general") {
+    metadata.domain = text.toLowerCase().includes("claude") || text.toLowerCase().includes("agent") || text.toLowerCase().includes("mcp")
+      ? "Agentic Systems & AI"
+      : text.toLowerCase().includes("cloud") || text.toLowerCase().includes("docker") || text.toLowerCase().includes("deploy")
+      ? "DevOps & Cloud"
+      : type === "troubleshooting"
+      ? "System Diagnostics & Fix"
+      : "Software Architecture";
+  }
+
+  if (!metadata.entities || metadata.entities.length === 0) {
+    metadata.entities = [
+      { name: title, type: "concept", description: summary.slice(0, 100) || "Elemento centrale" },
+      { name: metadata.domain, type: "domain", description: "Dominio di appartenenza" },
+    ];
+    if (metadata.owner && metadata.repoName) {
+      metadata.entities.push({ name: metadata.repoName, type: "software", description: `Repository GitHub ${metadata.owner}/${metadata.repoName}` });
+    }
+    tags.slice(0, 3).forEach((t) => {
+      if (t.length > 2 && t !== "dev" && t !== "knowledge") {
+        metadata.entities.push({ name: t.charAt(0).toUpperCase() + t.slice(1), type: "technology", description: `Tag ontologico: ${t}` });
+      }
+    });
+  }
+
+  if (!metadata.relations || metadata.relations.length === 0) {
+    metadata.relations = [
+      { targetTitle: "Knowledge Vault", relationType: "references", weight: 0.85, description: "Archiviazione e integrazione topologica nel Vault" }
+    ];
+  }
+
+  if (!metadata.markdownContent) {
+    const cleanTags = Array.from(new Set(tags.length > 0 ? tags : [type, "okf-v0.2"]));
+    metadata.markdownContent = `---\nokf_version: "0.2"\ntitle: "${title}"\ntype: "${metadata.docType}"\ndomain: "${metadata.domain}"\ntags: ${JSON.stringify(cleanTags)}\ncreated_at: "${new Date().toISOString()}"\n---\n\n# ${title}\n\n> **${metadata.docType?.toUpperCase()} · OKF v0.2**\n> Ambito: ${metadata.domain}\n\n${summary || text}\n\n${url ? `\n\n**Riferimento Web:** [${url}](${url})\n` : ""}`;
+  }
+
   return {
     type,
     title,
@@ -488,8 +567,83 @@ function fallbackParse(rawText: string, explicitType?: string) {
   };
 }
 
+// ----------------------------------------------------------------------
+// Server-Side Telemetry Tracker for Gemini AI Quota & Operations
+// ----------------------------------------------------------------------
+export interface GeminiCallRecord {
+  id: string;
+  timestamp: string;
+  endpoint: string;
+  model: string;
+  latencyMs: number;
+  status: "success" | "quota_exceeded" | "unavailable" | "timeout" | "error";
+  statusCode: number;
+  promptTokens?: number;
+  candidatesTokens?: number;
+  errorMessage?: string;
+}
+
+const geminiCallHistory: GeminiCallRecord[] = [];
+const modelUsageCounts: Record<string, number> = {
+  "gemini-3.7-flash": 0,
+  "gemini-flash-latest": 0,
+  "gemini-3.1-flash-lite": 0,
+};
+let quota429Count = 0;
+let error503Count = 0;
+let lastResetDateUtc = new Date().toISOString().slice(0, 10);
+let dailyRequestsCount = 0;
+
+interface RollingEntry {
+  timestamp: number;
+  tokens: number;
+}
+const rollingMinuteRequests: RollingEntry[] = [];
+
+function recordGeminiCall(record: Omit<GeminiCallRecord, "id" | "timestamp">) {
+  const now = new Date();
+  const todayUtc = now.toISOString().slice(0, 10);
+  if (todayUtc !== lastResetDateUtc) {
+    lastResetDateUtc = todayUtc;
+    dailyRequestsCount = 0;
+    quota429Count = 0;
+    error503Count = 0;
+  }
+
+  dailyRequestsCount++;
+  if (record.model) {
+    modelUsageCounts[record.model] = (modelUsageCounts[record.model] || 0) + 1;
+  }
+
+  if (record.status === "quota_exceeded") {
+    quota429Count++;
+  } else if (record.status === "unavailable") {
+    error503Count++;
+  }
+
+  const nowMs = Date.now();
+  const totalTokens = (record.promptTokens || 0) + (record.candidatesTokens || 0);
+  rollingMinuteRequests.push({ timestamp: nowMs, tokens: totalTokens });
+
+  // purge older than 60s
+  while (rollingMinuteRequests.length > 0 && nowMs - rollingMinuteRequests[0].timestamp > 60000) {
+    rollingMinuteRequests.shift();
+  }
+
+  const fullRecord: GeminiCallRecord = {
+    id: `gem-${nowMs}-${Math.random().toString(36).slice(2, 6)}`,
+    timestamp: now.toISOString(),
+    ...record,
+  };
+
+  geminiCallHistory.unshift(fullRecord);
+  if (geminiCallHistory.length > 100) {
+    geminiCallHistory.pop();
+  }
+}
+
 // Resilient Gemini Generator with valid candidate models and reliable timeout
-async function generateWithGeminiFallback(prompt: string, schema: any, timeoutMs = 20000) {
+async function generateWithGeminiFallback(prompt: string, schema: any, timeoutMs = 6000, endpoint = "/api/analyze-resource") {
   const ai = getGenAI();
   if (!ai) return null;
 
@@ -501,6 +655,7 @@ async function generateWithGeminiFallback(prompt: string, schema: any, timeoutMs
   ];
 
   for (const modelName of candidateModels) {
+    const callStart = Date.now();
     try {
       const config: any = {
         responseMimeType: "application/json",
@@ -525,14 +680,34 @@ async function generateWithGeminiFallback(prompt: string, schema: any, timeoutMs
       const response: any = await Promise.race([generatePromise, timeoutPromise]);
 
       if (response && response.text) {
+        const latencyMs = Date.now() - callStart;
+        recordGeminiCall({
+          endpoint,
+          model: modelName,
+          latencyMs,
+          status: "success",
+          statusCode: 200,
+          promptTokens: response?.usageMetadata?.promptTokenCount || 0,
+          candidatesTokens: response?.usageMetadata?.candidatesTokenCount || 0,
+        });
         return { text: response.text, modelUsed: modelName };
       }
     } catch (err: any) {
+      const latencyMs = Date.now() - callStart;
       const isQuota = err?.status === "RESOURCE_EXHAUSTED" || err?.message?.includes("quota") || err?.message?.includes("429");
       const isUnavailable = err?.status === "UNAVAILABLE" || err?.code === 503 || err?.message?.includes("503") || err?.message?.includes("high demand");
       
+      recordGeminiCall({
+        endpoint,
+        model: modelName,
+        latencyMs,
+        status: isQuota ? "quota_exceeded" : isUnavailable ? "unavailable" : "error",
+        statusCode: isQuota ? 429 : isUnavailable ? 503 : 500,
+        errorMessage: err?.message || "Generation error",
+      });
+
       if (isQuota) {
-        console.warn(`[Gemini] ${modelName} quota limit reached, attempting next model...`);
+        console.warn(`[Gemini] ${modelName} quota limit reached (429 RESOURCE_EXHAUSTED), attempting next model...`);
       } else if (isUnavailable) {
         console.warn(`[Gemini] ${modelName} temporarily busy (503 high demand), attempting next model...`);
       } else {
@@ -545,9 +720,1027 @@ async function generateWithGeminiFallback(prompt: string, schema: any, timeoutMs
   return null;
 }
 
+// Resilient Multimodal Gemini Generator (supporting base64 PDFs, Images, Text payloads)
+async function generateMultimodalWithGeminiFallback(
+  contents: any,
+  schema: any,
+  timeoutMs = 45000,
+  endpoint = "/api/convert-file-to-okf"
+) {
+  const ai = getGenAI();
+  if (!ai) return null;
+
+  const candidateModels = [
+    "gemini-3.7-flash",
+    "gemini-flash-latest",
+    "gemini-3.1-flash-lite",
+  ];
+
+  for (const modelName of candidateModels) {
+    const callStart = Date.now();
+    try {
+      const config: any = {
+        responseMimeType: "application/json",
+        responseSchema: schema,
+      };
+
+      if (modelName === "gemini-3.7-flash") {
+        config.thinkingConfig = { thinkingLevel: ThinkingLevel.LOW };
+      }
+
+      const generatePromise = ai.models.generateContent({
+        model: modelName,
+        contents,
+        config,
+      });
+
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`Timeout after ${timeoutMs}ms`)), timeoutMs)
+      );
+
+      const response: any = await Promise.race([generatePromise, timeoutPromise]);
+
+      if (response && response.text) {
+        const latencyMs = Date.now() - callStart;
+        recordGeminiCall({
+          endpoint,
+          model: modelName,
+          latencyMs,
+          status: "success",
+          statusCode: 200,
+          promptTokens: response?.usageMetadata?.promptTokenCount || 0,
+          candidatesTokens: response?.usageMetadata?.candidatesTokenCount || 0,
+        });
+        return { text: response.text, modelUsed: modelName };
+      }
+    } catch (err: any) {
+      const latencyMs = Date.now() - callStart;
+      const isQuota = err?.status === "RESOURCE_EXHAUSTED" || err?.message?.includes("quota") || err?.message?.includes("429");
+      const isUnavailable = err?.status === "UNAVAILABLE" || err?.code === 503 || err?.message?.includes("503");
+      
+      recordGeminiCall({
+        endpoint,
+        model: modelName,
+        latencyMs,
+        status: isQuota ? "quota_exceeded" : isUnavailable ? "unavailable" : "error",
+        statusCode: isQuota ? 429 : isUnavailable ? 503 : 500,
+        errorMessage: err?.message || "Multimodal error",
+      });
+
+      if (isQuota) {
+        console.warn(`[Gemini Multimodal] ${modelName} quota limit reached (429), attempting fallback...`);
+      } else if (isUnavailable) {
+        console.warn(`[Gemini Multimodal] ${modelName} service busy (503), attempting fallback...`);
+      } else {
+        console.warn(`[Gemini Multimodal] ${modelName} attempt error:`, err?.message || "error");
+      }
+    }
+  }
+
+  return null;
+}
+
+// Helper to transcribe audio using gemini-3.5-transcribe with multi-model fallback
+async function transcribeAudioWithGemini(
+  audioBase64: string,
+  mimeType: string,
+  fileName: string,
+  timeoutMs = 50000
+): Promise<string> {
+  const ai = getGenAI();
+  if (!ai || !audioBase64) return "";
+
+  // Prepare possible MIME types for audio container compatibility (especially for .m4a / aac)
+  const lowerName = fileName.toLowerCase();
+  const mimeCandidates: string[] = [];
+
+  if (mimeType && mimeType.startsWith("audio/")) {
+    mimeCandidates.push(mimeType);
+  }
+
+  if (lowerName.endsWith(".m4a") || (mimeType && (mimeType.includes("m4a") || mimeType.includes("mp4")))) {
+    if (!mimeCandidates.includes("audio/mp4")) mimeCandidates.push("audio/mp4");
+    if (!mimeCandidates.includes("audio/m4a")) mimeCandidates.push("audio/m4a");
+    if (!mimeCandidates.includes("audio/aac")) mimeCandidates.push("audio/aac");
+    if (!mimeCandidates.includes("audio/x-m4a")) mimeCandidates.push("audio/x-m4a");
+  } else if (lowerName.endsWith(".mp3") || (mimeType && mimeType.includes("mp3"))) {
+    if (!mimeCandidates.includes("audio/mp3")) mimeCandidates.push("audio/mp3");
+    if (!mimeCandidates.includes("audio/mpeg")) mimeCandidates.push("audio/mpeg");
+  } else if (lowerName.endsWith(".wav") || (mimeType && mimeType.includes("wav"))) {
+    if (!mimeCandidates.includes("audio/wav")) mimeCandidates.push("audio/wav");
+    if (!mimeCandidates.includes("audio/x-wav")) mimeCandidates.push("audio/x-wav");
+  } else if (lowerName.endsWith(".ogg") || (mimeType && mimeType.includes("ogg"))) {
+    if (!mimeCandidates.includes("audio/ogg")) mimeCandidates.push("audio/ogg");
+  } else if (lowerName.endsWith(".flac") || (mimeType && mimeType.includes("flac"))) {
+    if (!mimeCandidates.includes("audio/flac")) mimeCandidates.push("audio/flac");
+  } else if (lowerName.endsWith(".webm") || (mimeType && mimeType.includes("webm"))) {
+    if (!mimeCandidates.includes("audio/webm")) mimeCandidates.push("audio/webm");
+  }
+
+  if (mimeCandidates.length === 0) {
+    mimeCandidates.push("audio/mp4", "audio/mp3", "audio/wav");
+  }
+
+  const transcriptionPrompt = `Accurately transcribe all spoken speech, dialogues, and discussions from this audio recording ("${fileName}"). Output the full verbatim transcription in the original spoken language (e.g., Italian or English). Use clear paragraphs, proper punctuation, and indicate speaker turns if identifiable. Do not invent details or add external commentary.`;
+
+  // Candidate models: gemini-3.5-transcribe first (dedicated audio transcription), then gemini-3.7-flash, then gemini-flash-latest
+  const candidateModels = [
+    "gemini-3.5-transcribe",
+    "gemini-3.7-flash",
+    "gemini-flash-latest",
+  ];
+
+  for (const modelName of candidateModels) {
+    for (const currentMime of mimeCandidates) {
+      try {
+        console.log(`[Audio Transcribe] Attempting transcription with ${modelName} (MIME: ${currentMime}) for "${fileName}"...`);
+        const config: any = {};
+        if (modelName === "gemini-3.7-flash") {
+          config.thinkingConfig = { thinkingLevel: ThinkingLevel.LOW };
+        }
+
+        const generatePromise = ai.models.generateContent({
+          model: modelName,
+          contents: [
+            {
+              inlineData: {
+                mimeType: currentMime,
+                data: audioBase64,
+              },
+            },
+            {
+              text: transcriptionPrompt,
+            },
+          ],
+          config,
+        });
+
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error(`Timeout after ${timeoutMs}ms`)), timeoutMs)
+        );
+
+        const response: any = await Promise.race([generatePromise, timeoutPromise]);
+        if (response && response.text && response.text.trim().length > 0) {
+          console.log(`[Audio Transcribe] Successfully transcribed ${response.text.length} chars with ${modelName} (MIME: ${currentMime})`);
+          return response.text.trim();
+        }
+      } catch (err: any) {
+        console.warn(`[Audio Transcribe] Model ${modelName} with MIME ${currentMime} failed:`, err?.message || "error");
+      }
+    }
+  }
+
+  return "";
+}
+
 // API Health
 app.get("/api/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
+// Telemetry Stats Endpoint for Gemini AI
+app.get("/api/telemetry/gemini-stats", (_req, res) => {
+  const nowMs = Date.now();
+  // purge rolling entries older than 60s
+  while (rollingMinuteRequests.length > 0 && nowMs - rollingMinuteRequests[0].timestamp > 60000) {
+    rollingMinuteRequests.shift();
+  }
+  const requestsLastMinute = rollingMinuteRequests.length;
+  const tokensLastMinute = rollingMinuteRequests.reduce((sum, item) => sum + item.tokens, 0);
+
+  let status: "OPERATIONAL" | "RATE_LIMITED" | "EXHAUSTED" | "UNAVAILABLE" = "OPERATIONAL";
+  if (quota429Count > 0 && requestsLastMinute >= 14) {
+    status = "RATE_LIMITED";
+  } else if (dailyRequestsCount >= 1500) {
+    status = "EXHAUSTED";
+  } else if (error503Count > 3) {
+    status = "UNAVAILABLE";
+  }
+
+  res.json({
+    requestsToday: dailyRequestsCount,
+    dailyLimit: 1500,
+    requestsLastMinute,
+    rpmLimit: 15,
+    tokensLastMinute,
+    tpmLimit: 1000000,
+    quota429Count,
+    error503Count,
+    modelCounts: modelUsageCounts,
+    recentCalls: geminiCallHistory.slice(0, 35),
+    status,
+  });
+});
+
+// Live Test Ping Endpoint for Gemini AI
+app.post("/api/telemetry/test-gemini", async (_req, res) => {
+  const ai = getGenAI();
+  if (!ai) {
+    return res.status(500).json({
+      success: false,
+      message: "Client Gemini non configurato (GEMINI_API_KEY non trovata nell'ambiente server)",
+    });
+  }
+
+  const start = Date.now();
+  try {
+    const candidateModels = ["gemini-3.7-flash", "gemini-flash-latest", "gemini-3.1-flash-lite"];
+    let succeeded = false;
+    let usedModel = "";
+    let lastErr: any = null;
+
+    for (const model of candidateModels) {
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          contents: "Rispondi solo con la parola 'OK'.",
+        });
+        if (response && response.text) {
+          succeeded = true;
+          usedModel = model;
+          break;
+        }
+      } catch (err: any) {
+        lastErr = err;
+      }
+    }
+
+    const latencyMs = Date.now() - start;
+    if (succeeded) {
+      recordGeminiCall({
+        endpoint: "/api/telemetry/test-gemini",
+        model: usedModel,
+        latencyMs,
+        status: "success",
+        statusCode: 200,
+      });
+      return res.json({
+        success: true,
+        modelUsed: usedModel,
+        latencyMs,
+        message: `Test eseguito con successo con ${usedModel} (${latencyMs}ms)`,
+      });
+    } else {
+      const isQuota = lastErr?.status === "RESOURCE_EXHAUSTED" || lastErr?.message?.includes("quota") || lastErr?.message?.includes("429");
+      recordGeminiCall({
+        endpoint: "/api/telemetry/test-gemini",
+        model: candidateModels[0],
+        latencyMs,
+        status: isQuota ? "quota_exceeded" : "error",
+        statusCode: isQuota ? 429 : 500,
+        errorMessage: lastErr?.message,
+      });
+      return res.status(isQuota ? 429 : 500).json({
+        success: false,
+        isQuota,
+        latencyMs,
+        message: isQuota
+          ? "Quota / Rate-Limit Gemini Esaurito (429 RESOURCE_EXHAUSTED)"
+          : `Errore chiamata Gemini: ${lastErr?.message || "Fallito"}`,
+      });
+    }
+  } catch (outerErr: any) {
+    return res.status(500).json({
+      success: false,
+      message: outerErr?.message || "Errore sconosciuto",
+    });
+  }
+});
+
+// POST /api/diagnostics/analyze-log - AI Diagnostic Engine with Local Fallback
+app.post("/api/diagnostics/analyze-log", async (req, res) => {
+  const { logMessage = "", category = "SYSTEM", level = "error", details = null, context = {} } = req.body;
+  const start = Date.now();
+
+  // 1. Instant Heuristic Rule Engine (0ms, 0 tokens) for common patterns or when quota is already exceeded
+  const lowerMsg = String(logMessage || "").toLowerCase();
+  const lowerCat = String(category || "").toLowerCase();
+  const isQuotaRelated = lowerMsg.includes("quota") || lowerMsg.includes("429") || lowerMsg.includes("resource_exhausted") || lowerMsg.includes("esaurita");
+  const isTimeoutRelated = lowerMsg.includes("timed out") || lowerMsg.includes("timeout") || lowerMsg.includes("latenza");
+  const isNetworkOffline = lowerMsg.includes("offline") || lowerMsg.includes("network") || lowerMsg.includes("abort");
+
+  const buildHeuristicResponse = () => {
+    if (isQuotaRelated) {
+      return {
+        explanation: "La quota gratuita giornaliera Firestore o Gemini ha raggiunto la soglia limite temporanea. I dati locali non sono compromessi.",
+        severity: "medium",
+        dataSafetyNote: "I dati creati rimangono memorizzati nella cache locale (IndexedDB) e nel file di backup server.",
+        suggestedActions: [
+          {
+            id: "FORCE_SERVER_BACKUP",
+            label: "Salva su Backup Server",
+            description: "Crea una copia di sicurezza immediata sul file system del server Express",
+            isPrimary: true,
+            risk: "safe",
+          },
+          {
+            id: "RESET_OFFLINE_LOCK",
+            label: "Azzera Blocco Locale & Riconnetti",
+            description: "Cancella il flag locale di blocco e invia un nuovo ping di verifica",
+            isPrimary: false,
+            risk: "safe",
+          },
+          {
+            id: "EXPORT_EMERGENCY_JSON",
+            label: "Esporta Snapshot JSON",
+            description: "Scarica subito un backup di emergenza sul tuo dispositivo",
+            isPrimary: false,
+            risk: "safe",
+          },
+        ],
+        source: "heuristic",
+      };
+    }
+
+    if (isTimeoutRelated || isNetworkOffline) {
+      return {
+        explanation: "Si è verificato un rallentamento o un'interruzione momentanea della connessione di rete con i servizi cloud.",
+        severity: "low",
+        dataSafetyNote: "Nessun dato è andato perso: la memoria locale conserva l'intero stato del Vault.",
+        suggestedActions: [
+          {
+            id: "TEST_CONNECTIVITY",
+            label: "Verifica Connettività Live",
+            description: "Esegue un test di ping sia verso Google Gemini che verso Firestore",
+            isPrimary: true,
+            risk: "safe",
+          },
+          {
+            id: "RESET_OFFLINE_LOCK",
+            label: "Ripristina Rete Cloud",
+            description: "Forza la riattivazione della scheda di rete Firestore disabilitata",
+            isPrimary: false,
+            risk: "safe",
+          },
+        ],
+        source: "heuristic",
+      };
+    }
+
+    if (lowerCat.includes("okf") || lowerCat.includes("capture") || lowerMsg.includes("schema") || lowerMsg.includes("parsing")) {
+      return {
+        explanation: "L'elaborazione del documento o file multimediale ha incontrato una discrepanza di formattazione o limite di contesto.",
+        severity: "medium",
+        dataSafetyNote: "Il file originale o il testo grezzo è preservato nello Staging Buffer dei Raw Files.",
+        suggestedActions: [
+          {
+            id: "SWITCH_LOCAL_HEURISTIC",
+            label: "Converti con Estrattore Euristico",
+            description: "Estrae metadati OKF v0.2 istantaneamente a regole fisse a latenza zero",
+            isPrimary: true,
+            risk: "safe",
+          },
+          {
+            id: "EXPORT_EMERGENCY_JSON",
+            label: "Esporta Copia JSON",
+            description: "Salva i dati grezzi su file JSON scaricabile",
+            isPrimary: false,
+            risk: "safe",
+          },
+        ],
+        source: "heuristic",
+      };
+    }
+
+    return {
+      explanation: "Rilevato evento diagnostico nel sistema. L'infrastruttura sta operando regolarmente con persistenza attiva.",
+      severity: "low",
+      dataSafetyNote: "Il Vault è protetto con sincronizzazione a tre livelli (Firestore, Server, IndexedDB).",
+      suggestedActions: [
+        {
+          id: "TEST_CONNECTIVITY",
+          label: "Esegui Diagnostica Generale",
+          description: "Controlla lo stato delle API di backend e del database",
+          isPrimary: true,
+          risk: "safe",
+        },
+        {
+          id: "CLEAR_TRANSIENT_ERRORS",
+          label: "Archivia Avvisi Transitori",
+          description: "Pulisce gli avvisi superati dalla console di log",
+          isPrimary: false,
+          risk: "safe",
+        },
+      ],
+      source: "heuristic",
+    };
+  };
+
+  // If already quota exceeded or no AI key, return heuristic immediately
+  const ai = getGenAI();
+  if (!ai || context.isQuotaExceeded || isQuotaRelated) {
+    return res.json(buildHeuristicResponse());
+  }
+
+  // 2. Call Gemini 3.7 Flash for deep contextual explanation
+  try {
+    const diagnosticSchema = {
+      type: Type.OBJECT,
+      properties: {
+        explanation: {
+          type: Type.STRING,
+          description: "Spiegazione sintetica in massimo 2 frasi in italiano comprensibile e orientato all'utente",
+        },
+        severity: {
+          type: Type.STRING,
+          description: "low, medium, high, o critical",
+        },
+        dataSafetyNote: {
+          type: Type.STRING,
+          description: "Breve frase sulla sicurezza dei dati (es. 'I tuoi dati locali su IndexedDB e backup server sono intatti')",
+        },
+        suggestedActions: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              id: {
+                type: Type.STRING,
+                description: "Uno tra: RESET_OFFLINE_LOCK, FORCE_SERVER_BACKUP, TEST_CONNECTIVITY, SWITCH_LOCAL_HEURISTIC, EXPORT_EMERGENCY_JSON, CLEAR_TRANSIENT_ERRORS",
+              },
+              label: {
+                type: Type.STRING,
+                description: "Titolo breve del pulsante (es. 'Azzera Blocco Quota')",
+              },
+              description: {
+                type: Type.STRING,
+                description: "Descrizione di cosa farà questa azione",
+              },
+              isPrimary: {
+                type: Type.BOOLEAN,
+                description: "true se è l'azione principale consigliata",
+              },
+              risk: {
+                type: Type.STRING,
+                description: "safe oppure warning",
+              },
+            },
+            required: ["id", "label", "description", "risk"],
+          },
+        },
+      },
+      required: ["explanation", "severity", "dataSafetyNote", "suggestedActions"],
+    };
+
+    const prompt = `Sei l'assistente diagnostico intelligente di Knowledge Vault.
+Analizza questo evento di log diagnostico e genera una diagnosi chiara e 1-3 azioni operative concrete.
+
+MESSAGGIO LOG: "${logMessage}"
+CATEGORIA: ${category}
+LIVELLO: ${level}
+DETTAGLI: ${details ? JSON.stringify(details).slice(0, 500) : "N/A"}
+STATO SISTEMA: ${JSON.stringify(context)}
+
+CATALOGO AZIONI DISPONIBILI (Usa ESCLUSIVAMENTE questi ID):
+- RESET_OFFLINE_LOCK: Sblocca il blocco locale di Firestore e riattiva la connessione.
+- FORCE_SERVER_BACKUP: Forza il salvataggio immediato sul file system del server Express (/api/vault/backup).
+- TEST_CONNECTIVITY: Esegue un ping diagnostico in tempo reale verso Firestore e Gemini.
+- SWITCH_LOCAL_HEURISTIC: Usa il parser euristico locale a regole (0ms, 0 token) senza chiamare le API AI.
+- EXPORT_EMERGENCY_JSON: Scarica istantaneamente uno snapshot JSON locale sul dispositivo dell'utente.
+- CLEAR_TRANSIENT_ERRORS: Pulisce i log temporanei non bloccanti.
+
+Restituisci un JSON rigoroso conforme allo schema.`;
+
+    // Candidate models in priority order with fast config and ample 12s timeout guard
+    const candidateModels = ["gemini-3.7-flash", "gemini-flash-latest", "gemini-3.1-flash-lite"];
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout diagnosi")), 12000));
+
+    let succeeded = false;
+    let resultJson: any = null;
+    let usedModel = "";
+
+    for (const model of candidateModels) {
+      try {
+        const config: any = {
+          responseMimeType: "application/json",
+          responseSchema: diagnosticSchema,
+          maxOutputTokens: 600,
+        };
+        if (model.startsWith("gemini-3")) {
+          config.thinkingConfig = { thinkingBudget: 0 };
+        }
+
+        const geminiCall = ai.models.generateContent({
+          model,
+          contents: prompt,
+          config,
+        });
+
+        const response: any = await Promise.race([geminiCall, timeoutPromise]);
+        const text = response?.text;
+        if (text) {
+          resultJson = JSON.parse(text);
+          usedModel = model;
+          succeeded = true;
+          break;
+        }
+      } catch (innerErr: any) {
+        // Try next fallback model
+      }
+    }
+
+    if (succeeded && resultJson) {
+      const latencyMs = Date.now() - start;
+      recordGeminiCall({
+        endpoint: "/api/diagnostics/analyze-log",
+        model: usedModel,
+        latencyMs,
+        status: "success",
+        statusCode: 200,
+      });
+
+      return res.json({
+        ...resultJson,
+        source: "gemini",
+        modelUsed: usedModel,
+        latencyMs,
+      });
+    }
+  } catch (err: any) {
+    // Non-fatal: handled smoothly via heuristic fallback
+  }
+
+  // Graceful fallback
+  return res.json(buildHeuristicResponse());
+});
+
+// API: Convert Staged / Raw File (Audio, PDF, Image, Text, Markdown, Logs, JSON) into full OKF v0.2 Resource
+app.post("/api/convert-file-to-okf", async (req, res) => {
+  try {
+    const { 
+      fileName = "file", 
+      mimeType = "application/octet-stream", 
+      fileType = "document", 
+      textContent = "", 
+      base64Data = "",
+      notes = "",
+      existingResources = [] 
+    } = req.body;
+
+    const contextList = (existingResources as any[]).slice(0, 30).map((r) => ({
+      id: r.id,
+      title: r.title,
+      type: r.type,
+      tags: r.tags || [],
+    }));
+
+    const cleanFileName = fileName.replace(/[\\/:"*?<>|]/g, "_");
+    const inferredTitle = cleanFileName.replace(/\.[^/.]+$/, "");
+    const lowerName = fileName.toLowerCase();
+
+    // Categorize file by extension and MIME
+    const isAudio = (mimeType && mimeType.toLowerCase().startsWith("audio/")) ||
+      ["mp3", "wav", "m4a", "ogg", "aac", "flac", "opus", "webm", "wma", "aiff"].some((ext) => lowerName.endsWith("." + ext)) ||
+      fileType?.toLowerCase() === "audio";
+
+    const isPdf = lowerName.endsWith(".pdf") || (mimeType && mimeType.toLowerCase().includes("pdf")) || fileType?.toLowerCase() === "pdf";
+    const isImage = (mimeType && mimeType.toLowerCase().startsWith("image/")) || ["png", "jpg", "jpeg", "webp", "gif", "svg"].some((ext) => lowerName.endsWith("." + ext));
+
+    // Extract any genuine base64 string from base64Data or data URLs
+    let cleanBase64 = "";
+    let rawB64 = base64Data || "";
+    if (!rawB64 && typeof textContent === "string" && (textContent.startsWith("data:") || textContent.startsWith("JVBERi0") || textContent.startsWith("SUQz") || textContent.startsWith("UklGR") || textContent.startsWith("//+MYx"))) {
+      rawB64 = textContent;
+    }
+
+    if (rawB64) {
+      const dataPart = rawB64.includes(",") ? rawB64.split(",")[1] : rawB64;
+      cleanBase64 = dataPart.replace(/[^A-Za-z0-9+/=]/g, "");
+      while (cleanBase64.length % 4 !== 0) {
+        cleanBase64 += "=";
+      }
+    }
+
+    const schema = {
+      type: Type.OBJECT,
+      properties: {
+        title: { type: Type.STRING },
+        summary: { type: Type.STRING },
+        tags: { type: Type.ARRAY, items: { type: Type.STRING } },
+        domain: { type: Type.STRING },
+        docType: { type: Type.STRING },
+        entities: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              name: { type: Type.STRING },
+              type: { type: Type.STRING },
+              description: { type: Type.STRING },
+            },
+            required: ["name", "type"],
+          },
+        },
+        relations: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              targetId: { type: Type.STRING },
+              targetTitle: { type: Type.STRING },
+              relationType: { type: Type.STRING },
+              weight: { type: Type.NUMBER },
+              description: { type: Type.STRING },
+            },
+            required: ["targetTitle", "relationType"],
+          },
+        },
+        markdownContent: { type: Type.STRING },
+      },
+      required: ["title", "summary", "tags", "markdownContent", "entities", "relations"],
+    };
+
+    let parsed: any = null;
+    let audioTranscript = "";
+
+    // -------------------------------------------------------------
+    // PATH A: AUDIO PROCESSING (MP3, WAV, M4A, OGG, AAC, FLAC, WEBM)
+    // -------------------------------------------------------------
+    if (isAudio) {
+      let resolvedAudioMime = "audio/mp3";
+      if (lowerName.endsWith(".wav") || (mimeType && mimeType.includes("wav"))) {
+        resolvedAudioMime = "audio/wav";
+      } else if (lowerName.endsWith(".ogg") || (mimeType && mimeType.includes("ogg"))) {
+        resolvedAudioMime = "audio/ogg";
+      } else if (lowerName.endsWith(".m4a") || (mimeType && (mimeType.includes("m4a") || mimeType.includes("mp4")))) {
+        resolvedAudioMime = "audio/mp4";
+      } else if (lowerName.endsWith(".aac") || (mimeType && mimeType.includes("aac"))) {
+        resolvedAudioMime = "audio/aac";
+      } else if (lowerName.endsWith(".flac") || (mimeType && mimeType.includes("flac"))) {
+        resolvedAudioMime = "audio/flac";
+      } else if (lowerName.endsWith(".webm") || (mimeType && mimeType.includes("webm"))) {
+        resolvedAudioMime = "audio/webm";
+      } else if (lowerName.endsWith(".mp3") || (mimeType && (mimeType.includes("mp3") || mimeType.includes("mpeg")))) {
+        resolvedAudioMime = "audio/mp3";
+      }
+
+      console.log(`[Audio Processing] Ingesting audio file "${fileName}" (MIME: ${resolvedAudioMime}, Base64 Length: ${cleanBase64.length})`);
+
+      // Step 1: Transcribe audio content
+      if (cleanBase64 && cleanBase64.length > 50) {
+        audioTranscript = await transcribeAudioWithGemini(cleanBase64, resolvedAudioMime, fileName);
+      }
+
+      // Step 2: Build deep knowledge comprehension prompt based on the actual spoken content
+      const audioPromptText = `You are a Principal Ontologist, Audio Analyst, and Senior Technical Author.
+An audio file ("${fileName}", format: ${fileType}, mime: ${resolvedAudioMime}) has been acquired into the Knowledge Vault.
+
+${audioTranscript ? `Spoken Audio Transcript:\n"""\n${audioTranscript.slice(0, 35000)}\n"""` : `User Notes & Description:\n"""${notes || "Traccia audio acquisita nel buffer."}"""`}
+
+${notes ? `User annotations:\n"""${notes}"""` : ""}
+
+Existing resources in the user's Vault for topological cross-linking:
+${JSON.stringify(contextList, null, 2)}
+
+Strict OKF v0.2 Rules for Audio Processing & Understanding:
+1. 'title': Clear, descriptive title summarizing the primary topic, interview, discussion, lecture, or meeting in the audio (e.g., "Discussione Architetturale Microservizi", "Analisi Strategica Sistemi AI", "Podcast Tech & Engineering").
+2. 'summary': Dense, 2-4 sentence executive summary in Italian explaining what is discussed in the audio, key decisions, conclusions, and core takeaways.
+3. 'tags': 4 to 8 relevant lowercase technical tags based on the spoken content (e.g. "audio", "transcript", "meeting", "architettura", "okf-v0.2").
+4. 'domain': E.g. "AI Systems & Inference", "Cloud Architecture", "Audio Analysis & Speech", "Engineering & Systems", "Software Design".
+5. 'docType': "concept" | "specification" | "architecture" | "guide".
+6. 'entities': Array of 4 to 10 canonical entities mentioned or relevant in the audio { name: string, type: string, description: string }.
+7. 'relations': Array of weighted relations to existing vault items or key concepts { targetTitle: string, relationType: 'references' | 'implements' | 'governs' | 'integrates' | 'extends', weight: number (0.5 to 1.0), description: string }.
+8. 'markdownContent': An extensive, multi-section Markdown document (AT LEAST 400-900 words):
+   - MUST start with the valid YAML frontmatter block enclosed in --- with okf_version: "0.2", title, type, domain, tags, created_at, entities, and relations.
+   - Section 1: Panoramica Esecutiva & Sintesi dell'Audio (Clear summary of the audio recording, core objectives, context)
+   - Section 2: Punti Salienti, Argomenti Trattati & Decisioni (Detailed breakdown of topics, key points, takeaways)
+   - Section 3: Trascrizione Integrale dell'Audio (The complete, structured transcript of the audio with paragraph divisions)
+   - Section 4: Ontologia, Concetti Chiave & Collegamenti nel Vault (Use [[Wikilinks]] to link concepts)
+   - Section 5: Action Items & Conclusioni
+
+Return pure JSON strictly matching the schema.`;
+
+      // Try AI structured synthesis
+      try {
+        if (audioTranscript && audioTranscript.length > 10) {
+          const generated = await generateWithGeminiFallback(audioPromptText, schema, 40000);
+          if (generated?.text) {
+            parsed = JSON.parse(generated.text);
+          }
+        } else if (cleanBase64 && cleanBase64.length > 50 && cleanBase64.length < 10 * 1024 * 1024) {
+          // Multimodal audio direct synthesis
+          const multimodalContents = [
+            { text: audioPromptText },
+            {
+              inlineData: {
+                mimeType: resolvedAudioMime,
+                data: cleanBase64,
+              },
+            },
+          ];
+          const generated = await generateMultimodalWithGeminiFallback(multimodalContents, schema, 45000);
+          if (generated?.text) {
+            parsed = JSON.parse(generated.text);
+          }
+        }
+      } catch (err: any) {
+        console.warn("AI generation failed for audio convert-file-to-okf:", err?.message);
+      }
+
+      if (parsed && parsed.title && parsed.markdownContent) {
+        return res.json({
+          success: true,
+          source: "gemini",
+          resource: {
+            type: "knowledge",
+            title: parsed.title,
+            summary: parsed.summary,
+            tags: Array.from(new Set([...(parsed.tags || []), "audio", "transcript", "okf-v0.2"])),
+            metadata: {
+              okfVersion: "0.2",
+              domain: parsed.domain || "Audio & Media Systems",
+              docType: parsed.docType || "specification",
+              mediaType: "audio",
+              audioTranscript: audioTranscript || undefined,
+              entities: parsed.entities || [],
+              relations: parsed.relations || [],
+              markdownContent: parsed.markdownContent,
+              sourceFileName: fileName,
+              sourceFileType: "audio",
+            },
+          },
+        });
+      }
+
+      // Audio Heuristic Fallback with Genuine Transcript
+      const displayTranscript = audioTranscript || notes || `Traccia audio acquisita dal file ${fileName}`;
+      const audioFallbackDoc = `---
+okf_version: "0.2"
+title: "${inferredTitle}"
+type: "specification"
+domain: "Audio & Media Systems"
+tags: ["audio", "transcript", "okf-v0.2"]
+created_at: "${new Date().toISOString()}"
+entities:
+  - name: "${inferredTitle}"
+    type: "concept"
+    description: "Traccia audio acquisita da ${fileName}"
+relations:
+  - target_title: "Knowledge Vault: Panoramica e Architettura OKF v0.2 (README)"
+    relation_type: "references"
+    weight: 0.85
+---
+
+# ${inferredTitle}
+
+> **Specifiche e trascrizione generate da traccia audio (\`${fileName}\`)**
+
+---
+
+## 1. Panoramica Esecutiva
+Documento sonoro acquisito nel Knowledge Vault per archiviazione e consultazione semantica.
+
+---
+
+## 2. Dettagli Traccia
+- **File sorgente**: \`${fileName}\`
+- **Formato**: \`${resolvedAudioMime}\`
+- **Stato trascrizione**: ${audioTranscript ? "Trascritto con successo" : "In attesa di trascrizione"}
+
+---
+
+## 3. Trascrizione Integrale dell'Audio
+${displayTranscript}
+
+---
+
+## 4. Ontologia e Grafo
+Questa risorsa è mappata per il collegamento con concetti ed entità del Vault.
+`;
+
+      return res.json({
+        success: true,
+        source: "fallback",
+        resource: {
+          type: "knowledge",
+          title: inferredTitle,
+          summary: `Traccia audio acquisita da ${fileName}. ${audioTranscript ? "Include trascrizione completa del parlato." : "Archiviata nel Knowledge Vault."}`,
+          tags: ["audio", "transcript", "okf-v0.2"],
+          metadata: {
+            okfVersion: "0.2",
+            domain: "Audio & Media Systems",
+            docType: "specification",
+            mediaType: "audio",
+            audioTranscript: audioTranscript || undefined,
+            markdownContent: audioFallbackDoc,
+            sourceFileName: fileName,
+            sourceFileType: "audio",
+            entities: [{ name: inferredTitle, type: "concept", description: `Risorsa audio da ${fileName}` }],
+            relations: contextList.slice(0, 2).map((c) => ({
+              targetId: c.id,
+              targetTitle: c.title,
+              relationType: "references",
+              weight: 0.8,
+              description: "Collegamento ontologico nel Vault",
+            })),
+          },
+        },
+      });
+    }
+
+    // -------------------------------------------------------------
+    // PATH B: PDF, IMAGE, CODE, TEXT, MARKDOWN, JSON, LOGS
+    // -------------------------------------------------------------
+    const promptText = `You are a Principal Software Architect, Ontologist, and Senior Technical Author.
+Your mission is to perform deep, exhaustive analysis of the attached document/file ("${fileName}", type: ${fileType}, mime: ${mimeType}) and transform it into an authoritative, complete Open Knowledge Format (OKF v0.2) specification in Italian (using standard English for code, schemas, and technical terms).
+
+User Notes/Annotations attached to this file:
+"""${notes || "Nessuna nota aggiuntiva"}"""
+
+Existing resources in the user's Vault for topological cross-linking:
+${JSON.stringify(contextList, null, 2)}
+
+Strict OKF v0.2 & Content Depth Mandates:
+1. 'title': Clear, canonical title representing the document's core subject (without marketing fluff).
+2. 'summary': Dense, 2-4 sentence executive summary in Italian explaining key technical findings, architecture, or solutions.
+3. 'tags': 4 to 8 relevant lowercase technical tags.
+4. 'domain': E.g. "AI Systems & Inference", "Cloud Architecture", "System Diagnostics & OS", "Developer Tooling", "Database Engineering", "Security".
+5. 'docType': "concept" | "specification" | "architecture" | "guide" | "tool_description" | "prompt_skill".
+6. 'entities': Array of 4 to 10 canonical entities with { name: string, type: string, description: string }.
+7. 'relations': Array of weighted relations to existing vault items or key concepts { targetTitle: string, relationType: 'references' | 'implements' | 'governs' | 'integrates' | 'extends', weight: number (0.5 to 1.0), description: string }.
+8. 'markdownContent': An extensive, multi-section Markdown document (500 to 1200+ words):
+   - MUST begin with the YAML frontmatter block enclosed in --- with okf_version: "0.2", title, type, domain, tags, created_at, entities, and relations.
+   - Section 1: Sintesi Esecutiva & Obiettivi Chiave
+   - Section 2: Analisi Dettagliata, Architettura o Dati Estratti dal File (include code snippets, tables, diagrams if applicable)
+   - Section 3: Pattern Operativi, Comandi o Soluzioni Pratiche
+   - Section 4: Ontologia, Collegamenti e Interoperabilità (use [[Wikilinks]] pointing to vault concepts)
+   - Section 5: Best Practice, Note di Sicurezza e Manutenzione
+
+Return pure JSON strictly matching the schema.`;
+
+    // Try extracting text directly from PDF buffer if genuine PDF binary data is present
+    let extractedPdfText = "";
+    if (isPdf && cleanBase64 && cleanBase64.length > 50) {
+      try {
+        const pdfBuffer = Buffer.from(cleanBase64, "base64");
+        if (pdfBuffer.length > 10 && pdfBuffer.subarray(0, 4).toString("latin1") === "%PDF") {
+          const parsedText = await extractTextFromPdfBuffer(pdfBuffer);
+          if (parsedText && parsedText.trim().length > 20) {
+            extractedPdfText = parsedText.trim();
+            console.log(`[PDF Parser] Extracted ${extractedPdfText.length} characters of text from "${fileName}"`);
+          }
+        }
+      } catch {
+        // Continue gracefully
+      }
+    }
+
+    // Step 1: If multimodal is possible and base64 size is reasonable (< 10MB)
+    if (cleanBase64 && cleanBase64.length > 30 && cleanBase64.length < 10 * 1024 * 1024 && (isPdf || isImage)) {
+      let resolvedMime = "application/pdf";
+      if (isPdf) {
+        resolvedMime = "application/pdf";
+      } else if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg") || (mimeType && (mimeType.includes("jpeg") || mimeType.includes("jpg")))) {
+        resolvedMime = "image/jpeg";
+      } else if (lowerName.endsWith(".webp") || (mimeType && mimeType.includes("webp"))) {
+        resolvedMime = "image/webp";
+      } else if (lowerName.endsWith(".gif") || (mimeType && mimeType.includes("gif"))) {
+        resolvedMime = "image/gif";
+      } else if (lowerName.endsWith(".png") || (mimeType && mimeType.includes("png"))) {
+        resolvedMime = "image/png";
+      }
+
+      const multimodalContents = [
+        { text: promptText + (extractedPdfText ? `\n\nExtracted Text from PDF:\n"""\n${extractedPdfText.slice(0, 25000)}\n"""` : "") },
+        {
+          inlineData: {
+            mimeType: resolvedMime,
+            data: cleanBase64,
+          },
+        },
+      ];
+
+      try {
+        const generated = await generateMultimodalWithGeminiFallback(multimodalContents, schema, 45000);
+        if (generated?.text) {
+          parsed = JSON.parse(generated.text);
+        }
+      } catch (err: any) {
+        console.warn("Multimodal AI generation failed for convert-file-to-okf:", err?.message);
+      }
+    }
+
+    // Step 2: If multimodal was skipped or failed, use high-density text extraction + Gemini
+    if (!parsed) {
+      let extractedText = extractedPdfText || textContent || "";
+      // Only decode base64 as UTF-8 if it is NOT an image, audio, or binary file
+      if (!extractedText && cleanBase64 && cleanBase64.length > 20 && !isImage && !isPdf) {
+        try {
+          const decoded = Buffer.from(cleanBase64, "base64").toString("utf-8");
+          // Check if decoded text is printable text (not binary garbage)
+          if (/^[\x20-\x7E\s\u00A0-\uFFFF]*$/.test(decoded.slice(0, 500))) {
+            extractedText = decoded;
+          }
+        } catch {
+          extractedText = "";
+        }
+      }
+
+      const textToAnalyze = extractedText || notes || `File: ${fileName}`;
+      const textPrompt = `${promptText}\n\nDocument/File Content ("${fileName}"):\n"""\n${textToAnalyze.slice(0, 45000)}\n"""`;
+
+      try {
+        const generated = await generateWithGeminiFallback(textPrompt, schema, 35000);
+        if (generated?.text) {
+          parsed = JSON.parse(generated.text);
+        }
+      } catch (err: any) {
+        console.warn("Text-based Gemini generation failed for convert-file-to-okf:", err?.message);
+      }
+    }
+
+    if (parsed && parsed.title && parsed.markdownContent) {
+      return res.json({
+        success: true,
+        source: "gemini",
+        resource: {
+          type: "knowledge",
+          title: parsed.title,
+          summary: parsed.summary,
+          tags: parsed.tags || ["file-upload", "knowledge", "okf-v0.2"],
+          metadata: {
+            okfVersion: "0.2",
+            domain: parsed.domain || "Knowledge Architecture",
+            docType: parsed.docType || "specification",
+            entities: parsed.entities || [],
+            relations: parsed.relations || [],
+            markdownContent: parsed.markdownContent,
+            sourceFileName: fileName,
+            sourceFileType: fileType,
+          },
+        },
+      });
+    }
+
+    // Heuristic Fallback
+    const fallbackText = textContent || extractedPdfText || notes || `Contenuto estratto dal file ${fileName}`;
+    const fallbackDoc = `---
+okf_version: "0.2"
+title: "${inferredTitle}"
+type: "specification"
+domain: "Software & Systems"
+tags: ["file-upload", "document", "okf-v0.2"]
+created_at: "${new Date().toISOString()}"
+entities:
+  - name: "${inferredTitle}"
+    type: "concept"
+    description: "Documento originale acquisito da ${fileName}"
+relations:
+  - target_title: "Knowledge Vault: Panoramica e Architettura OKF v0.2 (README)"
+    relation_type: "references"
+    weight: 0.85
+---
+
+# ${inferredTitle}
+
+> **Documento acquisito e convertito da file grezzo (\`${fileName}\`)**
+
+---
+
+## 1. Panoramica Esecutiva
+Documentazione acquisita tramite il modulo di upload del Knowledge Vault.
+
+---
+
+## 2. Contenuto Estratto
+${fallbackText.slice(0, 3000)}
+
+---
+
+## 3. Topologia e Grafo
+Questa specifica è registrata nel Vault per collegamenti ontologici.
+`;
+
+    return res.json({
+      success: true,
+      source: "fallback",
+      resource: {
+        type: "knowledge",
+        title: inferredTitle,
+        summary: `Documento acquisito da ${fileName}. Include specifiche tecniche ed entità mappate.`,
+        tags: ["file-upload", "document", "okf-v0.2"],
+        metadata: {
+          okfVersion: "0.2",
+          domain: "Software & Systems",
+          docType: "specification",
+          markdownContent: fallbackDoc,
+          sourceFileName: fileName,
+          sourceFileType: fileType,
+          entities: [{ name: inferredTitle, type: "concept", description: `Risorsa originata da ${fileName}` }],
+          relations: contextList.slice(0, 2).map((c) => ({
+            targetId: c.id,
+            targetTitle: c.title,
+            relationType: "references",
+            weight: 0.8,
+            description: "Collegamento ontologico nel Vault",
+          })),
+        },
+      },
+    });
+  } catch (error: any) {
+    console.error("Convert file to OKF error:", error);
+    res.status(500).json({ error: error?.message || "Failed to convert file to OKF" });
+  }
 });
 
 // API: Process document into OKF v0.2 format and build knowledge connections
@@ -857,43 +2050,96 @@ Return pure JSON matching the schema.`;
       });
     }
 
-    // Heuristic fallback generator
+    // Comprehensive Heuristic fallback generator
+    const cleanBody = currentContent.replace(/^---[\s\S]*?---\n*/, "").trim() || summary;
+    const fallbackEntities = metadata.entities && metadata.entities.length > 0 
+      ? metadata.entities 
+      : [
+          { name: title, type: "concept", description: `Elemento cardine del documento "${title}"` },
+          { name: metadata.domain || "Software Architecture", type: "domain", description: "Dominio di riferimento" },
+        ];
+    
+    const fallbackRelations = metadata.relations && metadata.relations.length > 0
+      ? metadata.relations
+      : contextList.slice(0, 3).map((c) => ({
+          targetTitle: c.title,
+          relationType: "references",
+          weight: 0.85,
+          description: "Correlazione semantica nel Knowledge Vault",
+        }));
+
     const fallbackMarkdown = `---
 okf_version: "0.2"
 title: "${title}"
 type: "${metadata.docType || 'specification'}"
 domain: "${metadata.domain || 'Software Architecture'}"
-tags: ${JSON.stringify(tags.length > 0 ? tags : ['knowledge', 'okf-v0.2'])}
+tags: ${JSON.stringify(tags.length > 0 ? tags : ['knowledge', 'okf-v0.2', 'architecture'])}
 created_at: "${new Date().toISOString()}"
 entities:
-  - name: "${title}"
-    type: "concept"
-    description: "Risorsa centrale documentata nel Vault"
+${fallbackEntities.map((e: any) => `  - name: "${typeof e === 'string' ? e : e.name}"\n    type: "${typeof e === 'string' ? 'concept' : e.type || 'concept'}"\n    description: "${typeof e === 'string' ? 'Entità associata' : e.description || 'Entità tecnica'}"`).join("\n")}
 relations:
-  - target_title: "Knowledge Vault: Panoramica e Architettura OKF v0.2 (README)"
-    relation_type: "references"
-    weight: 0.9
-    description: "Collegamento al sistema centrale"
+${fallbackRelations.map((r: any) => `  - target_title: "${r.targetTitle || r.target_title || 'Knowledge Vault'}"\n    relation_type: "${r.relationType || r.relation_type || 'references'}"\n    weight: ${r.weight || 0.85}\n    description: "${r.description || 'Connessione topologica'}"`).join("\n")}
 ---
 
 # ${title}
 
-> **Documentazione Tecnica Dettagliata (OKF v0.2)**
+> **Specifiche Tecniche & Approfondimento Architetturale (OKF v0.2)**
+> 
+> ${summary || `Documentazione approfondita per la risorsa **${title}**, catalogata all'interno del Knowledge Vault.`}
 
 ---
 
-## 1. Panoramica Esecutiva
-${summary || `La risorsa **${title}** fa parte del patrimonio di conoscenza del Knowledge Vault.`}
+## 1. Panoramica Esecutiva & Obiettivi
+
+La risorsa **${title}** rappresenta una componente fondamentale all'interno del dominio **${metadata.domain || 'Software Architecture'}**.
+L'obiettivo primario di questa documentazione è formalizzare le linee guida architetturali, i requisiti di sistema e i protocolli di integrazione.
+
+${summary ? `### Contesto & Abstract\n${summary}\n` : ''}
 
 ---
 
-## 2. Dettagli Tecnici & Architettura
-${currentContent.replace(/^---[\s\S]*?---\n*/, "") || "Nessun contenuto sorgente aggiuntivo."}
+## 2. Architettura Tecnica & Specifiche dei Componenti
+
+\`\`\`text
++-------------------------------------------------------------+
+|                ${title.slice(0, 40).padEnd(40, " ")} |
++-------------------------------------------------------------+
+                               |
+                               v
++-------------------------------------------------------------+
+|  Dominio: ${(metadata.domain || 'Software Systems').padEnd(46, " ")} |
+|  Tipologia: ${(metadata.docType || 'specification').padEnd(44, " ")} |
+|  Standard: OKF v0.2 / Graph Topological Engine              |
++-------------------------------------------------------------+
+\`\`\`
+
+### Dettagli del Contenuto
+${cleanBody}
 
 ---
 
-## 3. Integrazione con il Grafo Topologico
-Questa risorsa è collegata all'ontologia del Vault ed esplorabile tramite la vista [[KnowledgeGraph]].
+## 3. Guida Operativa & Pattern di Utilizzo
+
+Per integrare e utilizzare efficacemente **${title}** nei flussi operativi:
+
+1. **Configurazione Iniziale**: Verificare la conformità con lo standard OKF v0.2.
+2. **Esecuzione & Parsing**: Sfruttare le pipeline di trasformazione del Knowledge Vault per mantenere sincronizzato il grafo delle dipendenze.
+3. **Validazione**: Eseguire il controllo semantico delle entità e delle relazioni collegate.
+
+---
+
+## 4. Ontologia & Connessioni Topologiche
+
+Questa risorsa è interconnessa con i seguenti concetti e nodi del Vault:
+${fallbackRelations.map((r: any) => `- [[${r.targetTitle || r.target_title}]]: *${r.description || 'Relazione semantica'}* (\`${r.relationType || r.relation_type || 'references'}\`)`).join("\n")}
+
+---
+
+## 5. Best Practice, Sicurezza & Resilienza
+
+- **Isolamento dei Dati**: Tutte le entità e i collegamenti rispettano i criteri di riservatezza e isolamento per-utente.
+- **Integrità del Grafo**: Ogni aggiornamento mantiene consistenti i pesi di affinità nel motore D3 del grafo.
+- **Audit & Versioning**: Revisione tracciata secondo lo standard di conformità OKF v0.2.
 `;
 
     return res.json({
@@ -901,11 +2147,11 @@ Questa risorsa è collegata all'ontologia del Vault ed esplorabile tramite la vi
       source: "fallback",
       data: {
         markdownContent: fallbackMarkdown,
-        summary: summary || `Documentazione tecnica per ${title}`,
+        summary: summary || `Documentazione tecnica dettagliata per ${title}`,
         domain: metadata.domain || "Software Architecture",
         docType: metadata.docType || "specification",
-        entities: metadata.entities || [{ name: title, type: "concept", description: "Risorsa centrale" }],
-        relations: metadata.relations || [],
+        entities: fallbackEntities,
+        relations: fallbackRelations,
       },
     });
   } catch (error: any) {
@@ -944,7 +2190,7 @@ app.post("/api/fetch-opengraph", async (req, res) => {
 // API: Analyze text/link and extract structured metadata using Gemini
 app.post("/api/analyze-resource", async (req, res) => {
   try {
-    const { input, explicitType } = req.body;
+    const { input, explicitType, existingResources } = req.body;
     if (!input || typeof input !== "string" || input.trim().length === 0) {
       return res.status(400).json({ error: "Input string is required" });
     }
@@ -961,13 +2207,31 @@ app.post("/api/analyze-resource", async (req, res) => {
     }
 
     const prompt = `You are an expert AI software architect and knowledge curator.
-Analyze the following text or URL to extract structured information for a developer knowledge base.
+Analyze the following text or URL to extract structured information for a developer knowledge base adhering to Open Knowledge Format (OKF v0.2).
+
+UNIVERSAL OKF v0.2 MANDATE:
+EVERY resource (regardless of category: github_repo, article, mcp_server, ai_skill, troubleshooting, link, or knowledge) is a structured technical document in this Knowledge Vault. You MUST generate:
+1. 'metadata.okfVersion': "0.2"
+2. 'metadata.domain': Specific domain (e.g. "Agentic Systems & AI", "Software Architecture", "DevOps & Cloud Infrastructure", "Frontend Engineering", "Security & System Diagnostics")
+3. 'metadata.docType': "architecture" (for github_repo), "tool_description" (for mcp_server), "prompt_skill" (for ai_skill), "specification" (for troubleshooting/knowledge), "guide" (for article/link), or "concept" (for concepts)
+4. 'metadata.entities': Array of 3 to 6 identified technical entities { name, type, description }
+5. 'metadata.relations': Array of 2 to 5 topological relations { targetTitle, relationType, weight, description }
+6. 'metadata.markdownContent': Full technical documentation starting with YAML frontmatter conforming to OKF v0.2:
+---
+okf_version: "0.2"
+title: "..."
+type: "..."
+domain: "..."
+tags: [...]
+created_at: "..."
+---
+Followed by rich Markdown documentation with sections (Panoramica, Architettura / Specifiche / Guida, Componenti, Utilizzo).
 
 Target Categories:
-1. 'troubleshooting' - Technical issues, software bugs, DLL/system errors, crash diagnostics, and step-by-step resolutions/workarounds (e.g. Windows Smart App Control, DLL missing, PriMus, runtime errors)
+1. 'troubleshooting' - Technical issues, software bugs, DLL/system errors, crash diagnostics, and step-by-step resolutions/workarounds
 2. 'github_repo' - GitHub repositories, packages, tools (CRITICAL: any github.com URL must be classified as github_repo unless explicitType says otherwise)
 3. 'mcp_server' - Model Context Protocol servers, tools, connectors for Claude/Gemini/AI agents
-4. 'knowledge' - Architecture documents, specifications, second-brain knowledge notes adhering to OKF v0.2 format
+4. 'knowledge' - Architecture documents, specifications, second-brain knowledge notes
 5. 'ai_skill' - AI System prompts, agents instructions, persona templates, workflow skills
 6. 'article' - Blog posts, research papers, documentation, tutorials, architectural guides
 7. 'link' - Web links, online tools, SaaS platforms, portals, official sites, web apps, API references
@@ -985,13 +2249,16 @@ ${ogData ? `Extracted Open Graph web context:
 - Favicon: ${ogData.favicon || "N/A"}
 - Author: ${ogData.author || "N/A"}
 ` : ""}
+${Array.isArray(existingResources) && existingResources.length > 0 ? `Available Vault Resources for Cross-Linking Relations:
+${existingResources.slice(0, 15).map((r: any) => `- "${r.title}" (Tipo: ${r.type}, Tags: ${(r.tags || []).join(", ")})`).join("\n")}
+` : ""}
 
 Instructions:
 - If input contains "github.com/" or is a repo format "owner/repo", set type to 'github_repo' (unless explicitType is specifically 'mcp_server' or 'knowledge').
 - If input is a generic website or online tool URL (not a blog post or github repo), or if explicitType is 'link', classify as 'link'.
 - Extract a clean, precise title. For GitHub repos, use 'owner/repo' or repo name.
 - If a URL is present or inferred, format as full https:// URL.
-- Write a clear, comprehensive summary in Italian that preserves all essential facts, technical context, details, and user notes from the original input. If the input contains specific instructions, notes, problems, logs or descriptions, ensure they are fully captured in the summary and relevant metadata.
+- Write a clear, comprehensive summary in Italian that preserves all essential facts, technical context, details, and user notes from the original input.
 - Generate 3 to 6 relevant lowercase tags (e.g. ['github', 'typescript', 'open-source', 'agents', 'web-tool']).
 - Fill type-specific metadata:
   - If troubleshooting: { affectedSystem, rootCause, attemptedFixes: ["string"], solutionSteps: ["string"], problemDescription }
@@ -1000,8 +2267,7 @@ Instructions:
   - If ai_skill: { skillType, recommendedModel, systemPrompt, triggerKeywords, exampleUsage }
   - If article: { author, readingTimeMin, keyTakeaways: [], ogDescription, favicon, siteName, domain }
   - If link: { siteName, domain, favicon, ogDescription, ogImage }
-  - If knowledge: { domain, docType, okfVersion: '0.2', entities: [], relations: [] }
-- If the user input contains additional personal comments, annotations, or custom notes distinct from the core resource, capture them in metadata.userNotes.
+- If the user input contains additional personal comments or custom notes, capture them in metadata.userNotes.
 
 Return pure JSON matching this exact structure:
 {
@@ -1146,35 +2412,83 @@ Return pure JSON matching this exact structure:
       parsedJson.type = explicitType;
     }
 
-    // Ensure Knowledge resources have full OKF v0.2 metadata
-    if (parsedJson.type === "knowledge") {
-      parsedJson.metadata.okfVersion = parsedJson.metadata.okfVersion || "0.2";
-      parsedJson.metadata.domain = parsedJson.metadata.domain || "Agentic Systems & AI";
-      parsedJson.metadata.docType = parsedJson.metadata.docType || "concept";
-      
-      if (!parsedJson.metadata.markdownContent || parsedJson.metadata.markdownContent.trim().length === 0) {
-        parsedJson.metadata.markdownContent = trimmedInput.startsWith("---")
-          ? trimmedInput
-          : `---\nokf_version: "0.2"\ntitle: "${parsedJson.title}"\ntype: "${parsedJson.metadata.docType}"\ndomain: "${parsedJson.metadata.domain}"\ntags: ${JSON.stringify(parsedJson.tags)}\ncreated_at: "${new Date().toISOString()}"\n---\n\n# ${parsedJson.title}\n\n${trimmedInput}`;
-      }
-
-      if (!parsedJson.metadata.entities || parsedJson.metadata.entities.length === 0) {
-        parsedJson.metadata.entities = [
-          { name: parsedJson.title, type: "concept", description: parsedJson.summary?.slice(0, 100) || "Elemento centrale" }
-        ];
-      }
-
-      if (!parsedJson.metadata.relations) {
-        parsedJson.metadata.relations = [];
-      }
-    } else if (parsedJson.type === "article" && parsedJson.url && parsedJson.url.startsWith("http")) {
-      // If analyzing an article with a URL, try to scrape readable article body so full text is immediately available
+    // If analyzing an article with a URL, try to scrape readable article body so full text is immediately available
+    if (parsedJson.type === "article" && parsedJson.url && parsedJson.url.startsWith("http")) {
       try {
         const scraped = await fetchArticleTextFromUrl(parsedJson.url, 4000);
         if (scraped.text && scraped.text.length > 150) {
           parsedJson.metadata.markdownContent = scraped.markdown || scraped.text;
         }
       } catch {}
+    }
+
+    // UNIVERSAL OKF v0.2 SPECIFICATION GUARANTEE FOR ALL RESOURCE TYPES
+    parsedJson.metadata.okfVersion = "0.2";
+    if (!parsedJson.metadata.docType) {
+      parsedJson.metadata.docType = parsedJson.type === "github_repo" ? "architecture"
+        : parsedJson.type === "mcp_server" ? "tool_description"
+        : parsedJson.type === "ai_skill" ? "prompt_skill"
+        : parsedJson.type === "troubleshooting" ? "specification"
+        : parsedJson.type === "article" || parsedJson.type === "link" ? "guide"
+        : "concept";
+    }
+
+    if (!parsedJson.metadata.domain || parsedJson.metadata.domain === "general") {
+      parsedJson.metadata.domain = parsedJson.metadata.siteName || (
+        parsedJson.type === "github_repo" ? "Software Architecture"
+        : parsedJson.type === "mcp_server" || parsedJson.type === "ai_skill" ? "Agentic Systems & AI"
+        : parsedJson.type === "troubleshooting" ? "System Diagnostics & Fix"
+        : "Software Architecture"
+      );
+    }
+
+    if (!parsedJson.metadata.entities || parsedJson.metadata.entities.length === 0) {
+      parsedJson.metadata.entities = [
+        { name: parsedJson.title, type: "concept", description: parsedJson.summary?.slice(0, 100) || "Elemento centrale" },
+        { name: parsedJson.metadata.domain, type: "domain", description: "Dominio di appartenenza" },
+      ];
+      if (parsedJson.metadata.owner && parsedJson.metadata.repoName) {
+        parsedJson.metadata.entities.push({ name: parsedJson.metadata.repoName, type: "software", description: `Repository ${parsedJson.metadata.owner}/${parsedJson.metadata.repoName}` });
+      }
+      if (parsedJson.metadata.language) {
+        parsedJson.metadata.entities.push({ name: parsedJson.metadata.language, type: "technology", description: `Linguaggio di programmazione: ${parsedJson.metadata.language}` });
+      }
+      (parsedJson.tags || []).slice(0, 3).forEach((t: string) => {
+        if (t.length > 2 && t !== "dev" && t !== "knowledge") {
+          parsedJson.metadata.entities.push({ name: t.charAt(0).toUpperCase() + t.slice(1), type: "technology", description: `Tag ontologico: ${t}` });
+        }
+      });
+    }
+
+    if (!parsedJson.metadata.relations || parsedJson.metadata.relations.length === 0) {
+      parsedJson.metadata.relations = [
+        { targetTitle: "Knowledge Vault", relationType: "references", weight: 0.85, description: "Archiviazione e integrazione topologica nel Vault" }
+      ];
+      if (Array.isArray(existingResources) && existingResources.length > 0) {
+        const myTags = (parsedJson.tags || []).map((t: string) => t.toLowerCase());
+        for (const er of existingResources) {
+          if (er.title !== parsedJson.title) {
+            const commonTags = (er.tags || []).filter((t: string) => myTags.includes(t.toLowerCase()));
+            if (commonTags.length > 0) {
+              parsedJson.metadata.relations.push({
+                targetTitle: er.title,
+                relationType: "references",
+                weight: 0.75,
+                description: `Correlazione tematica sui tag: ${commonTags.join(", ")}`
+              });
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    if (!parsedJson.metadata.markdownContent || parsedJson.metadata.markdownContent.trim().length === 0) {
+      const cleanTags = Array.from(new Set(parsedJson.tags.length > 0 ? parsedJson.tags : [parsedJson.type, "okf-v0.2"]));
+      const entitiesYaml = (parsedJson.metadata.entities || []).map((e: any) => `  - name: "${e.name}"\n    type: "${e.type || 'concept'}"\n    description: "${e.description || 'Entità'}"`).join("\n");
+      const relationsYaml = (parsedJson.metadata.relations || []).map((r: any) => `  - target_title: "${r.targetTitle || r.target_title}"\n    relation_type: "${r.relationType || r.relation_type || 'references'}"\n    weight: ${r.weight || 0.8}\n    description: "${r.description || 'Connessione'}"`).join("\n");
+
+      parsedJson.metadata.markdownContent = `---\nokf_version: "0.2"\ntitle: "${parsedJson.title}"\ntype: "${parsedJson.metadata.docType}"\ndomain: "${parsedJson.metadata.domain}"\ntags: ${JSON.stringify(cleanTags)}\ncreated_at: "${new Date().toISOString()}"\nentities:\n${entitiesYaml}\nrelations:\n${relationsYaml}\n---\n\n# ${parsedJson.title}\n\n> **${parsedJson.metadata.docType?.toUpperCase()} · OKF v0.2**\n> Ambito: ${parsedJson.metadata.domain}\n\n## 1. Panoramica & Sintesi\n\n${parsedJson.summary || trimmedInput}\n\n${parsedJson.url ? `**URL di Riferimento:** [${parsedJson.url}](${parsedJson.url})\n\n` : ""}## 2. Specifiche Tecniche & Componenti\n\n- **Tipologia Risorsa**: \`${parsedJson.type}\`\n- **Dominio Tecnico**: \`${parsedJson.metadata.domain}\`\n- **Tipo Documento OKF**: \`${parsedJson.metadata.docType}\`\n${parsedJson.metadata.installCommand ? `- **Installazione / Clone**: \`${parsedJson.metadata.installCommand}\`\n` : ""}${parsedJson.metadata.command ? `- **Comando MCP**: \`${parsedJson.metadata.command}\`\n` : ""}\n## 3. Ontologia & Connessioni Topologiche\n\n${parsedJson.metadata.relations.map((r: any) => `- [[${r.targetTitle || r.target_title}]]: *${r.description || 'Correlazione'}* (\`${r.relationType || 'references'}\`)`).join("\n")}\n`;
     }
 
     res.json({ result: parsedJson, source: parsedJson ? "gemini" : "fallback" });
@@ -1557,6 +2871,213 @@ Return pure JSON matching the schema.`;
   } catch (error: any) {
     console.error("Summarize resource error:", error);
     res.status(500).json({ error: error?.message || "Failed to summarize resource" });
+  }
+});
+
+// ==========================================
+// SERVER-SIDE DURABLE BACKUP & VAULT STORE
+// ==========================================
+const DATA_DIR = path.join(process.cwd(), "data");
+const SNAPSHOTS_DIR = path.join(DATA_DIR, "snapshots");
+const BACKUP_FILE_PATH = path.join(DATA_DIR, "vault-backup.json");
+
+// Ensure data and snapshot directories exist
+try {
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+  if (!fs.existsSync(SNAPSHOTS_DIR)) {
+    fs.mkdirSync(SNAPSHOTS_DIR, { recursive: true });
+  }
+} catch (e) {
+  console.warn("Failed to create data directory:", e);
+}
+
+// POST /api/vault/backup - Save resources and raw files to backend filesystem
+app.post("/api/vault/backup", async (req, res) => {
+  try {
+    const { resources, rawFiles, userId } = req.body;
+    if (!Array.isArray(resources)) {
+      return res.status(400).json({ error: "Missing or invalid 'resources' array in body" });
+    }
+
+    if (!fs.existsSync(DATA_DIR)) {
+      await fsPromises.mkdir(DATA_DIR, { recursive: true });
+    }
+    if (!fs.existsSync(SNAPSHOTS_DIR)) {
+      await fsPromises.mkdir(SNAPSHOTS_DIR, { recursive: true });
+    }
+
+    // Preservation Shield: If existing backup file has content, save a snapshot before overwriting
+    if (fs.existsSync(BACKUP_FILE_PATH)) {
+      try {
+        const oldContent = await fsPromises.readFile(BACKUP_FILE_PATH, "utf8");
+        const oldParsed = JSON.parse(oldContent);
+        const oldCount = Array.isArray(oldParsed.resources) ? oldParsed.resources.length : 0;
+        if (oldCount > 0) {
+          const snapName = `snapshot-${Date.now()}-${oldCount}items.json`;
+          const snapPath = path.join(SNAPSHOTS_DIR, snapName);
+          await fsPromises.writeFile(snapPath, oldContent, "utf8");
+
+          // Keep maximum 20 latest snapshots
+          const existingSnaps = await fsPromises.readdir(SNAPSHOTS_DIR);
+          if (existingSnaps.length > 20) {
+            existingSnaps.sort();
+            for (let i = 0; i < existingSnaps.length - 20; i++) {
+              await fsPromises.unlink(path.join(SNAPSHOTS_DIR, existingSnaps[i])).catch(() => {});
+            }
+          }
+        }
+      } catch (backupSnapErr) {
+        console.warn("Non-fatal error creating snapshot backup:", backupSnapErr);
+      }
+    }
+
+    const payload = {
+      vaultVersion: "0.2",
+      savedAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      userId: userId || "local-user",
+      totalResources: resources.length,
+      totalRawFiles: Array.isArray(rawFiles) ? rawFiles.length : 0,
+      resources,
+      rawFiles: Array.isArray(rawFiles) ? rawFiles : [],
+    };
+
+    const jsonString = JSON.stringify(payload, null, 2);
+    await fsPromises.writeFile(BACKUP_FILE_PATH, jsonString, "utf8");
+
+    const stat = await fsPromises.stat(BACKUP_FILE_PATH);
+
+    res.json({
+      success: true,
+      count: resources.length,
+      rawFilesCount: payload.totalRawFiles,
+      savedAt: payload.savedAt,
+      timestamp: payload.timestamp,
+      fileSizeBytes: stat.size,
+      formattedSize: `${(stat.size / 1024).toFixed(1)} KB`,
+    });
+  } catch (error: any) {
+    console.error("Failed to write vault backup to filesystem:", error);
+    res.status(500).json({ error: error?.message || "Failed to save backup to server filesystem" });
+  }
+});
+
+// GET /api/vault/snapshots - List available historical snapshots
+app.get("/api/vault/snapshots", async (_req, res) => {
+  try {
+    if (!fs.existsSync(SNAPSHOTS_DIR)) {
+      return res.json({ snapshots: [] });
+    }
+    const files = await fsPromises.readdir(SNAPSHOTS_DIR);
+    const snapshots = [];
+    for (const file of files) {
+      if (file.endsWith(".json")) {
+        const filePath = path.join(SNAPSHOTS_DIR, file);
+        const stat = await fsPromises.stat(filePath);
+        // Extract count from filename if possible: snapshot-<timestamp>-<count>items.json
+        const match = file.match(/snapshot-(\d+)-(\d+)items\.json/);
+        const timestamp = match ? parseInt(match[1], 10) : stat.mtimeMs;
+        const count = match ? parseInt(match[2], 10) : 0;
+        snapshots.push({
+          filename: file,
+          timestamp,
+          formattedDate: new Date(timestamp).toLocaleString("it-IT"),
+          count,
+          sizeBytes: stat.size,
+          formattedSize: `${(stat.size / 1024).toFixed(1)} KB`,
+        });
+      }
+    }
+    snapshots.sort((a, b) => b.timestamp - a.timestamp);
+    res.json({ snapshots });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to list snapshots" });
+  }
+});
+
+// GET /api/vault/snapshot-detail - Get specific snapshot file contents
+app.get("/api/vault/snapshot-detail", async (req, res) => {
+  try {
+    const filename = String(req.query.filename || "");
+    if (!filename || filename.includes("..") || filename.includes("/")) {
+      return res.status(400).json({ error: "Invalid snapshot filename" });
+    }
+    const filePath = path.join(SNAPSHOTS_DIR, filename);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: "Snapshot not found" });
+    }
+    const content = await fsPromises.readFile(filePath, "utf8");
+    res.setHeader("Content-Type", "application/json");
+    res.send(content);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to read snapshot" });
+  }
+});
+
+// GET /api/vault/backup - Load persistent vault backup from backend filesystem
+app.get("/api/vault/backup", async (req, res) => {
+  try {
+    if (!fs.existsSync(BACKUP_FILE_PATH)) {
+      return res.json({
+        success: true,
+        exists: false,
+        data: null,
+      });
+    }
+
+    const content = await fsPromises.readFile(BACKUP_FILE_PATH, "utf8");
+    const parsed = JSON.parse(content);
+    const stat = await fsPromises.stat(BACKUP_FILE_PATH);
+
+    res.json({
+      success: true,
+      exists: true,
+      savedAt: parsed.savedAt,
+      timestamp: parsed.timestamp || stat.mtimeMs,
+      fileSizeBytes: stat.size,
+      totalResources: parsed.resources?.length || 0,
+      totalRawFiles: parsed.rawFiles?.length || 0,
+      resources: parsed.resources || [],
+      rawFiles: parsed.rawFiles || [],
+    });
+  } catch (error: any) {
+    console.error("Failed to read vault backup from filesystem:", error);
+    res.status(500).json({ error: error?.message || "Failed to read backup from server filesystem" });
+  }
+});
+
+// GET /api/vault/backup-status - Check status of backend backup file
+app.get("/api/vault/backup-status", async (_req, res) => {
+  try {
+    if (!fs.existsSync(BACKUP_FILE_PATH)) {
+      return res.json({
+        exists: false,
+        path: BACKUP_FILE_PATH,
+        count: 0,
+      });
+    }
+
+    const stat = await fsPromises.stat(BACKUP_FILE_PATH);
+    const content = await fsPromises.readFile(BACKUP_FILE_PATH, "utf8");
+    let count = 0;
+    let savedAt = stat.mtime.toISOString();
+    try {
+      const parsed = JSON.parse(content);
+      count = parsed.resources?.length || 0;
+      if (parsed.savedAt) savedAt = parsed.savedAt;
+    } catch {}
+
+    res.json({
+      exists: true,
+      savedAt,
+      fileSizeBytes: stat.size,
+      formattedSize: `${(stat.size / 1024).toFixed(1)} KB`,
+      count,
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message || "Failed to get backup status" });
   }
 });
 

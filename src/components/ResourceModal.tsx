@@ -41,7 +41,8 @@ import {
   Tag,
   Plus,
   Download,
-  Eye
+  Eye,
+  Printer
 } from "lucide-react";
 import Markdown from "react-markdown";
 import { ResourceItem, ResourceType } from "../types";
@@ -56,6 +57,8 @@ interface ResourceModalProps {
   onDelete: (id: string) => Promise<boolean>;
   onToggleFavorite?: (id: string, currentFav: boolean) => void;
   onNavigateToResource?: (resource: ResourceItem) => void;
+  onPrintPreview?: (resource: ResourceItem) => void;
+  onExportGoogleDoc?: (resource: ResourceItem) => void;
 }
 
 export const ResourceModal: React.FC<ResourceModalProps> = ({
@@ -66,6 +69,8 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
   onDelete,
   onToggleFavorite,
   onNavigateToResource,
+  onPrintPreview,
+  onExportGoogleDoc,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [copiedSection, setCopiedSection] = useState<string | null>(null);
@@ -659,6 +664,23 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
               )}
             </button>
 
+            {/* Google Drive / Google Docs Action */}
+            {onExportGoogleDoc && (
+              <button
+                type="button"
+                onClick={() => onExportGoogleDoc(resource)}
+                className={`p-1.5 sm:p-2 border rounded-lg transition-colors shrink-0 flex items-center gap-1.5 text-xs font-mono ${
+                  resource.metadata?.gdocUrl
+                    ? "bg-[#4285F4]/20 border-[#4285F4]/40 text-[#4285F4] hover:bg-[#4285F4]/30"
+                    : "bg-[#141414] hover:bg-[#1E1E1E] border-[#2B2B2B] text-[#AAA] hover:text-[#4285F4]"
+                }`}
+                title={resource.metadata?.gdocUrl ? "Apri o aggiorna Google Doc in cartella 'knowledge'" : "Esporta in Google Doc nella cartella 'knowledge'"}
+              >
+                <FileText className="w-3.5 h-3.5 text-[#4285F4]" />
+                <span className="hidden sm:inline">{resource.metadata?.gdocUrl ? "Google Doc" : "Crea GDoc"}</span>
+              </button>
+            )}
+
             {/* Download .okf.md */}
             <button
               type="button"
@@ -668,6 +690,18 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
             >
               <Download className="w-3.5 h-3.5 text-[#C5A059]" />
             </button>
+
+            {/* Print & PDF Preview */}
+            {onPrintPreview && (
+              <button
+                type="button"
+                onClick={() => onPrintPreview(resource)}
+                className="p-1.5 sm:p-2 text-[#AAA] hover:text-[#C5A059] bg-[#141414] hover:bg-[#1E1E1E] border border-[#2B2B2B] rounded-lg transition-colors shrink-0"
+                title="Anteprima di Stampa & Stampa / Salva in PDF"
+              >
+                <Printer className="w-3.5 h-3.5 text-[#C5A059]" />
+              </button>
+            )}
 
             {resource.url && (
               <button
@@ -1738,7 +1772,7 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
                           const name = typeof ent === "string" ? ent : ent.name;
                           const entType = typeof ent === "string" ? "entity" : ent.type;
                           return (
-                            <span key={idx} className="text-xs font-mono bg-[#1A160E] border border-[#C5A059]/20 text-[#D5B069] px-2 py-0.5 rounded">
+                            <span key={`modal-ent-${resource.id || 'res'}-${idx}-${name}`} className="text-xs font-mono bg-[#1A160E] border border-[#C5A059]/20 text-[#D5B069] px-2 py-0.5 rounded">
                               <span className="text-[#888]">{entType}:</span> {name}
                             </span>
                           );
@@ -1756,7 +1790,7 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
                           const tgt = rel.target || rel.targetTitle || rel.targetId || "";
                           const rType = rel.type || rel.relationType || "relates_to";
                           return (
-                            <div key={idx} className="text-[11px] font-mono bg-[#16130C] border border-[#2D2413] text-[#CCC] p-2 rounded flex items-center justify-between">
+                            <div key={`modal-rel-${resource.id || 'res'}-${idx}-${tgt}`} className="text-[11px] font-mono bg-[#16130C] border border-[#2D2413] text-[#CCC] p-2 rounded flex items-center justify-between">
                               <span className="font-semibold text-white truncate">{src}</span>
                               <span className="text-[10px] text-[#C5A059] px-1.5 bg-[#000]/40 rounded">{rType}</span>
                               <span className="font-semibold text-white truncate">{tgt}</span>
@@ -1799,7 +1833,7 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
                       </div>
                       <ul className="space-y-1 text-xs text-[#A3A3A3]">
                         {resource.metadata.attemptedFixes.map((fix, idx) => (
-                          <li key={idx} className="flex items-start gap-2">
+                          <li key={`modal-fix-${resource.id || 'res'}-${idx}`} className="flex items-start gap-2">
                             <span className="text-[#F97316] font-mono">✕</span>
                             <span>{fix}</span>
                           </li>
@@ -1826,7 +1860,7 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
                       </div>
                       <ol className="space-y-1.5 text-xs text-[#D1FAE5]">
                         {resource.metadata.solutionSteps.map((step, idx) => (
-                          <li key={idx} className="flex items-start gap-2">
+                          <li key={`modal-step-${resource.id || 'res'}-${idx}`} className="flex items-start gap-2">
                             <span className="text-emerald-400 font-mono font-bold shrink-0">{idx + 1}.</span>
                             <span className="leading-relaxed">{step}</span>
                           </li>
@@ -2035,7 +2069,7 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
                             <div className="space-y-1.5">
                               {meta.useCases!.map((useCase, idx) => (
                                 <div
-                                  key={idx}
+                                  key={`modal-usecase-${resource.id || 'res'}-${idx}`}
                                   className="bg-[#15120B] border border-[#2A2214] hover:border-[#3D301B] p-2.5 rounded-lg flex items-start gap-2 text-xs text-[#DDD] transition-colors"
                                 >
                                   <span className="text-[#C5A059] font-mono font-bold text-xs mt-0.5 shrink-0">
@@ -2060,7 +2094,7 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
                               {hasPros ? (
                                 <ul className="space-y-1.5 text-xs text-emerald-200/90 font-sans">
                                   {meta.pros!.map((pro, idx) => (
-                                    <li key={idx} className="flex items-start gap-1.5 leading-snug">
+                                    <li key={`modal-pro-${resource.id || 'res'}-${idx}`} className="flex items-start gap-1.5 leading-snug">
                                       <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
                                       <span>{pro}</span>
                                     </li>
@@ -2080,7 +2114,7 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
                               {hasCons ? (
                                 <ul className="space-y-1.5 text-xs text-[#DDD] font-sans">
                                   {meta.cons!.map((con, idx) => (
-                                    <li key={idx} className="flex items-start gap-1.5 leading-snug">
+                                    <li key={`modal-con-${resource.id || 'res'}-${idx}`} className="flex items-start gap-1.5 leading-snug">
                                       <span className="text-[#C5A059] font-bold text-xs shrink-0 mt-0.5">•</span>
                                       <span>{con}</span>
                                     </li>
@@ -2492,7 +2526,7 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
                         {connectedItems.map((item, idx) => (
                           <div
-                            key={idx}
+                            key={`modal-conn-${resource.id || 'res'}-${idx}-${item.targetTitle}`}
                             onClick={() => {
                               if (item.targetResource && onNavigateToResource) {
                                 onNavigateToResource(item.targetResource);
@@ -2545,7 +2579,7 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
                   <div className="flex flex-wrap gap-1.5">
                     {resource.tags.map((t, idx) => (
                       <span
-                        key={idx}
+                        key={`modal-tag-${resource.id || 'res'}-${idx}-${t}`}
                         className="text-xs font-mono bg-[#141414] text-[#AAA] border border-[#222] px-2.5 py-1 rounded-md"
                       >
                         #{t}

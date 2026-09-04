@@ -52,6 +52,60 @@
           "description": "Last update timestamp"
         }
       }
+    },
+    "RawFile": {
+      "collection": "raw_files",
+      "fields": {
+        "userId": {
+          "type": "string",
+          "description": "The UID of the user who owns this raw file"
+        },
+        "fileName": {
+          "type": "string",
+          "description": "Original file name with extension"
+        },
+        "fileSize": {
+          "type": "number",
+          "description": "File size in bytes"
+        },
+        "fileType": {
+          "type": "string",
+          "description": "File type category (pdf, image, markdown, text, etc)"
+        },
+        "mimeType": {
+          "type": "string",
+          "description": "Standard MIME type"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["raw", "converting", "converted_okf", "error"],
+          "description": "Parsing and staging status"
+        },
+        "convertedResourceId": {
+          "type": "string",
+          "description": "ID of the resulting OKF resource if converted"
+        },
+        "convertedResourceTitle": {
+          "type": "string",
+          "description": "Title of the resulting OKF resource"
+        },
+        "contentPreview": {
+          "type": "string",
+          "description": "Short preview of text content"
+        },
+        "textContent": {
+          "type": "string",
+          "description": "Full text content for text files"
+        },
+        "createdAt": {
+          "type": "timestamp",
+          "description": "Creation timestamp"
+        },
+        "updatedAt": {
+          "type": "timestamp",
+          "description": "Last update timestamp"
+        }
+      }
     }
   }
 }

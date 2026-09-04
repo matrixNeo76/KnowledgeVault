@@ -1367,3 +1367,13 @@ created_at: "2026-08-29T11:20:00Z"
   }
 ];
 
+export const getInitialSampleResourcesWithIds = (): ResourceItem[] => {
+  return initialSampleResources.map((item, idx) => ({
+    id: `sample-vault-${idx + 1}-${item.type}`,
+    userId: "local-vault-user",
+    createdAt: new Date(Date.now() - (idx * 3600000)),
+    updatedAt: new Date(Date.now() - (idx * 3600000)),
+    ...item,
+  }));
+};
+

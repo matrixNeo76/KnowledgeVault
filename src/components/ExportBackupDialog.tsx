@@ -12,14 +12,15 @@ import {
   Info,
   ShieldCheck,
 } from "lucide-react";
-import { ResourceItem, ResourceType } from "../types";
+import { ResourceItem, ResourceType, NavCategory } from "../types";
 import { exportResourcesToJSON, exportResourcesToCSV } from "../lib/exportUtils";
+import { filterAndRankResources } from "../lib/searchEngine";
 
 interface ExportBackupDialogProps {
   isOpen: boolean;
   onClose: () => void;
   resources: ResourceItem[];
-  currentCategory: ResourceType | "all" | "favorites";
+  currentCategory: NavCategory;
   selectedTag: string | null;
   searchQuery: string;
   onAddLog?: (category: any, level: any, message: string, details?: any) => void;
@@ -42,25 +43,13 @@ export const ExportBackupDialog: React.FC<ExportBackupDialogProps> = ({
   if (!isOpen) return null;
 
   // Filter resources if "filtered" scope is chosen
-  const filteredResources = resources.filter((r) => {
-    // 1. Category
-    if (currentCategory === "favorites" && !r.isFavorite) return false;
-    if (currentCategory !== "all" && currentCategory !== "favorites" && r.type !== currentCategory) return false;
-
-    // 2. Tag
-    if (selectedTag && (!r.tags || !r.tags.includes(selectedTag))) return false;
-
-    // 3. Search query
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      const matchTitle = r.title.toLowerCase().includes(q);
-      const matchSummary = r.summary ? r.summary.toLowerCase().includes(q) : false;
-      const matchTag = r.tags ? r.tags.some((t) => t.toLowerCase().includes(q)) : false;
-      return matchTitle || matchSummary || matchTag;
-    }
-
-    return true;
-  });
+  const filteredResources = filterAndRankResources(
+    resources,
+    searchQuery,
+    currentCategory,
+    selectedTag,
+    "newest"
+  );
 
   const exportTarget = exportScope === "all" ? resources : filteredResources;
 

@@ -1,17 +1,20 @@
-import React from "react";
+import React, { useRef, useEffect, useState } from "react";
 import { 
   Search, 
   Menu, 
   Plus, 
   LayoutGrid, 
   List, 
-  ArrowUpDown, 
-  LogIn,
-  CheckCircle2,
-  X,
-  Network,
-  Terminal,
-  Download
+  Network, 
+  Terminal, 
+  Printer, 
+  X, 
+  ArrowUpDown,
+  MoreVertical,
+  FileText,
+  Command,
+  Check,
+  Focus
 } from "lucide-react";
 import { ViewMode, SortOption } from "../types";
 import { User } from "firebase/auth";
@@ -27,9 +30,13 @@ interface HeaderProps {
   onOpenMobileMenu: () => void;
   onOpenDiagnostic?: () => void;
   onOpenExport?: () => void;
+  onOpenPrintDossier?: () => void;
+  onOpenGoogleDrive?: () => void;
   user: User | null;
   onSignIn: () => void;
   totalCount: number;
+  isZenMode?: boolean;
+  onToggleZenMode?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -42,154 +49,307 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAddModal,
   onOpenMobileMenu,
   onOpenDiagnostic,
-  onOpenExport,
-  user,
-  onSignIn,
+  onOpenPrintDossier,
+  onOpenGoogleDrive,
   totalCount,
+  isZenMode = false,
+  onToggleZenMode,
 }) => {
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [isSortOpen, setIsSortOpen] = useState(false);
+  const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
+
+  const sortMenuRef = useRef<HTMLDivElement>(null);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
+
+  // Global shortcuts: Cmd/Ctrl + K or "/" for search, Cmd/Ctrl + Shift + F for Zen Focus
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeTag = document.activeElement?.tagName.toLowerCase();
+      const isInputActive = activeTag === "input" || activeTag === "textarea";
+
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        if (onToggleZenMode) onToggleZenMode();
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+      } else if (e.key === "/" && !isInputActive) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      } else if (e.key === "Escape") {
+        setIsSortOpen(false);
+        setIsMoreMenuOpen(false);
+        if (document.activeElement === searchInputRef.current) {
+          searchInputRef.current?.blur();
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onToggleZenMode]);
+
+  // Close dropdowns on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (sortMenuRef.current && !sortMenuRef.current.contains(e.target as Node)) {
+        setIsSortOpen(false);
+      }
+      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) {
+        setIsMoreMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const sortOptions: { id: SortOption; label: string }[] = [
+    { id: "newest", label: "Più recenti" },
+    { id: "oldest", label: "Meno recenti" },
+    { id: "title", label: "Titolo (A-Z)" },
+    { id: "title_desc", label: "Titolo (Z-A)" },
+    { id: "type", label: "Per Tipologia" },
+    { id: "favorites", label: "Prima Preferiti" },
+  ];
+
+  const currentSortLabel = sortOptions.find((s) => s.id === sortBy)?.label || "Ordina";
+
   return (
-    <header className="h-16 sm:h-20 border-b border-[#1F1F1F] bg-[#0A0A0A]/90 backdrop-blur-md flex items-center justify-between px-3 sm:px-8 shrink-0 z-20 gap-2">
-      {/* Left side: Mobile menu toggle + Search */}
-      <div className="flex items-center gap-2 sm:gap-4 flex-1 max-w-xl min-w-0">
+    <header className="h-14 border-b border-[#1A1A1A] bg-[#0A0A0A]/95 backdrop-blur-md flex items-center justify-between px-3 sm:px-5 shrink-0 z-20 gap-3">
+      {/* Left side: Mobile menu toggle + Modern Omnibar */}
+      <div className="flex items-center gap-2.5 flex-1 max-w-xl min-w-0">
         <button
           onClick={onOpenMobileMenu}
-          className="lg:hidden p-2 text-[#888] hover:text-white bg-[#111] border border-[#222] rounded-lg shrink-0"
+          className="lg:hidden p-1.5 text-[#888] hover:text-white bg-[#121212] hover:bg-[#1A1A1A] border border-[#242424] rounded-lg shrink-0 transition-colors"
           aria-label="Apri menu laterale"
         >
-          <Menu className="w-4 h-4 sm:w-5 sm:h-5" />
+          <Menu className="w-4 h-4" />
         </button>
 
-        <div className="relative w-full min-w-0">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#555]" />
+        {/* Omnibar Input */}
+        <div className="relative w-full min-w-0 flex items-center">
+          <Search className={`absolute left-3 w-4 h-4 transition-colors ${
+            isSearchFocused ? "text-[#C5A059]" : "text-[#555]"
+          }`} />
+          
           <input
+            ref={searchInputRef}
             type="text"
             value={searchQuery}
+            onFocus={() => setIsSearchFocused(true)}
+            onBlur={() => setIsSearchFocused(false)}
             onChange={(e) => onSearchChange(e.target.value)}
-            placeholder="Cerca risorse, tag, repo o nodi OKF..."
-            className="w-full bg-[#111] border border-[#222] rounded-full py-1.5 sm:py-2 pl-8 sm:pl-10 pr-8 text-xs sm:text-sm text-[#E0E0E0] placeholder-[#555] focus:outline-none focus:border-[#C5A059] focus:ring-1 focus:ring-[#C5A059]/50 transition-all"
+            placeholder="Cerca per titolo, testo, entità o tag..."
+            className="w-full bg-[#111111] hover:bg-[#141414] focus:bg-[#141414] border border-[#202020] focus:border-[#C5A059]/70 rounded-lg py-1.5 pl-9 pr-24 text-xs text-[#E0E0E0] placeholder-[#555] focus:outline-none focus:ring-1 focus:ring-[#C5A059]/30 transition-all font-sans"
           />
-          {searchQuery && (
-            <button
-              onClick={() => onSearchChange("")}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#555] hover:text-[#E0E0E0] p-0.5"
-              aria-label="Cancella ricerca"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
+
+          {/* Right badges inside Omnibar */}
+          <div className="absolute right-2 flex items-center gap-1.5 pointer-events-none">
+            {searchQuery ? (
+              <>
+                <span className="text-[10px] font-mono text-[#C5A059] bg-[#C5A059]/10 px-1.5 py-0.5 rounded border border-[#C5A059]/20 pointer-events-auto">
+                  {totalCount} {totalCount === 1 ? "risultato" : "risultati"}
+                </span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSearchChange("");
+                    searchInputRef.current?.focus();
+                  }}
+                  className="pointer-events-auto text-[#666] hover:text-[#DDD] p-0.5 rounded transition-colors"
+                  aria-label="Cancella ricerca"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </>
+            ) : (
+              <span className="hidden sm:flex items-center gap-0.5 text-[10px] font-mono text-[#555] bg-[#161616] px-1.5 py-0.5 rounded border border-[#222]">
+                <Command className="w-2.5 h-2.5" />
+                <span>K</span>
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Right side: Controls & Primary Actions */}
-      <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
-        {/* Sort selector - VISIBLE ON ALL SCREENS INCLUDING MOBILE */}
-        <div className="flex items-center gap-1 sm:gap-1.5 bg-[#111] border border-[#222] hover:border-[#333] rounded-lg px-2 sm:px-2.5 py-1.5 text-xs text-[#888] transition-colors">
-          <ArrowUpDown className="w-3.5 h-3.5 text-[#C5A059] shrink-0" />
-          <select
-            value={sortBy}
-            onChange={(e) => onSortByChange(e.target.value as SortOption)}
-            className="bg-transparent text-[#CCC] text-[11px] sm:text-xs focus:outline-none cursor-pointer pr-1"
-            aria-label="Ordinamento"
+      {/* Right side: Sort, Views, More Menu & Primary CTA */}
+      <div className="flex items-center gap-2 shrink-0">
+        
+        {/* Sort Menu Dropdown */}
+        <div className="relative" ref={sortMenuRef}>
+          <button
+            onClick={() => setIsSortOpen(!isSortOpen)}
+            className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#222] bg-[#111] hover:bg-[#161616] hover:border-[#333] text-xs font-mono text-[#999] hover:text-[#DDD] transition-all"
+            title="Ordina le risorse del Vault"
           >
-            <option value="newest" className="bg-[#141414] text-[#CCC]">Più recenti</option>
-            <option value="oldest" className="bg-[#141414] text-[#CCC]">Meno recenti</option>
-            <option value="title" className="bg-[#141414] text-[#CCC]">Titolo (A - Z)</option>
-            <option value="title_desc" className="bg-[#141414] text-[#CCC]">Titolo (Z - A)</option>
-            <option value="favorites" className="bg-[#141414] text-[#CCC]">Preferiti prima</option>
-            <option value="type" className="bg-[#141414] text-[#CCC]">Tipo risorsa</option>
-          </select>
+            <ArrowUpDown className="w-3 h-3 text-[#C5A059]" />
+            <span className="truncate max-w-[120px]">{currentSortLabel}</span>
+          </button>
+
+          {isSortOpen && (
+            <div className="absolute right-0 mt-1.5 w-48 bg-[#111111] border border-[#222222] rounded-lg shadow-xl py-1 z-30 font-sans text-xs">
+              <div className="px-3 py-1 text-[10px] font-mono text-[#555] uppercase tracking-wider border-b border-[#1A1A1A]">
+                Ordina risorse
+              </div>
+              {sortOptions.map((opt) => {
+                const isSelected = opt.id === sortBy;
+                return (
+                  <button
+                    key={opt.id}
+                    onClick={() => {
+                      onSortByChange(opt.id);
+                      setIsSortOpen(false);
+                    }}
+                    className={`w-full flex items-center justify-between px-3 py-1.5 hover:bg-[#1A1A1A] transition-colors text-left ${
+                      isSelected ? "text-[#E5C170] font-medium bg-[#16130B]" : "text-[#AAA]"
+                    }`}
+                  >
+                    <span>{opt.label}</span>
+                    {isSelected && <Check className="w-3.5 h-3.5 text-[#C5A059]" />}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
-        {/* View mode toggle (Grid / Table / Graph) */}
-        <div className="flex items-center bg-[#111] border border-[#222] rounded-lg p-0.5 sm:p-1 shrink-0">
+        {/* View Mode Toggle: Grid / Table / Graph */}
+        <div className="flex items-center bg-[#111111] border border-[#202020] rounded-lg p-0.5 shrink-0">
           <button
             onClick={() => onViewModeChange("grid")}
-            className={`p-1 sm:p-1.5 rounded-md transition-colors ${
+            className={`p-1.5 rounded-md text-xs font-mono flex items-center gap-1 transition-all ${
               viewMode === "grid"
-                ? "bg-[#1F1F1F] text-[#C5A059]"
-                : "text-[#666] hover:text-[#AAA]"
+                ? "bg-[#1F180E] text-[#E5C170] border border-[#C5A059]/40 shadow-xs"
+                : "text-[#777] hover:text-[#CCC] hover:bg-[#161616]"
             }`}
-            title="Vista a Griglia"
+            title="Vista Schede a Griglia"
             aria-label="Vista Griglia"
           >
-            <LayoutGrid className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            <LayoutGrid className="w-3.5 h-3.5" />
+            <span className="hidden lg:inline text-[10.5px]">Griglia</span>
           </button>
+
           <button
             onClick={() => onViewModeChange("table")}
-            className={`p-1 sm:p-1.5 rounded-md transition-colors ${
+            className={`p-1.5 rounded-md text-xs font-mono flex items-center gap-1 transition-all ${
               viewMode === "table"
-                ? "bg-[#1F1F1F] text-[#C5A059]"
-                : "text-[#666] hover:text-[#AAA]"
+                ? "bg-[#1F180E] text-[#E5C170] border border-[#C5A059]/40 shadow-xs"
+                : "text-[#777] hover:text-[#CCC] hover:bg-[#161616]"
             }`}
-            title="Vista a Tabella"
+            title="Vista Elenco a Tabella"
             aria-label="Vista Tabella"
           >
-            <List className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            <List className="w-3.5 h-3.5" />
+            <span className="hidden lg:inline text-[10.5px]">Tabella</span>
           </button>
+
           <button
             onClick={() => onViewModeChange("graph")}
-            className={`p-1 sm:p-1.5 rounded-md transition-colors ${
+            className={`p-1.5 rounded-md text-xs font-mono flex items-center gap-1 transition-all ${
               viewMode === "graph"
-                ? "bg-[#1F1F1F] text-[#C5A059]"
-                : "text-[#666] hover:text-[#AAA]"
+                ? "bg-[#1F180E] text-[#E5C170] border border-[#C5A059]/40 shadow-xs"
+                : "text-[#777] hover:text-[#CCC] hover:bg-[#161616]"
             }`}
-            title="Vista a Grafo Ontologico (OKF)"
+            title="Vista Grafo Ontologico OKF"
             aria-label="Vista Grafo"
           >
-            <Network className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            <Network className="w-3.5 h-3.5" />
+            <span className="hidden lg:inline text-[10.5px]">Grafo</span>
           </button>
         </div>
 
-        {/* Export Backup Trigger */}
-        {onOpenExport && (
+        {/* Zen / ADHD Focus Mode Toggle */}
+        {onToggleZenMode && (
           <button
-            onClick={onOpenExport}
-            className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-lg border border-[#2B2B2B] bg-[#111] hover:bg-[#181818] hover:border-[#C5A059]/40 text-[#CCC] hover:text-[#C5A059] text-xs font-mono transition-all shrink-0"
-            title="Esporta Backup Vault (JSON / CSV)"
+            onClick={onToggleZenMode}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-mono transition-all cursor-pointer ${
+              isZenMode
+                ? "bg-[#251B0A] border-[#C5A059] text-[#E5C170] shadow-sm font-semibold ring-1 ring-[#C5A059]/50"
+                : "bg-[#111] hover:bg-[#161616] border-[#222] hover:border-[#333] text-[#888] hover:text-[#DDD]"
+            }`}
+            title={
+              isZenMode 
+                ? "Esci dalla Modalità Focus Zen (Esc o ⌘⇧F)" 
+                : "Attiva Modalità Focus Zen (⌘⇧F) - Rimuove la sidebar e isola il canvas per massima concentrazione cognitiva"
+            }
+            aria-label="Modalità Focus Zen"
           >
-            <Download className="w-3.5 h-3.5 text-[#C5A059]" />
-            <span className="hidden md:inline">Esporta</span>
+            <Focus className={`w-3.5 h-3.5 ${isZenMode ? "text-[#C5A059] animate-pulse" : "text-[#777]"}`} />
+            <span className="hidden sm:inline">{isZenMode ? "Zen Attivo" : "Focus"}</span>
           </button>
         )}
 
-        {/* Diagnostic Log Console Trigger */}
-        {onOpenDiagnostic && (
+        {/* Secondary Tools Menu (··· Altro) */}
+        <div className="relative" ref={moreMenuRef}>
           <button
-            onClick={onOpenDiagnostic}
-            className="hidden xs:flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-lg border border-[#2C2314] bg-[#141009] hover:bg-[#1C160D] text-[#D5B069] text-xs font-mono transition-all shrink-0"
-            title="Apri Console di Diagnostica & Log Live"
+            onClick={() => setIsMoreMenuOpen(!isMoreMenuOpen)}
+            className="p-1.5 text-[#888] hover:text-white bg-[#111] hover:bg-[#181818] border border-[#202020] rounded-lg transition-colors"
+            title="Strumenti aggiuntivi ed esportazioni"
+            aria-label="Altri strumenti"
           >
-            <Terminal className="w-3.5 h-3.5" />
-            <span className="hidden xl:inline">Diagnostica</span>
+            <MoreVertical className="w-4 h-4" />
           </button>
-        )}
 
-        {/* Sync status */}
-        <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[#1F1F1F] bg-[#0E0E0E] shrink-0">
-          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-          <span className="text-[11px] font-mono text-[#888]">{totalCount} nel DB</span>
+          {isMoreMenuOpen && (
+            <div className="absolute right-0 mt-1.5 w-52 bg-[#111111] border border-[#222222] rounded-lg shadow-2xl py-1 z-30 font-sans text-xs">
+              <div className="px-3 py-1 text-[10px] font-mono text-[#555] uppercase tracking-wider border-b border-[#1A1A1A]">
+                Strumenti Vault
+              </div>
+
+              {onOpenPrintDossier && (
+                <button
+                  onClick={() => {
+                    setIsMoreMenuOpen(false);
+                    onOpenPrintDossier();
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-[#CCC] hover:text-white hover:bg-[#181818] transition-colors text-left"
+                >
+                  <Printer className="w-3.5 h-3.5 text-[#C5A059]" />
+                  <span>Stampa / Dossier PDF</span>
+                </button>
+              )}
+
+              {onOpenDiagnostic && (
+                <button
+                  onClick={() => {
+                    setIsMoreMenuOpen(false);
+                    onOpenDiagnostic();
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-[#CCC] hover:text-white hover:bg-[#181818] transition-colors text-left"
+                >
+                  <Terminal className="w-3.5 h-3.5 text-[#C5A059]" />
+                  <span>Console Log & Tracing</span>
+                </button>
+              )}
+
+              {onOpenGoogleDrive && (
+                <button
+                  onClick={() => {
+                    setIsMoreMenuOpen(false);
+                    onOpenGoogleDrive();
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-[#CCC] hover:text-white hover:bg-[#181818] transition-colors text-left"
+                >
+                  <FileText className="w-3.5 h-3.5 text-[#38BDF8]" />
+                  <span>Google Drive & Docs Hub</span>
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
-        {/* Auth CTA if logged out */}
-        {!user && (
-          <button
-            onClick={onSignIn}
-            className="hidden sm:flex items-center gap-1.5 bg-[#141414] hover:bg-[#1A1A1A] border border-[#333] text-xs text-[#E0E0E0] px-3 py-2 rounded-lg transition-colors font-medium shrink-0"
-          >
-            <LogIn className="w-3.5 h-3.5 text-[#C5A059]" />
-            <span>Accedi</span>
-          </button>
-        )}
-
-        {/* New Resource button */}
+        {/* Primary Action Button: Add Resource */}
         <button
           onClick={onOpenAddModal}
-          className="flex items-center gap-1 sm:gap-1.5 bg-[#C5A059] hover:bg-[#D5B069] text-black font-semibold text-xs py-1.5 sm:py-2 px-2.5 sm:px-4 rounded-lg transition-all shadow-md shadow-[#C5A059]/10 active:scale-95 shrink-0"
-          title="Aggiungi Nuova Risorsa"
+          className="flex items-center gap-1.5 bg-[#C5A059] hover:bg-[#D5B069] text-black font-semibold text-xs py-1.5 px-3 sm:px-3.5 rounded-lg transition-all shadow-sm active:scale-95 shrink-0 cursor-pointer"
+          title="Aggiungi o Ingerisci nuova Risorsa"
         >
-          <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.5]" />
-          <span className="hidden sm:inline">Nuova Risorsa</span>
-          <span className="sm:hidden text-[11px]">Nuova</span>
+          <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+          <span className="hidden sm:inline font-medium">Nuova</span>
         </button>
       </div>
     </header>

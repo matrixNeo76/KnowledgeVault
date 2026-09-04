@@ -16,23 +16,57 @@ import {
   Clock,
   Award,
   Globe,
-  Wrench
+  Wrench,
+  Printer,
+  FileText,
+  FileDown,
+  Loader2
 } from "lucide-react";
 import { ResourceItem, ResourceType } from "../types";
 import { formatDate } from "../lib/dateUtils";
+import { generateAndDownloadResourcePdf } from "../lib/pdfExport";
 
 interface ResourceTableProps {
   resources: ResourceItem[];
   onToggleFavorite: (id: string, currentFav: boolean) => void;
   onOpenDetail: (resource: ResourceItem) => void;
+  onPrintPreview?: (resource: ResourceItem) => void;
+  onExportGoogleDoc?: (resource: ResourceItem) => void;
+  onDownloadPdf?: (resource: ResourceItem) => void;
 }
 
 export const ResourceTable: React.FC<ResourceTableProps> = ({
   resources,
   onToggleFavorite,
   onOpenDetail,
+  onPrintPreview,
+  onExportGoogleDoc,
+  onDownloadPdf,
 }) => {
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [generatingPdfId, setGeneratingPdfId] = useState<string | null>(null);
+  const [downloadedPdfId, setDownloadedPdfId] = useState<string | null>(null);
+
+  const handleDownloadPdf = async (e: React.MouseEvent, item: ResourceItem) => {
+    e.stopPropagation();
+    if (generatingPdfId) return;
+
+    if (onDownloadPdf) {
+      onDownloadPdf(item);
+      return;
+    }
+
+    setGeneratingPdfId(item.id);
+    try {
+      await generateAndDownloadResourcePdf(item);
+      setDownloadedPdfId(item.id);
+      setTimeout(() => setDownloadedPdfId(null), 2500);
+    } catch (err) {
+      console.error("Errore generazione PDF:", err);
+    } finally {
+      setGeneratingPdfId(null);
+    }
+  };
 
   const getTypeBadge = (type: ResourceType) => {
     switch (type) {
@@ -109,14 +143,14 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({
           </tr>
         </thead>
         <tbody className="divide-y divide-[#161616]">
-          {resources.map((item) => {
+          {resources.map((item, rowIdx) => {
             const badge = getTypeBadge(item.type);
             const isCopied = copiedId === item.id;
             const itemDate = formatDate(item.createdAt) || formatDate(item.updatedAt) || formatDate(new Date());
 
             return (
               <tr
-                key={item.id}
+                key={item.id || `table-row-${rowIdx}`}
                 onClick={() => onOpenDetail(item)}
                 className="hover:bg-[#111] transition-colors cursor-pointer group"
               >
@@ -188,7 +222,7 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({
                 <td className="py-3.5 px-4 hidden md:table-cell whitespace-nowrap">
                   <div className="flex gap-1 overflow-hidden max-w-[200px]">
                     {item.tags?.slice(0, 2).map((t, idx) => (
-                      <span key={idx} className="text-[10px] font-mono bg-[#141414] text-[#777] px-1.5 py-0.5 rounded">
+                      <span key={`table-tag-${item.id || rowIdx}-${t}-${idx}`} className="text-[10px] font-mono bg-[#141414] text-[#777] px-1.5 py-0.5 rounded">
                         #{t}
                       </span>
                     ))}
@@ -241,6 +275,73 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({
                         <Copy className="w-3.5 h-3.5 text-[#C5A059]" />
                       )}
                     </button>
+
+                    {/* Google Doc Link or Export */}
+                    {item.metadata?.gdocUrl ? (
+                      <a
+                        href={item.metadata.gdocUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="p-1.5 rounded bg-[#4285F4]/15 hover:bg-[#4285F4]/30 border border-[#4285F4]/30 text-[#4285F4] hover:text-white transition-colors"
+                        title="Apri Google Doc su Google Drive"
+                      >
+                        <FileText className="w-3.5 h-3.5" />
+                      </a>
+                    ) : onExportGoogleDoc ? (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onExportGoogleDoc(item);
+                        }}
+                        className="p-1.5 rounded bg-[#141414] hover:bg-[#202020] text-[#777] hover:text-[#4285F4] transition-colors"
+                        title="Esporta su Google Doc nella cartella 'knowledge'"
+                      >
+                        <FileText className="w-3.5 h-3.5" />
+                      </button>
+                    ) : null}
+
+                    {/* Direct Download PDF Button */}
+                    <button
+                      onClick={(e) => handleDownloadPdf(e, item)}
+                      disabled={generatingPdfId === item.id}
+                      className={`p-1.5 rounded transition-colors ${
+                        downloadedPdfId === item.id
+                          ? "bg-emerald-950/60 text-emerald-400 border border-emerald-800/50"
+                          : generatingPdfId === item.id
+                          ? "bg-[#1A140B] text-[#C5A059]"
+                          : "bg-[#141414] hover:bg-[#202020] text-[#888] hover:text-[#C5A059]"
+                      }`}
+                      title={
+                        downloadedPdfId === item.id
+                          ? "PDF scaricato con successo!"
+                          : generatingPdfId === item.id
+                          ? "Generazione PDF in corso..."
+                          : "Scarica documento PDF per consultazione offline"
+                      }
+                      aria-label="Scarica PDF offline"
+                    >
+                      {generatingPdfId === item.id ? (
+                        <Loader2 className="w-3.5 h-3.5 text-[#C5A059] animate-spin" />
+                      ) : downloadedPdfId === item.id ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      ) : (
+                        <FileDown className="w-3.5 h-3.5 text-[#AAA] hover:text-[#C5A059]" />
+                      )}
+                    </button>
+
+                    {onPrintPreview && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onPrintPreview(item);
+                        }}
+                        className="p-1.5 rounded bg-[#141414] hover:bg-[#202020] text-[#888] hover:text-[#C5A059] transition-colors"
+                        title="Anteprima di Stampa & PDF"
+                      >
+                        <Printer className="w-3.5 h-3.5 text-[#AAA] hover:text-[#C5A059]" />
+                      </button>
+                    )}
 
                     <button
                       onClick={(e) => {

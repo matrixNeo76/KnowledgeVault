@@ -16,7 +16,9 @@ import {
   RefreshCw,
   Search
 } from "lucide-react";
-import { DiagnosticLog } from "../types";
+import { DiagnosticLog, ResourceItem, RawFileItem } from "../types";
+import { LogActionResolver } from "./LogActionResolver";
+import { DiagnosticActionContext } from "../lib/diagnosticActions";
 
 interface DiagnosticDrawerProps {
   isOpen: boolean;
@@ -25,6 +27,11 @@ interface DiagnosticDrawerProps {
   onClearLogs: () => void;
   userId?: string;
   totalResources: number;
+  resources?: ResourceItem[];
+  rawFiles?: RawFileItem[];
+  isQuotaExceeded?: boolean;
+  onRefreshOnlineStatus?: () => void | Promise<void>;
+  onNotification?: (type: "success" | "error" | "info", msg: string) => void;
 }
 
 export const DiagnosticDrawer: React.FC<DiagnosticDrawerProps> = ({
@@ -34,6 +41,11 @@ export const DiagnosticDrawer: React.FC<DiagnosticDrawerProps> = ({
   onClearLogs,
   userId,
   totalResources,
+  resources,
+  rawFiles,
+  isQuotaExceeded,
+  onRefreshOnlineStatus,
+  onNotification,
 }) => {
   const [filterLevel, setFilterLevel] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -74,6 +86,15 @@ export const DiagnosticDrawer: React.FC<DiagnosticDrawerProps> = ({
     }
     return true;
   });
+
+  const actionContext: DiagnosticActionContext = {
+    resources,
+    rawFiles,
+    isQuotaExceeded,
+    onRefreshOnlineStatus,
+    onClearLogs,
+    onNotification,
+  };
 
   const handleCopyAll = () => {
     const report = {
@@ -281,15 +302,18 @@ export const DiagnosticDrawer: React.FC<DiagnosticDrawerProps> = ({
                       </p>
                     </div>
 
-                    {hasDetails && (
-                      <button
-                        onClick={() => toggleExpand(log.id)}
-                        className="text-[11px] text-[#888] hover:text-[#C5A059] flex items-center gap-1 shrink-0 p-1"
-                      >
-                        <span>{isExpanded ? "Nascondi" : "Dettagli"}</span>
-                        {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-                      </button>
-                    )}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <LogActionResolver log={log} context={actionContext} compact />
+                      {hasDetails && (
+                        <button
+                          onClick={() => toggleExpand(log.id)}
+                          className="text-[11px] text-[#888] hover:text-[#C5A059] flex items-center gap-1 shrink-0 p-1"
+                        >
+                          <span>{isExpanded ? "Nascondi" : "Dettagli"}</span>
+                          {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {/* Expanded JSON Details */}
