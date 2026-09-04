@@ -220,6 +220,7 @@ Corpo della documentazione formattato in Markdown con tabelle, blocchi di codice
 ├── .env.example                       # Documentazione variabili d'ambiente (GEMINI_API_KEY)
 ├── README.md                          # Panoramica completa e documentazione di riferimento
 ├── AGENTS.md                          # Regole e protocolli operativi per agenti autonomi
+├── ACCESS_SPEC.md                     # Specifica di accesso documentale e interoperabilità agenti
 ├── CLAUDE.md                          # Specifiche per Claude Code e workflow CLI
 ├── GEMINI.md                          # Linee guida prompt engineering e schema Gemini
 ├── ARCHITECTURE.md                    # Dettaglio architetturale completo del sistema

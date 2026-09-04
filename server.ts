@@ -3081,6 +3081,105 @@ app.get("/api/vault/backup-status", async (_req, res) => {
   }
 });
 
+// GET /api/vault/resources - External Agent API: query and filter vault resources
+app.get("/api/vault/resources", async (req, res) => {
+  try {
+    if (!fs.existsSync(BACKUP_FILE_PATH)) {
+      return res.json({ success: true, count: 0, resources: [] });
+    }
+    const content = await fsPromises.readFile(BACKUP_FILE_PATH, "utf8");
+    const parsed = JSON.parse(content);
+    let items: any[] = parsed.resources || [];
+
+    const { type, tag, q } = req.query;
+    if (type && typeof type === "string") {
+      items = items.filter((i) => i.type === type);
+    }
+    if (tag && typeof tag === "string") {
+      const searchTag = tag.toLowerCase();
+      items = items.filter((i) => Array.isArray(i.tags) && i.tags.some((t: string) => t.toLowerCase() === searchTag));
+    }
+    if (q && typeof q === "string") {
+      const query = q.toLowerCase();
+      items = items.filter(
+        (i) =>
+          (i.title && i.title.toLowerCase().includes(query)) ||
+          (i.summary && i.summary.toLowerCase().includes(query)) ||
+          (i.metadata?.domain && i.metadata.domain.toLowerCase().includes(query))
+      );
+    }
+
+    res.json({
+      success: true,
+      totalAvailable: parsed.resources?.length || 0,
+      matchedCount: items.length,
+      resources: items.map((r) => ({
+        id: r.id,
+        title: r.title,
+        type: r.type,
+        summary: r.summary,
+        tags: r.tags || [],
+        url: r.url || "",
+        domain: r.metadata?.domain || "",
+        docType: r.metadata?.docType || "",
+        entities: r.metadata?.entities || [],
+        relations: r.metadata?.relations || [],
+        rawUrl: `/api/vault/resources/${r.id}/raw`,
+      })),
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message || "Failed to query vault resources" });
+  }
+});
+
+// GET /api/vault/resources/:id/raw - External Agent API: download pure OKF v0.2 Markdown with YAML frontmatter
+app.get("/api/vault/resources/:id/raw", async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!fs.existsSync(BACKUP_FILE_PATH)) {
+      return res.status(404).send("Knowledge Vault storage empty or not found.");
+    }
+    const content = await fsPromises.readFile(BACKUP_FILE_PATH, "utf8");
+    const parsed = JSON.parse(content);
+    const items: any[] = parsed.resources || [];
+    const item = items.find((r) => r.id === id);
+
+    if (!item) {
+      return res.status(404).send(`Resource with ID '${id}' not found.`);
+    }
+
+    let markdown = item.metadata?.markdownContent || "";
+    if (!markdown || !markdown.startsWith("---")) {
+      // Build standard OKF v0.2 YAML frontmatter dynamically if missing
+      const frontmatter = [
+        "---",
+        `okf_version: "0.2"`,
+        `title: ${JSON.stringify(item.title || "Untitled")}`,
+        `type: ${JSON.stringify(item.type || "concept")}`,
+        `domain: ${JSON.stringify(item.metadata?.domain || "General Knowledge")}`,
+        `tags: ${JSON.stringify(item.tags || [])}`,
+        `entities: ${JSON.stringify(item.metadata?.entities || [])}`,
+        `relations: ${JSON.stringify(item.metadata?.relations || [])}`,
+        `created_at: ${JSON.stringify(item.createdAt || new Date().toISOString())}`,
+        "---",
+        "",
+        `# ${item.title}`,
+        "",
+        item.summary || "",
+        "",
+        markdown || "",
+      ].join("\n");
+      markdown = frontmatter;
+    }
+
+    res.setHeader("Content-Type", "text/markdown; charset=utf-8");
+    res.setHeader("Content-Disposition", `inline; filename="${(item.title || "document").replace(/[^a-zA-Z0-9_-]/g, "_")}.md"`);
+    res.send(markdown);
+  } catch (error: any) {
+    res.status(500).send(`Error retrieving resource: ${error?.message}`);
+  }
+});
+
 // Vite middleware setup
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
