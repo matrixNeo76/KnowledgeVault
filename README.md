@@ -293,6 +293,25 @@ npm run start
 
 ---
 
+## 🗺️ Roadmap & Evoluzione Epistemica: Architettura Cekikj
+
+Il Knowledge Vault sta evolvendo verso un **Persistent Knowledge Layer Zero-Guessing**, allineandosi ai 5 pilastri della trilogia di Miodrag Cekikj (*Towards Data Science / AI Advances*).
+
+- 📘 **Specifica OKF v0.2 di Riferimento**: [`/src/docs/SPEC_CEKIKJ_KNOWLEDGE_LAYER_OKF.md`](./src/docs/SPEC_CEKIKJ_KNOWLEDGE_LAYER_OKF.md)
+- 📋 **Piano Esecutivo e Checklist Dettagliata**: [`/PIANO_IMPLEMENTAZIONE_CEKIKJ.md`](./PIANO_IMPLEMENTAZIONE_CEKIKJ.md)
+
+### Sintesi delle 8 Fasi Operative:
+1. **M1 (Contratti & Tipi)**: Definizione di `EvidenceChunk`, `ContradictionRecord`, `TypedToolEnvelope` (`insufficient: boolean`).
+2. **M2 (8 Typed Tools)**: Suite read-only (`search_evidence`, `search_knowledge`, `resolve_entity`, `traverse`, `timeline`, `diff`, `list_contradictions`, `get_source`).
+3. **M3 (Dual-Layer & Bitemporalità)**: Ancoraggi bi-direzionali chunk ◄► ontologia e filtri `valid_from` / `valid_to`.
+4. **M4 (Contradiction Gate)**: Blocco out-of-loop della sintesi arbitraria su concetti in conflitto aperto.
+5. **M5 (Bounded Loop Engine)**: Macchina a stati finiti compatta (~80 righe) con vincoli rigidi (max 8 round, max 2 hop) e degradazione sicura.
+6. **M6 (Grounding Verifier)**: Passata singola di potatura claim privi di evidenza tracciata.
+7. **M7 (UI Epistemica)**: Trace inspector interattivo e cruscotto delle contraddizioni nel Vault.
+8. **M8 (Refusal Tests)**: Suite di certificazione Pass/Fail sui casi di collisione e assenza di evidenza.
+
+---
+
 ## 📄 Licenza
 
 Distribuito sotto licenza **MIT**. Realizzato per la community open-source di sviluppatori ed ingegneri AI.

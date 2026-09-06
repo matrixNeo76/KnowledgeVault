@@ -265,21 +265,28 @@ export async function performDeepRecoveryScan(currentVaultResources: ResourceIte
   } catch {}
 
   // 6. DEDUPLICATE ALL FOUND RESOURCES
-  // We deduplicate by: 1) id, 2) normalized title, 3) URL if present
+  // We deduplicate by unique resource ID, or combination of normalized title, URL, and type
   const uniqueMap = new Map<string, ResourceItem>();
 
   allFoundResources.forEach((item) => {
-    // Determine deduplication key
-    const titleKey = item.title.trim().toLowerCase();
-    const urlKey = item.url ? item.url.trim().toLowerCase() : "";
-    const primaryKey = item.id || `${titleKey}_${urlKey}`;
+    // Determine unique key based on item.id or combined title + url + type
+    const titleKey = (item.title || "").trim().toLowerCase();
+    const urlKey = item.url ? item.url.trim().toLowerCase().replace(/\/$/, "") : "";
+    const primaryKey = item.id ? `id:${item.id}` : `comp:${item.type}:${titleKey}__${urlKey}`;
 
     if (!uniqueMap.has(primaryKey)) {
-      // Also check if any existing item has identical title
-      let foundExisting = false;
+      // Only merge if an existing item has both matching non-empty ID or exact same title AND same URL
+      let foundExactDuplicate = false;
       for (const [_, existing] of uniqueMap.entries()) {
-        if (existing.title.trim().toLowerCase() === titleKey && titleKey.length > 3) {
-          foundExisting = true;
+        const existTitle = (existing.title || "").trim().toLowerCase();
+        const existUrl = existing.url ? existing.url.trim().toLowerCase().replace(/\/$/, "") : "";
+        
+        // Exact duplicate only when title AND url match, or item IDs match
+        if (
+          (item.id && existing.id && item.id === existing.id) ||
+          (existTitle === titleKey && titleKey.length > 3 && existUrl === urlKey)
+        ) {
+          foundExactDuplicate = true;
           // Merge metadata / tags if new item has more details
           if ((item.tags?.length || 0) > (existing.tags?.length || 0)) {
             existing.tags = Array.from(new Set([...(existing.tags || []), ...(item.tags || [])]));
@@ -290,7 +297,7 @@ export async function performDeepRecoveryScan(currentVaultResources: ResourceIte
           break;
         }
       }
-      if (!foundExisting) {
+      if (!foundExactDuplicate) {
         uniqueMap.set(primaryKey, item);
       }
     }
@@ -326,19 +333,25 @@ export async function restoreRecoveredResources(
 }> {
   const mergedMap = new Map<string, ResourceItem>();
 
+  const getItemKey = (item: ResourceItem): string => {
+    if (item.id) return `id:${item.id}`;
+    const normTitle = (item.title || "").trim().toLowerCase();
+    const cleanUrl = item.url ? item.url.trim().toLowerCase().replace(/\/$/, "") : "";
+    return `comp:${item.type}:${normTitle}__${cleanUrl}`;
+  };
+
   // Add existing items first
   existingResources.forEach((item) => {
-    const normTitle = item.title.trim().toLowerCase();
-    mergedMap.set(normTitle, item);
+    mergedMap.set(getItemKey(item), item);
   });
 
   let addedCount = 0;
 
   // Add recovered items
   recoveredResources.forEach((item) => {
-    const normTitle = item.title.trim().toLowerCase();
-    if (!mergedMap.has(normTitle)) {
-      mergedMap.set(normTitle, {
+    const key = getItemKey(item);
+    if (!mergedMap.has(key)) {
+      mergedMap.set(key, {
         ...item,
         userId: currentUserId || item.userId || "vault-user",
         createdAt: item.createdAt instanceof Date ? item.createdAt : new Date(item.createdAt || Date.now()),
@@ -347,7 +360,7 @@ export async function restoreRecoveredResources(
       addedCount++;
     } else {
       // Merge tags and metadata
-      const existing = mergedMap.get(normTitle)!;
+      const existing = mergedMap.get(key)!;
       if (item.tags && item.tags.length > 0) {
         existing.tags = Array.from(new Set([...(existing.tags || []), ...item.tags]));
       }

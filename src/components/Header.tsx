@@ -14,10 +14,14 @@ import {
   FileText,
   Command,
   Check,
-  Focus
+  Focus,
+  ShieldAlert,
+  ShieldCheck,
+  Activity
 } from "lucide-react";
 import { ViewMode, SortOption } from "../types";
 import { User } from "firebase/auth";
+import { StatusCapsule } from "./StatusCapsule";
 
 interface HeaderProps {
   searchQuery: string;
@@ -32,11 +36,26 @@ interface HeaderProps {
   onOpenExport?: () => void;
   onOpenPrintDossier?: () => void;
   onOpenGoogleDrive?: () => void;
+  onOpenCekikjInspector?: () => void;
   user: User | null;
   onSignIn: () => void;
   totalCount: number;
   isZenMode?: boolean;
   onToggleZenMode?: () => void;
+  // Status Capsule props
+  quotaExceeded?: boolean;
+  isSyncing?: boolean;
+  lastSyncTime?: Date | null;
+  onManualSync?: () => void;
+  onExportBackup?: () => void;
+  hasPendingConflicts?: boolean;
+  conflictCount?: number;
+  onOpenConflictModal?: () => void;
+  onOpenRecoveryModal?: () => void;
+  onOpenQuotaTelemetry?: () => void;
+  onOpenPersistenceStatus?: () => void;
+  unsyncedCount?: number;
+  onUploadUnsynced?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -49,11 +68,26 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAddModal,
   onOpenMobileMenu,
   onOpenDiagnostic,
+  onOpenExport,
   onOpenPrintDossier,
   onOpenGoogleDrive,
+  onOpenCekikjInspector,
   totalCount,
   isZenMode = false,
   onToggleZenMode,
+  quotaExceeded = false,
+  isSyncing = false,
+  lastSyncTime = null,
+  onManualSync,
+  onExportBackup,
+  hasPendingConflicts = false,
+  conflictCount = 0,
+  onOpenConflictModal,
+  onOpenRecoveryModal,
+  onOpenQuotaTelemetry,
+  onOpenPersistenceStatus,
+  unsyncedCount = 0,
+  onUploadUnsynced,
 }) => {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [isSortOpen, setIsSortOpen] = useState(false);
@@ -283,6 +317,42 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         )}
 
+        {/* Cekikj Zero-Guessing Epistemic Inspector */}
+        {onOpenCekikjInspector && (
+          <button
+            onClick={onOpenCekikjInspector}
+            className="hidden 2xl:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#C5A059]/40 bg-[#161208] hover:bg-[#20180B] text-[#E5C170] hover:text-white text-xs font-mono transition-all shadow-xs cursor-pointer"
+            title="Architettura Epistemica Cekikj: Motore Bounded Loop, Contradiction Gate e Grounding Verifier"
+            aria-label="Cekikj Epistemic Engine"
+          >
+            <ShieldAlert className="w-3.5 h-3.5 text-[#C5A059]" />
+            <span>Zero-Guessing</span>
+            <span className="text-[10px] px-1 py-0.2 rounded bg-[#C5A059]/20 text-[#E5C170] font-semibold border border-[#C5A059]/30">
+              Gate
+            </span>
+          </button>
+        )}
+
+        {/* Integrated Status & Persistence Capsule */}
+        {onManualSync && (
+          <StatusCapsule
+            quotaExceeded={quotaExceeded}
+            isSyncing={isSyncing}
+            lastSyncTime={lastSyncTime}
+            onManualSync={onManualSync}
+            resourceCount={totalCount}
+            onExportBackup={onExportBackup}
+            hasPendingConflicts={hasPendingConflicts}
+            conflictCount={conflictCount}
+            onOpenConflictModal={onOpenConflictModal}
+            onOpenRecoveryModal={onOpenRecoveryModal}
+            onOpenQuotaTelemetry={onOpenQuotaTelemetry}
+            onOpenPersistenceStatus={onOpenPersistenceStatus}
+            unsyncedCount={unsyncedCount}
+            onUploadUnsynced={onUploadUnsynced}
+          />
+        )}
+
         {/* Secondary Tools Menu (··· Altro) */}
         <div className="relative" ref={moreMenuRef}>
           <button
@@ -295,10 +365,52 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
 
           {isMoreMenuOpen && (
-            <div className="absolute right-0 mt-1.5 w-52 bg-[#111111] border border-[#222222] rounded-lg shadow-2xl py-1 z-30 font-sans text-xs">
+            <div className="absolute right-0 mt-1.5 w-56 bg-[#111111] border border-[#222222] rounded-lg shadow-2xl py-1 z-30 font-sans text-xs">
               <div className="px-3 py-1 text-[10px] font-mono text-[#555] uppercase tracking-wider border-b border-[#1A1A1A]">
                 Strumenti Vault
               </div>
+
+              {onOpenCekikjInspector && (
+                <button
+                  onClick={() => {
+                    setIsMoreMenuOpen(false);
+                    onOpenCekikjInspector();
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-[#E5C170] hover:text-white hover:bg-[#1C160B] transition-colors text-left"
+                >
+                  <ShieldAlert className="w-3.5 h-3.5 text-[#C5A059]" />
+                  <div className="flex flex-col">
+                    <span className="font-semibold">Zero-Guessing (Cekikj)</span>
+                    <span className="text-[10px] text-neutral-400">Contradiction Gate & Trace</span>
+                  </div>
+                </button>
+              )}
+
+              {onOpenRecoveryModal && (
+                <button
+                  onClick={() => {
+                    setIsMoreMenuOpen(false);
+                    onOpenRecoveryModal();
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-[#CCC] hover:text-white hover:bg-[#181818] transition-colors text-left"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Centro di Recupero & Diagnostica</span>
+                </button>
+              )}
+
+              {onOpenQuotaTelemetry && (
+                <button
+                  onClick={() => {
+                    setIsMoreMenuOpen(false);
+                    onOpenQuotaTelemetry();
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-[#CCC] hover:text-white hover:bg-[#181818] transition-colors text-left"
+                >
+                  <Activity className="w-3.5 h-3.5 text-[#C5A059]" />
+                  <span>Monitor Quote & Telemetria</span>
+                </button>
+              )}
 
               {onOpenPrintDossier && (
                 <button

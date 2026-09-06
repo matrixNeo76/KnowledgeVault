@@ -469,6 +469,12 @@ export const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({
         return "OKF Knowledge v0.2";
       case "troubleshooting":
         return "Scheda Diagnostica & Soluzione";
+      case "paper":
+        return "Paper Scientifico (Research)";
+      case "rss":
+        return "Feed RSS / Aggiornamenti";
+      case "note":
+        return "Nota & Scratchpad";
       case "github_repo":
         return "Repository GitHub";
       case "mcp_server":

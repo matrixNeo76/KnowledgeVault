@@ -18,7 +18,10 @@ import {
   ArrowRight,
   ChevronDown,
   Check,
-  Zap
+  Zap,
+  GraduationCap,
+  Rss,
+  StickyNote
 } from "lucide-react";
 import { ResourceType, CaptureStage } from "../types";
 
@@ -108,6 +111,9 @@ export const CaptureBar: React.FC<CaptureBarProps> = ({
   }[] = [
     { id: "auto", label: "Auto-Detect (OKF v0.2)", icon: <Sparkles className="w-3.5 h-3.5 text-[#C5A059]" />, color: "text-[#C5A059]", description: "Classificazione automatica ed estrazione ontologia OKF v0.2" },
     { id: "knowledge", label: "Note & Doc (.md)", icon: <BrainCircuit className="w-3.5 h-3.5 text-[#C5A059]" />, color: "text-[#C5A059]", description: "Specifiche tecniche, architetture, guide e file Markdown" },
+    { id: "paper", label: "Paper Scientifico", icon: <GraduationCap className="w-3.5 h-3.5 text-[#818CF8]" />, color: "text-[#818CF8]", description: "Articoli accademici (arXiv, DOI, venue, PDF)" },
+    { id: "rss", label: "Feed RSS", icon: <Rss className="w-3.5 h-3.5 text-[#FB923C]" />, color: "text-[#FB923C]", description: "Flussi di aggiornamento RSS e Atom da blog e lab AI" },
+    { id: "note", label: "Nota Rapida", icon: <StickyNote className="w-3.5 h-3.5 text-[#FBBF24]" />, color: "text-[#FBBF24]", description: "Scratchpad veloce, idee per prompt o memo architetturali" },
     { id: "troubleshooting", label: "Problemi & Fix", icon: <Wrench className="w-3.5 h-3.5 text-[#F97316]" />, color: "text-[#F97316]", description: "Cause radice, diagnostica errori e checklist di risoluzione" },
     { id: "mcp_server", label: "MCP Server", icon: <Cpu className="w-3.5 h-3.5 text-[#38BDF8]" />, color: "text-[#38BDF8]", description: "Server Model Context Protocol, tools e snippet JSON" },
     { id: "github_repo", label: "GitHub Repo", icon: <Github className="w-3.5 h-3.5 text-[#A855F7]" />, color: "text-[#A855F7]", description: "Repository open-source, codice sorgente e pacchetti" },

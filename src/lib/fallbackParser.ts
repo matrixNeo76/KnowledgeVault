@@ -58,6 +58,80 @@ export function localFallbackAnalyzeResource(
     if (steps.length > 0) {
       metadata.solutionSteps = steps;
     }
+  } else if (
+    explicitType === 'paper' ||
+    text.includes('arxiv.org/') ||
+    text.includes('doi.org/') ||
+    text.includes('openreview.net/') ||
+    text.toLowerCase().startsWith('paper:')
+  ) {
+    // 2. Scientific Paper detection
+    type = 'paper';
+    const cleanText = text.replace(/^paper:\s*/i, '').trim();
+    const urlMatch = cleanText.match(/https?:\/\/[^\s]+/i);
+    if (urlMatch) url = urlMatch[0];
+
+    const arxivMatch = (url || cleanText).match(/arxiv\.org\/(?:abs|pdf)\/([0-9]+\.[0-9]+(?:v[0-9]+)?)/i);
+    if (arxivMatch) {
+      metadata.arxivId = arxivMatch[1];
+      metadata.pdfUrl = `https://arxiv.org/pdf/${arxivMatch[1]}.pdf`;
+      url = url || `https://arxiv.org/abs/${arxivMatch[1]}`;
+    }
+
+    const lines = cleanText.split('\n').map((l) => l.trim()).filter(Boolean);
+    title = lines[0]?.replace(/^#+\s*/, '').replace(/^https?:\/\/[^\s]+$/, '').slice(0, 120) || (arxivMatch ? `arXiv:${arxivMatch[1]}` : 'Paper Scientifico');
+    summary = lines.slice(1, 4).join(' ').slice(0, 300) || `Paper di ricerca scientifica ${arxivMatch ? `[arXiv:${arxivMatch[1]}]` : ''}`;
+    tags.push('paper', 'research', 'scientific-paper', 'academic');
+    if (arxivMatch) tags.push('arxiv');
+
+    metadata.docType = 'research';
+    metadata.publishedYear = new Date().getFullYear();
+    metadata.domain = 'Artificial Intelligence & Computer Science';
+  } else if (
+    explicitType === 'rss' ||
+    text.toLowerCase().endsWith('.xml') ||
+    text.toLowerCase().includes('/feed') ||
+    text.toLowerCase().includes('/rss') ||
+    text.toLowerCase().startsWith('rss:') ||
+    text.includes('<rss') ||
+    text.includes('<feed')
+  ) {
+    // 3. RSS / Atom Feed detection
+    type = 'rss';
+    const cleanText = text.replace(/^rss:\s*/i, '').trim();
+    const urlMatch = cleanText.match(/https?:\/\/[^\s]+/i);
+    if (urlMatch) url = urlMatch[0];
+
+    metadata.feedUrl = url || cleanText;
+    metadata.feedFormat = cleanText.includes('<feed') || url.includes('atom') ? 'atom' : 'rss';
+
+    let domainName = 'Feed RSS';
+    if (url) {
+      try {
+        domainName = new URL(url).hostname.replace(/^www\./, '');
+      } catch {}
+    }
+    title = domainName !== 'Feed RSS' ? `Feed RSS - ${domainName}` : 'Canale RSS';
+    summary = `Flusso di aggiornamento e syndication RSS/Atom da ${url || cleanText}.`;
+    tags.push('rss', 'feed', 'syndication', 'updates');
+    metadata.docType = 'tool_description';
+  } else if (
+    explicitType === 'note' ||
+    text.toLowerCase().startsWith('nota:') ||
+    text.toLowerCase().startsWith('note:') ||
+    text.toLowerCase().startsWith('memo:') ||
+    text.toLowerCase().startsWith('scratchpad:')
+  ) {
+    // 4. Quick Note / Scratchpad detection
+    type = 'note';
+    const cleanText = text.replace(/^(?:nota|note|memo|scratchpad):\s*/i, '').trim();
+    const lines = cleanText.split('\n').map((l) => l.trim()).filter(Boolean);
+    title = lines[0]?.replace(/^#+\s*/, '').slice(0, 80) || 'Nota Rapida';
+    summary = lines.slice(1).join(' ').slice(0, 250) || lines[0] || 'Appunto veloce nel Vault.';
+    tags.push('note', 'scratchpad', 'memo');
+    metadata.noteCategory = 'scratchpad';
+    metadata.docType = 'concept';
+    metadata.markdownContent = cleanText;
   } else {
     // 2. Check URL Pattern
     const urlMatch = text.match(/https?:\/\/[^\s]+/i);
@@ -229,7 +303,7 @@ export function localFallbackAnalyzeResource(
 
   if (
     explicitType &&
-    ['troubleshooting', 'article', 'github_repo', 'mcp_server', 'ai_skill', 'knowledge', 'link'].includes(
+    ['troubleshooting', 'article', 'github_repo', 'mcp_server', 'ai_skill', 'knowledge', 'link', 'paper', 'rss', 'note'].includes(
       explicitType
     )
   ) {
@@ -243,6 +317,9 @@ export function localFallbackAnalyzeResource(
       : type === 'mcp_server' ? 'tool_description'
       : type === 'ai_skill' ? 'prompt_skill'
       : type === 'troubleshooting' ? 'specification'
+      : type === 'paper' ? 'research'
+      : type === 'rss' ? 'tool_description'
+      : type === 'note' ? 'concept'
       : type === 'article' || type === 'link' ? 'guide'
       : 'concept';
   }

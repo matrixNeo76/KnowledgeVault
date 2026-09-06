@@ -25,7 +25,10 @@ import {
   Database,
   Globe,
   BrainCircuit,
-  Wrench
+  Wrench,
+  GraduationCap,
+  Rss,
+  StickyNote
 } from "lucide-react";
 import { ResourceItem, ResourceType } from "../types";
 
@@ -76,6 +79,12 @@ export const AddResourceDialog: React.FC<AddResourceDialogProps> = ({
   const [attemptedFixesStr, setAttemptedFixesStr] = useState("");
   const [solutionStepsStr, setSolutionStepsStr] = useState("");
   const [userNotes, setUserNotes] = useState("");
+  const [arxivId, setArxivId] = useState("");
+  const [authorsStr, setAuthorsStr] = useState("");
+  const [pdfUrl, setPdfUrl] = useState("");
+  const [venue, setVenue] = useState("");
+  const [feedUrl, setFeedUrl] = useState("");
+  const [noteCategory, setNoteCategory] = useState("scratchpad");
 
   const [aiInputPrompt, setAiInputPrompt] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -157,6 +166,12 @@ export const AddResourceDialog: React.FC<AddResourceDialogProps> = ({
         if (Array.isArray(data.metadata?.attemptedFixes)) setAttemptedFixesStr(data.metadata.attemptedFixes.join("\n"));
         if (Array.isArray(data.metadata?.solutionSteps)) setSolutionStepsStr(data.metadata.solutionSteps.join("\n"));
         if (data.metadata?.userNotes) setUserNotes(data.metadata.userNotes);
+        if (data.metadata?.arxivId) setArxivId(data.metadata.arxivId);
+        if (Array.isArray(data.metadata?.authors)) setAuthorsStr(data.metadata.authors.join(", "));
+        if (data.metadata?.pdfUrl) setPdfUrl(data.metadata.pdfUrl);
+        if (data.metadata?.venue) setVenue(data.metadata.venue);
+        if (data.metadata?.feedUrl) setFeedUrl(data.metadata.feedUrl);
+        if (data.metadata?.noteCategory) setNoteCategory(data.metadata.noteCategory);
       }
     } catch (e) {
       console.error(e);
@@ -199,6 +214,36 @@ export const AddResourceDialog: React.FC<AddResourceDialogProps> = ({
       }
       metadata.okfVersion = "0.2";
       metadata.docType = "guide";
+    }
+    if (type === "paper") {
+      if (arxivId.trim()) {
+        metadata.arxivId = arxivId.trim();
+        metadata.pdfUrl = pdfUrl.trim() || `https://arxiv.org/pdf/${arxivId.trim()}.pdf`;
+        if (!cleanUrl) cleanUrl = `https://arxiv.org/abs/${arxivId.trim()}`;
+      } else if (pdfUrl.trim()) {
+        metadata.pdfUrl = pdfUrl.trim();
+      }
+      if (authorsStr.trim()) {
+        metadata.authors = authorsStr.split(",").map((a) => a.trim()).filter(Boolean);
+      }
+      if (venue.trim()) metadata.venue = venue.trim();
+      metadata.okfVersion = "0.2";
+      metadata.docType = "research";
+      if (!tagsArray.includes("paper")) tagsArray.push("paper");
+    }
+    if (type === "rss") {
+      metadata.feedUrl = feedUrl.trim() || cleanUrl;
+      metadata.feedFormat = (feedUrl || cleanUrl).includes("atom") ? "atom" : "rss";
+      metadata.okfVersion = "0.2";
+      metadata.docType = "tool_description";
+      if (!tagsArray.includes("rss")) tagsArray.push("rss");
+    }
+    if (type === "note") {
+      metadata.noteCategory = noteCategory || "scratchpad";
+      metadata.okfVersion = "0.2";
+      metadata.docType = "concept";
+      metadata.markdownContent = summary.trim();
+      if (!tagsArray.includes("note")) tagsArray.push("note");
     }
     if (type === "mcp_server" && mcpConfig) metadata.configSnippet = mcpConfig;
     if (type === "ai_skill" && systemPrompt) metadata.systemPrompt = systemPrompt;
@@ -537,12 +582,15 @@ export const AddResourceDialog: React.FC<AddResourceDialogProps> = ({
                   <label className="block text-[11px] font-mono uppercase text-[#666] mb-1.5">
                     Categoria Risorsa *
                   </label>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                     {[
                       { id: "troubleshooting", label: "Problema & Fix", icon: <Wrench className="w-3.5 h-3.5 text-[#F97316]" /> },
                       { id: "knowledge", label: "Knowledge (OKF)", icon: <BrainCircuit className="w-3.5 h-3.5 text-[#C5A059]" /> },
-                      { id: "github_repo", label: "GitHub Repo", icon: <Github className="w-3.5 h-3.5 text-[#A855F7]" /> },
+                      { id: "paper", label: "Paper", icon: <GraduationCap className="w-3.5 h-3.5 text-[#818CF8]" /> },
+                      { id: "note", label: "Nota Rapida", icon: <StickyNote className="w-3.5 h-3.5 text-[#FBBF24]" /> },
+                      { id: "rss", label: "Feed RSS", icon: <Rss className="w-3.5 h-3.5 text-[#FB923C]" /> },
                       { id: "mcp_server", label: "MCP Server", icon: <Cpu className="w-3.5 h-3.5 text-[#38BDF8]" /> },
+                      { id: "github_repo", label: "GitHub Repo", icon: <Github className="w-3.5 h-3.5 text-[#A855F7]" /> },
                       { id: "ai_skill", label: "AI Skill", icon: <Bot className="w-3.5 h-3.5 text-[#10B981]" /> },
                       { id: "article", label: "Articolo", icon: <BookOpen className="w-3.5 h-3.5 text-[#F59E0B]" /> },
                       { id: "link", label: "Link Web", icon: <Globe className="w-3.5 h-3.5 text-[#06B6D4]" /> },
@@ -673,6 +721,97 @@ export const AddResourceDialog: React.FC<AddResourceDialogProps> = ({
                         placeholder="es. 1. Aprire Sicurezza di Windows&#10;2. Controllo app e browser > Impostazioni Controllo app intelligente&#10;3. Disattivare e riavviare"
                         className="w-full font-mono bg-[#0A0A0A] border border-[#333] rounded-lg p-2 text-xs text-[#34D399] focus:outline-none focus:border-[#10B981]"
                       />
+                    </div>
+                  </div>
+                )}
+
+                {type === "paper" && (
+                  <div className="space-y-3 bg-[#0E0F1C] border border-[#1E2242] rounded-xl p-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[11px] font-mono uppercase text-[#818CF8] mb-1">
+                          ID arXiv (es. 2401.12345)
+                        </label>
+                        <input
+                          type="text"
+                          value={arxivId}
+                          onChange={(e) => setArxivId(e.target.value)}
+                          placeholder="es. 2401.12345"
+                          className="w-full bg-[#070712] border border-[#272B54] rounded-lg p-2 text-xs text-white focus:outline-none focus:border-[#818CF8]"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-mono uppercase text-[#818CF8] mb-1">
+                          Conferenza / Venue / Anno
+                        </label>
+                        <input
+                          type="text"
+                          value={venue}
+                          onChange={(e) => setVenue(e.target.value)}
+                          placeholder="es. NeurIPS 2024 / ICLR"
+                          className="w-full bg-[#070712] border border-[#272B54] rounded-lg p-2 text-xs text-white focus:outline-none focus:border-[#818CF8]"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-mono uppercase text-[#818CF8] mb-1">
+                        Autori (separati da virgola)
+                      </label>
+                      <input
+                        type="text"
+                        value={authorsStr}
+                        onChange={(e) => setAuthorsStr(e.target.value)}
+                        placeholder="es. Ashish Vaswani, Noam Shazeer, Niki Parmar"
+                        className="w-full bg-[#070712] border border-[#272B54] rounded-lg p-2 text-xs text-white focus:outline-none focus:border-[#818CF8]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-mono uppercase text-[#818CF8] mb-1">
+                        Link Diretto al PDF
+                      </label>
+                      <input
+                        type="url"
+                        value={pdfUrl}
+                        onChange={(e) => setPdfUrl(e.target.value)}
+                        placeholder="https://arxiv.org/pdf/2401.12345.pdf"
+                        className="w-full bg-[#070712] border border-[#272B54] rounded-lg p-2 text-xs text-white focus:outline-none focus:border-[#818CF8]"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {type === "rss" && (
+                  <div className="space-y-3 bg-[#160E08] border border-[#2E1B10] rounded-xl p-3">
+                    <div>
+                      <label className="block text-[11px] font-mono uppercase text-[#FB923C] mb-1">
+                        URL Feed RSS / Atom
+                      </label>
+                      <input
+                        type="url"
+                        value={feedUrl}
+                        onChange={(e) => setFeedUrl(e.target.value)}
+                        placeholder="https://example.com/feed.xml"
+                        className="w-full bg-[#0B0704] border border-[#432315] rounded-lg p-2 text-xs text-white focus:outline-none focus:border-[#FB923C]"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {type === "note" && (
+                  <div className="space-y-3 bg-[#171408] border border-[#2E2810] rounded-xl p-3">
+                    <div>
+                      <label className="block text-[11px] font-mono uppercase text-[#FBBF24] mb-1">
+                        Tipologia Nota
+                      </label>
+                      <select
+                        value={noteCategory}
+                        onChange={(e) => setNoteCategory(e.target.value)}
+                        className="w-full bg-[#0C0B04] border border-[#433915] rounded-lg p-2 text-xs text-[#FBBF24] focus:outline-none focus:border-[#FBBF24]"
+                      >
+                        <option value="scratchpad">Scratchpad / Appunto al volo</option>
+                        <option value="memo">Memo Architetturale</option>
+                        <option value="prompt_idea">Idea Prompt / Sperimentazione</option>
+                      </select>
                     </div>
                   </div>
                 )}
@@ -857,6 +996,10 @@ export const AddResourceDialog: React.FC<AddResourceDialogProps> = ({
                       className="w-full bg-[#0A0A0A] border border-[#222] rounded-lg py-1.5 px-2 text-[11px] text-[#DDD] focus:outline-none focus:border-[#C5A059] font-mono"
                     >
                       <option value="auto">✨ Rilevamento Automatico con AI</option>
+                      <option value="paper">🎓 Paper Scientifico (arXiv / DOI)</option>
+                      <option value="rss">📡 Feed RSS / Atom</option>
+                      <option value="note">📝 Nota Rapida / Scratchpad</option>
+                      <option value="troubleshooting">🔧 Problema & Soluzione</option>
                       <option value="github_repo">🐙 GitHub Repository</option>
                       <option value="link">🌐 Link & Web Tool</option>
                       <option value="mcp_server">⚡ MCP Server</option>

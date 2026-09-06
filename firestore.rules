@@ -30,7 +30,7 @@ service cloud.firestore {
       // Allow create if user sets themselves as owner and data is valid
       allow create: if isAuthenticated()
         && request.resource.data.userId == request.auth.uid
-        && request.resource.data.type in ['article', 'github_repo', 'mcp_server', 'ai_skill', 'knowledge', 'link', 'troubleshooting']
+        && request.resource.data.type in ['article', 'github_repo', 'mcp_server', 'ai_skill', 'knowledge', 'link', 'troubleshooting', 'paper', 'rss', 'note']
         && request.resource.data.title is string
         && request.resource.data.title.size() > 0
         && request.resource.data.title.size() <= 400;
@@ -38,7 +38,7 @@ service cloud.firestore {
       // Allow update if user owns it or for anonymous/migrated items
       allow update: if isAuthenticated()
         && (resource.data.userId == request.auth.uid || resource.data.userId == 'anonymous' || !('userId' in resource.data))
-        && request.resource.data.type in ['article', 'github_repo', 'mcp_server', 'ai_skill', 'knowledge', 'link', 'troubleshooting']
+        && request.resource.data.type in ['article', 'github_repo', 'mcp_server', 'ai_skill', 'knowledge', 'link', 'troubleshooting', 'paper', 'rss', 'note']
         && request.resource.data.title is string
         && request.resource.data.title.size() > 0;
 

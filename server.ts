@@ -4,6 +4,7 @@ import fs from "fs";
 import { promises as fsPromises } from "fs";
 import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
 import dotenv from "dotenv";
+import { executeAgenticVaultQuery } from "./server/vaultAgents";
 
 dotenv.config();
 
@@ -325,7 +326,7 @@ async function fetchOpenGraphMetadata(rawUrl: string, timeoutMs = 4500): Promise
 // Fallback heuristic parser if Gemini API is unavailable or busy
 function fallbackParse(rawText: string, explicitType?: string) {
   const text = rawText.trim();
-  let type: "troubleshooting" | "article" | "github_repo" | "mcp_server" | "ai_skill" | "knowledge" | "link" = (explicitType as any) || "knowledge";
+  let type: "troubleshooting" | "article" | "github_repo" | "mcp_server" | "ai_skill" | "knowledge" | "link" | "paper" | "rss" | "note" = (explicitType as any) || "knowledge";
   let title = "Nuova Risorsa";
   let summary = "";
   let tags: string[] = [];
@@ -360,6 +361,80 @@ function fallbackParse(rawText: string, explicitType?: string) {
     if (steps.length > 0) {
       metadata.solutionSteps = steps;
     }
+  } else if (
+    explicitType === "paper" ||
+    text.includes("arxiv.org/") ||
+    text.includes("doi.org/") ||
+    text.includes("openreview.net/") ||
+    text.toLowerCase().startsWith("paper:")
+  ) {
+    // Scientific Paper detection
+    type = "paper";
+    const cleanText = text.replace(/^paper:\s*/i, "").trim();
+    const urlMatch = cleanText.match(/https?:\/\/[^\s]+/i);
+    if (urlMatch) url = urlMatch[0];
+
+    const arxivMatch = (url || cleanText).match(/arxiv\.org\/(?:abs|pdf)\/([0-9]+\.[0-9]+(?:v[0-9]+)?)/i);
+    if (arxivMatch) {
+      metadata.arxivId = arxivMatch[1];
+      metadata.pdfUrl = `https://arxiv.org/pdf/${arxivMatch[1]}.pdf`;
+      url = url || `https://arxiv.org/abs/${arxivMatch[1]}`;
+    }
+
+    const lines = cleanText.split("\n").map(l => l.trim()).filter(Boolean);
+    title = lines[0]?.replace(/^#+\s*/, "").replace(/^https?:\/\/[^\s]+$/, "").slice(0, 120) || (arxivMatch ? `arXiv:${arxivMatch[1]}` : "Paper Scientifico");
+    summary = lines.slice(1, 4).join(" ").slice(0, 300) || `Paper di ricerca scientifica ${arxivMatch ? `[arXiv:${arxivMatch[1]}]` : ""}`;
+    tags.push("paper", "research", "scientific-paper", "academic");
+    if (arxivMatch) tags.push("arxiv");
+
+    metadata.docType = "research";
+    metadata.publishedYear = new Date().getFullYear();
+    metadata.domain = "Artificial Intelligence & Computer Science";
+  } else if (
+    explicitType === "rss" ||
+    text.toLowerCase().endsWith(".xml") ||
+    text.toLowerCase().includes("/feed") ||
+    text.toLowerCase().includes("/rss") ||
+    text.toLowerCase().startsWith("rss:") ||
+    text.includes("<rss") ||
+    text.includes("<feed")
+  ) {
+    // RSS Feed detection
+    type = "rss";
+    const cleanText = text.replace(/^rss:\s*/i, "").trim();
+    const urlMatch = cleanText.match(/https?:\/\/[^\s]+/i);
+    if (urlMatch) url = urlMatch[0];
+
+    metadata.feedUrl = url || cleanText;
+    metadata.feedFormat = cleanText.includes("<feed") || url.includes("atom") ? "atom" : "rss";
+
+    let domainName = "Feed RSS";
+    if (url) {
+      try {
+        domainName = new URL(url).hostname.replace(/^www\./, "");
+      } catch {}
+    }
+    title = domainName !== "Feed RSS" ? `Feed RSS - ${domainName}` : "Canale RSS";
+    summary = `Flusso di aggiornamento e syndication RSS/Atom da ${url || cleanText}.`;
+    tags.push("rss", "feed", "syndication", "updates");
+    metadata.docType = "tool_description";
+  } else if (
+    explicitType === "note" ||
+    text.toLowerCase().startsWith("nota:") ||
+    text.toLowerCase().startsWith("note:") ||
+    text.toLowerCase().startsWith("memo:") ||
+    text.toLowerCase().startsWith("scratchpad:")
+  ) {
+    // Quick Note detection
+    type = "note";
+    const cleanText = text.replace(/^(?:nota|note|memo|scratchpad):\s*/i, "").trim();
+    const lines = cleanText.split("\n").map(l => l.trim()).filter(Boolean);
+    title = lines[0]?.replace(/^#+\s*/, "").slice(0, 80) || "Nota Rapida";
+    summary = lines.slice(1).join(" ").slice(0, 250) || lines[0] || "Appunto rapido nel Vault.";
+    tags.push("note", "scratchpad", "memo");
+    metadata.noteCategory = "scratchpad";
+    metadata.docType = "concept";
+    metadata.markdownContent = cleanText;
   } else {
 
   // Check URL pattern
@@ -506,7 +581,7 @@ function fallbackParse(rawText: string, explicitType?: string) {
   }
 }
 
-  if (explicitType && ["troubleshooting", "article", "github_repo", "mcp_server", "ai_skill", "knowledge", "link"].includes(explicitType)) {
+  if (explicitType && ["troubleshooting", "article", "github_repo", "mcp_server", "ai_skill", "knowledge", "link", "paper", "rss", "note"].includes(explicitType)) {
     type = explicitType as any;
   }
 
@@ -517,6 +592,9 @@ function fallbackParse(rawText: string, explicitType?: string) {
       : type === "mcp_server" ? "tool_description"
       : type === "ai_skill" ? "prompt_skill"
       : type === "troubleshooting" ? "specification"
+      : type === "paper" ? "research"
+      : type === "rss" ? "tool_description"
+      : type === "note" ? "concept"
       : type === "article" || type === "link" ? "guide"
       : "concept";
   }
@@ -2233,8 +2311,11 @@ Target Categories:
 3. 'mcp_server' - Model Context Protocol servers, tools, connectors for Claude/Gemini/AI agents
 4. 'knowledge' - Architecture documents, specifications, second-brain knowledge notes
 5. 'ai_skill' - AI System prompts, agents instructions, persona templates, workflow skills
-6. 'article' - Blog posts, research papers, documentation, tutorials, architectural guides
-7. 'link' - Web links, online tools, SaaS platforms, portals, official sites, web apps, API references
+6. 'paper' - Scientific / academic research papers (arXiv, NeurIPS, ICLR, ICML, Nature, IEEE). Machine learning architectures, algorithmic proofs, benchmarks.
+7. 'rss' - RSS or Atom feed subscriptions, tech blogs feeds, AI lab release feeds.
+8. 'note' - Quick scratchpad notes, prompt ideas, rapid architectural memos, developer scratchpad.
+9. 'article' - Blog posts, documentation, tutorials, architectural guides
+10. 'link' - Web links, online tools, SaaS platforms, portals, official sites, web apps, API references
 
 User Raw Input:
 """
@@ -2254,6 +2335,9 @@ ${existingResources.slice(0, 15).map((r: any) => `- "${r.title}" (Tipo: ${r.type
 ` : ""}
 
 Instructions:
+- If input contains "arxiv.org/" or mentions academic paper/research or explicitType is 'paper', classify as 'paper'. Extract authors, arxivId, publishedYear, pdfUrl.
+- If input contains RSS/Atom feed URL or XML feed or explicitType is 'rss', classify as 'rss'. Extract feedUrl, feedFormat.
+- If input is a short developer memo, prompt scratchpad or explicitType is 'note', classify as 'note'.
 - If input contains "github.com/" or is a repo format "owner/repo", set type to 'github_repo' (unless explicitType is specifically 'mcp_server' or 'knowledge').
 - If input is a generic website or online tool URL (not a blog post or github repo), or if explicitType is 'link', classify as 'link'.
 - Extract a clean, precise title. For GitHub repos, use 'owner/repo' or repo name.
@@ -2261,6 +2345,9 @@ Instructions:
 - Write a clear, comprehensive summary in Italian that preserves all essential facts, technical context, details, and user notes from the original input.
 - Generate 3 to 6 relevant lowercase tags (e.g. ['github', 'typescript', 'open-source', 'agents', 'web-tool']).
 - Fill type-specific metadata:
+  - If paper: { authors: ["string"], arxivId, doi, pdfUrl, venue, publishedYear, tldr }
+  - If rss: { feedUrl, feedFormat: 'rss' | 'atom', siteUrl }
+  - If note: { noteCategory: 'scratchpad' | 'memo' | 'prompt_idea', isPinned: false }
   - If troubleshooting: { affectedSystem, rootCause, attemptedFixes: ["string"], solutionSteps: ["string"], problemDescription }
   - If github_repo: { owner, repoName, language, installCommand: "git clone https://github.com/owner/repo.git" }
   - If mcp_server: { protocol: 'stdio' | 'sse', command, args, env, configSnippet, toolsProvided }
@@ -2271,7 +2358,7 @@ Instructions:
 
 Return pure JSON matching this exact structure:
 {
-  "type": "troubleshooting" | "article" | "github_repo" | "mcp_server" | "ai_skill" | "knowledge" | "link",
+  "type": "troubleshooting" | "article" | "github_repo" | "mcp_server" | "ai_skill" | "knowledge" | "link" | "paper" | "rss" | "note",
   "title": "string",
   "url": "string",
   "summary": "string",
@@ -2284,7 +2371,7 @@ Return pure JSON matching this exact structure:
       properties: {
         type: {
           type: Type.STRING,
-          enum: ["troubleshooting", "article", "github_repo", "mcp_server", "ai_skill", "knowledge", "link"],
+          enum: ["troubleshooting", "article", "github_repo", "mcp_server", "ai_skill", "knowledge", "link", "paper", "rss", "note"],
         },
         title: { type: Type.STRING },
         url: { type: Type.STRING },
@@ -2316,6 +2403,16 @@ Return pure JSON matching this exact structure:
             systemPrompt: { type: Type.STRING },
             triggerKeywords: { type: Type.ARRAY, items: { type: Type.STRING } },
             exampleUsage: { type: Type.STRING },
+            authors: { type: Type.ARRAY, items: { type: Type.STRING } },
+            arxivId: { type: Type.STRING },
+            doi: { type: Type.STRING },
+            pdfUrl: { type: Type.STRING },
+            venue: { type: Type.STRING },
+            publishedYear: { type: Type.NUMBER },
+            tldr: { type: Type.STRING },
+            feedUrl: { type: Type.STRING },
+            feedFormat: { type: Type.STRING },
+            noteCategory: { type: Type.STRING },
             author: { type: Type.STRING },
             readingTimeMin: { type: Type.STRING },
             keyTakeaways: { type: Type.ARRAY, items: { type: Type.STRING } },
@@ -2408,15 +2505,27 @@ Return pure JSON matching this exact structure:
       if (!parsedJson.tags.includes("github")) parsedJson.tags.push("github");
     }
 
-    if (explicitType && ["article", "github_repo", "mcp_server", "ai_skill", "knowledge", "link"].includes(explicitType)) {
+    // arXiv auto-enrichment
+    if (parsedJson.url) {
+      const arxivMatch = parsedJson.url.match(/arxiv\.org\/(?:abs|pdf)\/([0-9]+\.[0-9]+(?:v[0-9]+)?)/i);
+      if (arxivMatch) {
+        parsedJson.type = explicitType || "paper";
+        parsedJson.metadata.arxivId = arxivMatch[1];
+        parsedJson.metadata.pdfUrl = `https://arxiv.org/pdf/${arxivMatch[1]}.pdf`;
+        if (!parsedJson.tags.includes("arxiv")) parsedJson.tags.push("arxiv");
+        if (!parsedJson.tags.includes("paper")) parsedJson.tags.push("paper");
+      }
+    }
+
+    if (explicitType && ["article", "github_repo", "mcp_server", "ai_skill", "knowledge", "link", "troubleshooting", "paper", "rss", "note"].includes(explicitType)) {
       parsedJson.type = explicitType;
     }
 
-    // If analyzing an article with a URL, try to scrape readable article body so full text is immediately available
-    if (parsedJson.type === "article" && parsedJson.url && parsedJson.url.startsWith("http")) {
+    // If analyzing an article or paper with a URL, try to scrape readable body
+    if ((parsedJson.type === "article" || parsedJson.type === "paper") && parsedJson.url && parsedJson.url.startsWith("http") && !parsedJson.url.includes("arxiv.org")) {
       try {
         const scraped = await fetchArticleTextFromUrl(parsedJson.url, 4000);
-        if (scraped.text && scraped.text.length > 150) {
+        if (scraped.text && scraped.text.length > 150 && !parsedJson.metadata.markdownContent) {
           parsedJson.metadata.markdownContent = scraped.markdown || scraped.text;
         }
       } catch {}
@@ -2429,6 +2538,9 @@ Return pure JSON matching this exact structure:
         : parsedJson.type === "mcp_server" ? "tool_description"
         : parsedJson.type === "ai_skill" ? "prompt_skill"
         : parsedJson.type === "troubleshooting" ? "specification"
+        : parsedJson.type === "paper" ? "research"
+        : parsedJson.type === "rss" ? "tool_description"
+        : parsedJson.type === "note" ? "concept"
         : parsedJson.type === "article" || parsedJson.type === "link" ? "guide"
         : "concept";
     }
@@ -3177,6 +3289,41 @@ app.get("/api/vault/resources/:id/raw", async (req, res) => {
     res.send(markdown);
   } catch (error: any) {
     res.status(500).send(`Error retrieving resource: ${error?.message}`);
+  }
+});
+
+// POST /api/vault/agentic-query - Multi-Agent Orchestrator Engine for Epistemic Vault Queries
+app.post("/api/vault/agentic-query", async (req, res) => {
+  try {
+    const { query, mode, activeCategory, activeTag, selectedResourceIds, history, clientResources } = req.body;
+    if (!query || typeof query !== "string" || query.trim().length === 0) {
+      return res.status(400).json({ error: "Campo 'query' obbligatorio." });
+    }
+
+    const ai = getGenAI();
+    const result = await executeAgenticVaultQuery(
+      {
+        query: query.trim(),
+        mode,
+        activeCategory,
+        activeTag,
+        selectedResourceIds,
+        history,
+        clientResources,
+      },
+      ai
+    );
+
+    res.json({
+      success: true,
+      ...result,
+    });
+  } catch (error: any) {
+    console.error("[VAULT_AGENTIC_QUERY_ERROR]", error);
+    res.status(500).json({
+      success: false,
+      error: error?.message || "Errore durante l'elaborazione dell'interrogazione multi-agente",
+    });
   }
 });
 

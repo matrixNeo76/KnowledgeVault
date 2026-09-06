@@ -44,7 +44,10 @@ import {
   Boxes,
   PinOff,
   Route,
-  ArrowRight
+  ArrowRight,
+  GraduationCap,
+  Rss,
+  StickyNote
 } from "lucide-react";
 import { ResourceItem, GraphNode, GraphLink, ResourceType, OKFEntity } from "../types";
 import { parseSearchQuery, evaluateResourceSearch } from "../lib/searchEngine";
@@ -66,6 +69,12 @@ export const getNodeColor = (type: ResourceType | "concept" | "entity" | string)
       return "#F97316"; // Bright Orange for Troubleshooting
     case "knowledge":
       return "#C5A059"; // Champagne gold for OKF Knowledge
+    case "paper":
+      return "#818CF8"; // Indigo for Papers
+    case "rss":
+      return "#FB923C"; // Coral orange for RSS
+    case "note":
+      return "#FBBF24"; // Amber yellow for Notes
     case "mcp_server":
       return "#38BDF8"; // Cyan for MCP
     case "github_repo":
@@ -88,6 +97,12 @@ export const getNodeTypeIcon = (type: ResourceType | string) => {
       return <AlertTriangle className="w-3.5 h-3.5 text-[#F97316]" />;
     case "knowledge":
       return <FileText className="w-3.5 h-3.5 text-[#C5A059]" />;
+    case "paper":
+      return <GraduationCap className="w-3.5 h-3.5 text-[#818CF8]" />;
+    case "rss":
+      return <Rss className="w-3.5 h-3.5 text-[#FB923C]" />;
+    case "note":
+      return <StickyNote className="w-3.5 h-3.5 text-[#FBBF24]" />;
     case "mcp_server":
       return <Terminal className="w-3.5 h-3.5 text-[#38BDF8]" />;
     case "github_repo":
@@ -225,7 +240,7 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
 
   // Multi-selectable Resource Types Filter
   const [selectedResourceTypes, setSelectedResourceTypes] = useState<Set<ResourceType>>(
-    new Set<ResourceType>(["knowledge", "troubleshooting", "mcp_server", "github_repo", "ai_skill", "article"])
+    new Set<ResourceType>(["knowledge", "troubleshooting", "mcp_server", "github_repo", "ai_skill", "article", "paper", "rss", "note"])
   );
 
   // Multi-selectable Relation Sources Filter
@@ -2209,11 +2224,14 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
             {/* Section 2: Tipologie di Risorsa */}
             <div className="pt-3 space-y-2">
               <div className="text-[10px] uppercase tracking-wider text-[#C5A059] font-semibold flex items-center justify-between">
-                <span>Tipologie Risorse ({selectedResourceTypes.size}/5)</span>
+                <span>Tipologie Risorse ({selectedResourceTypes.size}/8)</span>
               </div>
               <div className="grid grid-cols-2 gap-1.5">
                 {[
                   { id: "knowledge", label: "Knowledge OKF", color: "#C5A059" },
+                  { id: "paper", label: "Paper Scientifici", color: "#818CF8" },
+                  { id: "rss", label: "Feed RSS", color: "#FB923C" },
+                  { id: "note", label: "Note Rapide", color: "#FBBF24" },
                   { id: "troubleshooting", label: "Troubleshooting", color: "#F97316" },
                   { id: "github_repo", label: "GitHub Repo", color: "#A855F7" },
                   { id: "mcp_server", label: "MCP Server", color: "#38BDF8" },
@@ -2414,7 +2432,7 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  setSelectedResourceTypes(new Set(["troubleshooting", "knowledge", "github_repo", "mcp_server", "ai_skill"]));
+                  setSelectedResourceTypes(new Set(["troubleshooting", "knowledge", "github_repo", "mcp_server", "ai_skill", "article", "paper", "rss", "note"]));
                   setSelectedRelationSources(
                     new Set(["explicit", "entities", "mentions", "dependencies", "troubleshooting", "mcp_skills", "hierarchy", "tags"])
                   );

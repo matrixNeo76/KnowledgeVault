@@ -20,7 +20,10 @@ import {
   Printer,
   FileText,
   FileDown,
-  Loader2
+  Loader2,
+  GraduationCap,
+  Rss,
+  StickyNote
 } from "lucide-react";
 import { ResourceItem, ResourceType } from "../types";
 import { formatDate } from "../lib/dateUtils";
@@ -80,6 +83,21 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({
           label: "Problema & Fix",
           icon: <Wrench className="w-3 h-3 text-[#F97316]" />,
         };
+      case "paper":
+        return {
+          label: "Paper",
+          icon: <GraduationCap className="w-3 h-3 text-[#818CF8]" />,
+        };
+      case "rss":
+        return {
+          label: "Feed RSS",
+          icon: <Rss className="w-3 h-3 text-[#FB923C]" />,
+        };
+      case "note":
+        return {
+          label: "Nota",
+          icon: <StickyNote className="w-3 h-3 text-[#FBBF24]" />,
+        };
       case "github_repo":
         return {
           label: "GitHub",
@@ -112,6 +130,12 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({
   const handleCopy = (e: React.MouseEvent, item: ResourceItem) => {
     e.stopPropagation();
     const payload = item.type === "knowledge" 
+      ? item.metadata?.markdownContent || item.summary || ""
+      : item.type === "paper"
+      ? (item.metadata?.arxivId ? `https://arxiv.org/abs/${item.metadata.arxivId}` : item.url || item.summary || "")
+      : item.type === "rss"
+      ? item.metadata?.feedUrl || item.url || ""
+      : item.type === "note"
       ? item.metadata?.markdownContent || item.summary || ""
       : item.type === "mcp_server" 
       ? item.metadata?.configSnippet || item.metadata?.command || item.url || ""

@@ -54,11 +54,17 @@ export function analyzeResourceConflicts(
   const remoteMap = new Map<string, ResourceItem>();
 
   // Helper function to create a canonical resource signature
+  // Note: Only merge temp local IDs with remote items when there is an exact, unambiguous match on both URL and title (or exact matching title when URL is absent)
   const getResourceSignature = (item: ResourceItem): string => {
-    if (item.url && item.url.trim().length > 3) {
-      return `url:${item.url.trim().toLowerCase().replace(/\/$/, "")}`;
+    const cleanUrl = item.url && item.url.trim().length > 3 ? item.url.trim().toLowerCase().replace(/\/$/, "") : "";
+    const cleanTitle = (item.title || "").trim().toLowerCase();
+    if (cleanUrl && cleanTitle) {
+      return `both:${item.type}:${cleanUrl}::${cleanTitle}`;
     }
-    return `title:${item.type}:${item.title.trim().toLowerCase()}`;
+    if (cleanUrl) {
+      return `url:${item.type}:${cleanUrl}`;
+    }
+    return `title:${item.type}:${cleanTitle}`;
   };
 
   // Build remote signature index to detect when a local-ID document is actually already on remote

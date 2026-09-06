@@ -18,13 +18,17 @@ import {
   Paperclip, 
   FileText, 
   ShieldCheck,
+  ShieldAlert,
   PanelLeftClose,
   PanelLeftOpen,
   Search,
   Tag,
   UploadCloud,
   HardDrive,
-  Activity
+  Activity,
+  GraduationCap,
+  Rss,
+  StickyNote
 } from "lucide-react";
 import { ResourceType, NavCategory } from "../types";
 import { User } from "firebase/auth";
@@ -37,6 +41,9 @@ interface SidebarProps {
     all: number;
     knowledge: number;
     troubleshooting?: number;
+    paper?: number;
+    rss?: number;
+    note?: number;
     mcp_server: number;
     github_repo: number;
     ai_skill: number;
@@ -57,6 +64,7 @@ interface SidebarProps {
   onOpenGoogleDrive?: () => void;
   onOpenRecovery?: () => void;
   onOpenPersistenceStatus?: () => void;
+  onOpenCekikjInspector?: () => void;
   unsyncedCount?: number;
   onUploadUnsynced?: () => void;
   // Modern 2026 UX extensions
@@ -84,6 +92,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenGoogleDrive,
   onOpenRecovery,
   onOpenPersistenceStatus,
+  onOpenCekikjInspector,
   unsyncedCount = 0,
   onUploadUnsynced,
   selectedTag,
@@ -145,19 +154,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: <Star className="w-4 h-4 text-[#E5C170] fill-[#E5C170]/20" />,
       count: counts.favorites,
     },
-    {
-      id: "raw_files",
-      label: "Buffer File Grezzi",
-      icon: <Paperclip className="w-4 h-4 text-[#A89874]" />,
-      count: counts.raw_files || 0,
-    },
-    {
-      id: "quota_monitor",
-      label: "Quote & Telemetria",
-      icon: <Activity className={`w-4 h-4 ${quotaExceeded ? "text-amber-400 animate-pulse" : "text-[#C5A059]"}`} />,
-      count: 0,
-      badgeText: quotaExceeded ? "Bloccata" : "Live",
-    },
   ];
 
   // 2. Structured Resource Categories
@@ -174,10 +170,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
       count: counts.knowledge || 0,
     },
     {
+      id: "paper",
+      label: "Paper Scientifici",
+      icon: <GraduationCap className="w-4 h-4 text-[#818CF8]" />,
+      count: counts.paper || 0,
+    },
+    {
       id: "troubleshooting",
       label: "Problemi & Soluzioni",
       icon: <Wrench className="w-4 h-4 text-[#E59866]" />,
       count: counts.troubleshooting || 0,
+    },
+    {
+      id: "note",
+      label: "Note & Scratchpad",
+      icon: <StickyNote className="w-4 h-4 text-[#FBBF24]" />,
+      count: counts.note || 0,
+    },
+    {
+      id: "rss",
+      label: "Feed RSS & Canali",
+      icon: <Rss className="w-4 h-4 text-[#FB923C]" />,
+      count: counts.rss || 0,
     },
     {
       id: "mcp_server",
@@ -199,8 +213,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: "article",
-      label: "Guide & Note",
-      icon: <BookOpen className="w-4 h-4 text-[#FBBF24]" />,
+      label: "Guide & Articoli",
+      icon: <BookOpen className="w-4 h-4 text-[#FDE047]" />,
       count: counts.article || 0,
     },
     {
@@ -370,7 +384,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div>
             {!isCollapsed && (
               <div className="text-[10px] uppercase tracking-widest text-[#555] px-2 mb-1 font-mono font-semibold">
-                Principale
+                Viste
               </div>
             )}
             <div className="space-y-0.5">
@@ -399,11 +413,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     {!isCollapsed && (
                       <span
                         className={`text-[10px] font-mono px-1.5 py-0.2 rounded ${
-                          item.id === "quota_monitor"
-                            ? quotaExceeded
-                              ? "bg-amber-950/60 text-amber-300 border border-amber-800/50 font-semibold"
-                              : "bg-[#181818] text-emerald-400 border border-emerald-900/40"
-                            : isActive
+                          isActive
                             ? "bg-[#C5A059]/25 text-[#E5C170] font-semibold"
                             : "text-[#777]"
                         }`}
@@ -417,11 +427,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           </div>
 
-          {/* Section 2: Archivio Categorie */}
+          {/* Section 2: Ontologia OKF */}
           <div>
             {!isCollapsed && (
               <div className="text-[10px] uppercase tracking-widest text-[#555] px-2 mb-1 font-mono font-semibold">
-                Categorie
+                Ontologia OKF
               </div>
             )}
             <div className="space-y-0.5">
@@ -580,6 +590,87 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   {!isCollapsed && (
                     <span className="text-[9px] font-mono text-emerald-500/80 bg-emerald-950/40 px-1 py-0.2 rounded border border-emerald-800/30">
                       Attivo
+                    </span>
+                  )}
+                </button>
+              )}
+
+              {onOpenCekikjInspector && (
+                <button
+                  onClick={() => {
+                    onOpenCekikjInspector();
+                    onCloseMobile();
+                  }}
+                  title={isCollapsed ? "Zero-Guessing Epistemic Engine (Cekikj)" : undefined}
+                  className={`w-full flex items-center ${
+                    isCollapsed ? "justify-center p-2" : "justify-between px-2.5 py-1.5"
+                  } rounded-md bg-[#161208] hover:bg-[#20180B] border border-[#C5A059]/40 hover:border-[#C5A059] text-[#E5C170] hover:text-white text-xs transition-all group text-left`}
+                >
+                  <div className="flex items-center gap-2.5 truncate">
+                    <ShieldAlert className="w-3.5 h-3.5 text-[#C5A059] shrink-0" />
+                    {!isCollapsed && <span className="truncate font-medium">Zero-Guessing</span>}
+                  </div>
+                  {!isCollapsed && (
+                    <span className="text-[9px] font-mono text-[#C5A059] bg-[#C5A059]/20 px-1 py-0.2 rounded border border-[#C5A059]/40">
+                      Gate
+                    </span>
+                  )}
+                </button>
+              )}
+
+              {/* Quote & Telemetria */}
+              <button
+                onClick={() => {
+                  onSelectCategory("quota_monitor");
+                  onCloseMobile();
+                }}
+                title={isCollapsed ? "Monitor Quote Firestore & Telemetria" : undefined}
+                className={`w-full flex items-center ${
+                  isCollapsed ? "justify-center p-2" : "justify-between px-2.5 py-1.5"
+                } rounded-md text-xs transition-all ${
+                  currentCategory === "quota_monitor"
+                    ? "bg-[#1C160B] border border-[#C5A059]/50 text-white font-medium"
+                    : "text-[#888] hover:text-[#DDD] hover:bg-[#121212]"
+                }`}
+              >
+                <div className="flex items-center gap-2.5 truncate">
+                  <Activity className={`w-3.5 h-3.5 ${quotaExceeded ? "text-amber-400 animate-pulse" : "text-[#C5A059]"} shrink-0`} />
+                  {!isCollapsed && <span className="truncate">Monitor Quote</span>}
+                </div>
+                {!isCollapsed && (
+                  <span className={`text-[9px] font-mono px-1 py-0.2 rounded border ${
+                    quotaExceeded
+                      ? "bg-amber-950/60 text-amber-300 border-amber-800/50"
+                      : "bg-[#161616] text-emerald-400 border-emerald-900/40"
+                  }`}>
+                    {quotaExceeded ? "Bloccata" : "Live"}
+                  </span>
+                )}
+              </button>
+
+              {/* Buffer File Grezzi */}
+              {(counts.raw_files ?? 0) > 0 && (
+                <button
+                  onClick={() => {
+                    onSelectCategory("raw_files");
+                    onCloseMobile();
+                  }}
+                  title={isCollapsed ? `Buffer File Grezzi (${counts.raw_files})` : undefined}
+                  className={`w-full flex items-center ${
+                    isCollapsed ? "justify-center p-2" : "justify-between px-2.5 py-1.5"
+                  } rounded-md text-xs transition-all ${
+                    currentCategory === "raw_files"
+                      ? "bg-[#1C160B] border border-[#C5A059]/50 text-white font-medium"
+                      : "text-[#888] hover:text-[#DDD] hover:bg-[#121212]"
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 truncate">
+                    <Paperclip className="w-3.5 h-3.5 text-[#A89874] shrink-0" />
+                    {!isCollapsed && <span className="truncate">File Grezzi</span>}
+                  </div>
+                  {!isCollapsed && (
+                    <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-[#161616] text-[#777]">
+                      {counts.raw_files}
                     </span>
                   )}
                 </button>

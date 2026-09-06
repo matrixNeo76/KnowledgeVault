@@ -42,7 +42,10 @@ import {
   Plus,
   Download,
   Eye,
-  Printer
+  Printer,
+  GraduationCap,
+  Rss,
+  StickyNote
 } from "lucide-react";
 import Markdown from "react-markdown";
 import { ResourceItem, ResourceType } from "../types";
@@ -519,6 +522,12 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
     switch (t) {
       case "troubleshooting":
         return <Wrench className="w-4 h-4 text-[#F97316]" />;
+      case "paper":
+        return <GraduationCap className="w-4 h-4 text-[#818CF8]" />;
+      case "rss":
+        return <Rss className="w-4 h-4 text-[#FB923C]" />;
+      case "note":
+        return <StickyNote className="w-4 h-4 text-[#FBBF24]" />;
       case "knowledge":
         return <BrainCircuit className="w-4 h-4 text-[#C5A059]" />;
       case "github_repo":
@@ -561,7 +570,19 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
           <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1 flex-wrap">
             <span className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-md bg-[#141414] border border-[#262626] text-[#C5A059] text-xs font-mono font-medium shrink-0">
               {getTypeIcon(resource.type)}
-              <span className="capitalize">{resource.type === "knowledge" ? "OKF Knowledge" : resource.type.replace("_", " ")}</span>
+              <span className="capitalize">
+                {resource.type === "knowledge" 
+                  ? "OKF Knowledge" 
+                  : resource.type === "paper"
+                  ? "Paper Scientifico"
+                  : resource.type === "rss"
+                  ? "Feed RSS"
+                  : resource.type === "note"
+                  ? "Nota Rapida"
+                  : resource.type === "troubleshooting"
+                  ? "Problema & Soluzione"
+                  : resource.type.replace("_", " ")}
+              </span>
             </span>
 
             {displayDate && (
@@ -949,6 +970,9 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
                     className="w-full bg-[#111] border border-[#262626] rounded-lg p-2.5 text-xs text-[#CCC] focus:outline-none focus:border-[#C5A059]"
                   >
                     <option value="troubleshooting">Problema & Soluzione (Troubleshooting)</option>
+                    <option value="paper">Paper Scientifico (arXiv / DOI)</option>
+                    <option value="rss">Feed RSS / Atom</option>
+                    <option value="note">Nota Rapida / Scratchpad</option>
                     <option value="knowledge">Knowledge (OKF v0.2)</option>
                     <option value="link">Link & Web Tool</option>
                     <option value="article">Articolo</option>
@@ -1868,6 +1892,144 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
                       </ol>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Paper Scientifico: Autori, arXiv & Accesso PDF */}
+              {resource.type === "paper" && (
+                <div className="bg-[#0B0D1B] border border-[#232854] rounded-xl p-4 sm:p-5 space-y-4">
+                  <div className="flex items-center justify-between border-b border-[#232854] pb-3 flex-wrap gap-2">
+                    <div className="flex items-center gap-2 text-xs font-mono text-[#818CF8]">
+                      <GraduationCap className="w-4 h-4" />
+                      <span className="font-semibold uppercase tracking-wider">Scheda Ricerca Scientifica</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {resource.metadata?.venue && (
+                        <span className="text-[11px] font-mono bg-[#161B3B] text-[#A5B4FC] px-2.5 py-0.5 rounded border border-[#313975]">
+                          {resource.metadata.venue}
+                        </span>
+                      )}
+                      {resource.metadata?.publishedYear && (
+                        <span className="text-[11px] font-mono bg-[#161B3B] text-[#94A3B8] px-2 py-0.5 rounded border border-[#313975]">
+                          {resource.metadata.publishedYear}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {resource.metadata?.authors && resource.metadata.authors.length > 0 && (
+                    <div className="space-y-1">
+                      <div className="text-[10px] font-mono uppercase text-[#64748B]">Autori / Ricercatori:</div>
+                      <div className="text-xs text-[#CBD5E1] font-medium flex flex-wrap gap-1.5">
+                        {resource.metadata.authors.map((author, aIdx) => (
+                          <span key={aIdx} className="bg-[#141833] border border-[#2A3166] text-[#E2E8F0] px-2 py-0.5 rounded text-[11px]">
+                            {author}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    {resource.metadata?.arxivId && (
+                      <div className="bg-[#070914] border border-[#1E234A] rounded-lg p-3 flex items-center justify-between">
+                        <div>
+                          <div className="text-[10px] font-mono uppercase text-[#818CF8]">Identificativo arXiv</div>
+                          <div className="text-xs font-mono font-bold text-white mt-0.5">
+                            arXiv:{resource.metadata.arxivId}
+                          </div>
+                        </div>
+                        <a
+                          href={`https://arxiv.org/abs/${resource.metadata.arxivId}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-2.5 py-1 bg-[#1E234A] hover:bg-[#2A3166] text-[#A5B4FC] rounded text-xs font-mono flex items-center gap-1 transition-colors"
+                        >
+                          <span>Scheda</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      </div>
+                    )}
+
+                    {(resource.metadata?.pdfUrl || resource.metadata?.arxivId) && (
+                      <div className="bg-[#070914] border border-[#1E234A] rounded-lg p-3 flex items-center justify-between">
+                        <div>
+                          <div className="text-[10px] font-mono uppercase text-emerald-400">Documento Completo</div>
+                          <div className="text-xs font-mono text-[#AAA] mt-0.5">Formato PDF Originale</div>
+                        </div>
+                        <a
+                          href={resource.metadata?.pdfUrl || `https://arxiv.org/pdf/${resource.metadata.arxivId}.pdf`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3 py-1 bg-emerald-950/70 hover:bg-emerald-900 border border-emerald-700/50 text-emerald-300 rounded text-xs font-mono flex items-center gap-1 transition-colors"
+                        >
+                          <Download className="w-3 h-3" />
+                          <span>Apri PDF</span>
+                        </a>
+                      </div>
+                    )}
+                  </div>
+
+                  {resource.metadata?.tldr && (
+                    <div className="bg-[#070914] border border-[#1E234A] rounded-lg p-3 space-y-1">
+                      <div className="text-[10px] font-mono uppercase text-[#818CF8] font-semibold">TL;DR Scientifico:</div>
+                      <p className="text-xs text-[#CBD5E1] leading-relaxed italic">{resource.metadata.tldr}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Feed RSS: Dettagli Canale e Aggregatore */}
+              {resource.type === "rss" && (
+                <div className="bg-[#150D08] border border-[#331C10] rounded-xl p-4 sm:p-5 space-y-4">
+                  <div className="flex items-center justify-between border-b border-[#331C10] pb-3">
+                    <div className="flex items-center gap-2 text-xs font-mono text-[#FB923C]">
+                      <Rss className="w-4 h-4" />
+                      <span className="font-semibold uppercase tracking-wider">Feed RSS / Canale Notizie</span>
+                    </div>
+                    <span className="text-[10px] font-mono uppercase bg-[#29140A] text-[#FB923C] border border-[#4E2412] px-2 py-0.5 rounded">
+                      Formato {resource.metadata?.feedFormat || "RSS 2.0"}
+                    </span>
+                  </div>
+
+                  <div className="bg-[#0A0704] border border-[#29140A] rounded-lg p-3 space-y-2">
+                    <div className="text-[10px] font-mono uppercase text-[#888]">URL Feed per Lettori RSS (Feedly, NetNewsWire):</div>
+                    <div className="flex items-center justify-between gap-2 overflow-hidden">
+                      <code className="text-xs font-mono text-[#FED7AA] truncate">
+                        {resource.metadata?.feedUrl || resource.url || "Non disponibile"}
+                      </code>
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(resource.metadata?.feedUrl || resource.url || "", "rss_feed_url")}
+                        className="px-2.5 py-1 bg-[#29140A] hover:bg-[#3D1E0F] text-[#FB923C] rounded text-xs font-mono flex items-center gap-1 shrink-0 transition-colors"
+                      >
+                        {copiedSection === "rss_feed_url" ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                        <span>{copiedSection === "rss_feed_url" ? "Copiato" : "Copia URL Feed"}</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Note Rapide & Scratchpad */}
+              {resource.type === "note" && (
+                <div className="bg-[#141208] border border-[#332C10] rounded-xl p-4 sm:p-5 space-y-3">
+                  <div className="flex items-center justify-between border-b border-[#332C10] pb-2.5">
+                    <div className="flex items-center gap-2 text-xs font-mono text-[#FBBF24]">
+                      <StickyNote className="w-4 h-4" />
+                      <span className="font-semibold uppercase tracking-wider">
+                        Nota & Appunto Rapido ({resource.metadata?.noteCategory || "Scratchpad"})
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(resource.metadata?.markdownContent || resource.summary || "", "quick_note_copy")}
+                      className="text-[10px] font-mono text-[#FDE047] hover:text-white bg-[#2B240B] px-2 py-0.5 rounded border border-[#483B12] flex items-center gap-1"
+                    >
+                      {copiedSection === "quick_note_copy" ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                      <span>{copiedSection === "quick_note_copy" ? "Copiato" : "Copia Nota"}</span>
+                    </button>
+                  </div>
                 </div>
               )}
 

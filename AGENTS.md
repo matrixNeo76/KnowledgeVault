@@ -26,3 +26,14 @@ Quando un agente ingerisce una risorsa:
 - **Fase 2 (Validazione Struttura)**: Verificare la presenza di `type`, `title`, `summary`, `tags` e metadati conformi allo schema `ResourceItem`.
 - **Fase 3 (Persistenza)**: Scrivere il documento sanitizzato su Firestore allegando `userId`, `createdAt: serverTimestamp()` e `updatedAt: serverTimestamp()`.
 - **Fase 4 (Notifica & Tracing)**: Emettere un log strutturato con categoria `CAPTURE` e `FIRESTORE`.
+
+---
+
+## 3. Roadmap di Conformità Epistemica: Architettura Cekikj
+
+Gli agenti operativi nel Vault devono allinearsi al piano esecutivo descritto in `/PIANO_IMPLEMENTAZIONE_CEKIKJ.md`:
+1. **Zero-Guessing & Typed Tools**: Rifiutare sintesi arbitrarie quando i dati sono insufficienti (`insufficient: true`).
+2. **Hard Bounds**: Rispettare i limiti operativi (max 8 round di tool-call, max 2 hop nel grafo, timeout rigido).
+3. **Contradiction Gate**: Interrompere la sintesi generativa e sollevare un'eccezione esplicita quando un concetto tocca contraddizioni aperte nel registro (`status: "open"`).
+4. **Grounding Verificato**: Ogni asserzione finale deve essere mappabile a un chunk testuale verificato o ad un arco relazionale del grafo.
+

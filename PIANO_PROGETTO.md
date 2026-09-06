@@ -105,19 +105,32 @@ L'interfaccia di consultazione è progettata per essere pulita, immediata e ad a
 
 ---
 
-## 7. Fasi di Implementazione Proposte
+## 7. Fasi di Implementazione Proposte (Stato di Avanzamento)
 
-1. **Fase 1**: Configurazione e provisioning di Firebase (Firestore + Auth con `set_up_firebase`).
-2. **Fase 2**: Definizione del blueprint Firestore (`firebase-blueprint.json`), `firestore.rules` hardened e test di sicurezza.
-3. **Fase 3**: Implementazione del backend API (`/api/analyze-resource`) per il parsing intelligente con Gemini.
-4. **Fase 4**: Creazione dell'interfaccia utente:
-   - Header con Auth Google e statistiche rapide
-   - Barra di Inserimento Rapido / Chat Box con feedback AI in tempo reale
-   - Dialog Box dettagliata per inserimento/modifica manuale
-   - Vault di consultazione con filtri, ricerca dinamica, tag cloud e visualizzazione responsive (griglia/lista)
-   - Scheda dettaglio risorsa con 1-click copy per comandi MCP, repo e prompt
-5. **Fase 5**: Verifica e validazione build (`compile_applet` & `lint_applet`).
+1. **Fase 1**: Configurazione e provisioning di Firebase (Firestore + Auth con `set_up_firebase`) — ✅ *Completata*.
+2. **Fase 2**: Definizione del blueprint Firestore (`firebase-blueprint.json`), `firestore.rules` hardened e test di sicurezza — ✅ *Completata*.
+3. **Fase 3**: Implementazione del backend API (`/api/analyze-resource`) per il parsing intelligente con Gemini — ✅ *Completata*.
+4. **Fase 4**: Creazione dell'interfaccia utente (Vault, Bento Grid, Table, Knowledge Graph D3, Quick Capture, Telemetria) — ✅ *Completata*.
+5. **Fase 5**: Supporto formati estesi (Paper arXiv, Feed RSS, Note & Scratchpad) — ✅ *Completata*.
 
 ---
 
-*In attesa di tua conferma prima di avviare il provisioning di Firebase e lo sviluppo dell'applicativo.*
+## 8. Roadmap di Evoluzione Epistemica: Architettura Cekikj (Zero-Guessing Knowledge Layer)
+
+> **Piano Esecutivo Dettagliato**: consultare `/PIANO_IMPLEMENTAZIONE_CEKIKJ.md`  
+> **Specifica OKF v0.2 di Riferimento**: `/src/docs/SPEC_CEKIKJ_KNOWLEDGE_LAYER_OKF.md`  
+> **Tesi Guida**: *"An agent's reasoning is bounded by the vocabulary of its tools"* — Miodrag Cekikj.
+
+Per superare la trappola del "Search Box" e delle congetture iterate (*iterated guessing*), la roadmap integra il motore epistemico rigoroso strutturato nelle seguenti 8 Milestone operative:
+
+| Milestone | Ambito | Deliverable e Obiettivi Chiave | Stato |
+|---|---|---|---|
+| **M1: Contratti & Tipi** | `src/types.ts` | Schema tipizzato per `EvidenceChunk`, `StructuredKnowledgeEntity`, `TypedRelationship`, `ContradictionRecord`, `TypedToolEnvelope<T>`, `ExecutionTrace`. | 📋 *Pianificata* |
+| **M2: 8 Typed Tools** | `src/lib/cekikj/typedTools.ts` | Implementazione suite 8 tool in sola lettura con flag `insufficient: boolean`: `search_evidence`, `search_knowledge`, `resolve_entity`, `traverse`, `timeline`, `diff`, `list_contradictions`, `get_source`. | 📋 *Pianificata* |
+| **M3: Storage Dual-Layer & Bitemporalità** | `src/lib/cekikj/dualLayerStore.ts` | Ancoraggio bi-direzionale chunk ◄► entità ontologiche; intervalli di vigenza temporale reale (`valid_from` / `valid_to`). | 📋 *Pianificata* |
+| **M4: Contradiction Gate Out-of-Loop** | `src/lib/cekikj/contradictionGate.ts` | Compositore a valle disaccoppiato dall'agente che ispeziona indipendentemente la trace e blocca la sintesi in caso di collisione tra fonti aperte. | 📋 *Pianificata* |
+| **M5: Bounded Loop Engine** | `src/lib/cekikj/boundedEngine.ts` | Motore FSM compatto (~80 righe) con vincoli rigidi (max 8 round, max 2 hop, timeout e token guard) e fallback trasparente. | 📋 *Pianificata* |
+| **M6: Grounding Verifier** | `src/lib/cekikj/groundingVerifier.ts` | Passata singola di validazione che verifica ogni claim su chunk/archi tracciati, potando affermazioni prive di evidenza. | 📋 *Pianificata* |
+| **M7: UI Epistemica & Trace Inspector** | `src/components/CekikjInspectorModal.tsx` | Visualizzatore interattivo della trace agentica (round x/8, hop, token, status gate) e registro visivo delle contraddizioni. | 📋 *Pianificata* |
+| **M8: Collaudo & Refusal Tests** | `src/lib/cekikj/__tests__/` | Suite di regressione con refusal tests per certificare l'assoluta conformità ai 5 pilastri della specifica Cekikj. | 📋 *Pianificata* |
+

@@ -83,6 +83,9 @@ export function parseSearchQuery(query: string): ParsedSearchQuery {
         "ai_skill",
         "article",
         "link",
+        "paper",
+        "rss",
+        "note",
       ];
       if (validTypes.includes(t as ResourceType)) {
         typeFilter = t as ResourceType;
@@ -464,11 +467,14 @@ export function filterAndRankResources(
       const typePriority: Record<ResourceType, number> = {
         troubleshooting: 1,
         knowledge: 2,
-        link: 3,
-        mcp_server: 4,
-        github_repo: 5,
-        ai_skill: 6,
-        article: 7,
+        paper: 3,
+        note: 4,
+        mcp_server: 5,
+        github_repo: 6,
+        ai_skill: 7,
+        rss: 8,
+        article: 9,
+        link: 10,
       };
       const diff = (typePriority[a.item.type] || 99) - (typePriority[b.item.type] || 99);
       if (diff !== 0) return diff;

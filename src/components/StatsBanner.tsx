@@ -15,11 +15,11 @@ import {
   Search, 
   SlidersHorizontal, 
   ChevronDown, 
-  ChevronUp,
   Check, 
   Paperclip,
-  BarChart3,
-  Info
+  GraduationCap,
+  Rss,
+  StickyNote
 } from "lucide-react";
 import { ResourceType, NavCategory, SortOption, ViewMode } from "../types";
 
@@ -33,6 +33,9 @@ interface StatsBannerProps {
     mcp_server: number;
     ai_skill: number;
     link?: number;
+    paper?: number;
+    rss?: number;
+    note?: number;
     favorites: number;
     raw_files?: number;
   };
@@ -60,22 +63,8 @@ export const StatsBanner: React.FC<StatsBannerProps> = ({
   onClearSearch,
 }) => {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [isMetricsExpanded, setIsMetricsExpanded] = useState<boolean>(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("KV_METRICS_EXPANDED") === "true";
-    }
-    return false;
-  });
   const [tagSearchInput, setTagSearchInput] = useState("");
   const popoverRef = useRef<HTMLDivElement>(null);
-
-  const toggleMetrics = () => {
-    setIsMetricsExpanded((prev) => {
-      const next = !prev;
-      localStorage.setItem("KV_METRICS_EXPANDED", String(next));
-      return next;
-    });
-  };
 
   // Close popover when clicking outside
   useEffect(() => {
@@ -157,6 +146,27 @@ export const StatsBanner: React.FC<StatsBannerProps> = ({
           icon: <Globe className="w-4 h-4 text-[#06B6D4]" />,
           badgeColor: "bg-[#06B6D4]/15 text-[#22D3EE] border-[#06B6D4]/30",
         };
+      case "paper":
+        return {
+          title: "Paper Scientifici",
+          subtitle: "Pubblicazioni accademiche, preprint arXiv, abstract e documenti di ricerca su LLM e AI",
+          icon: <GraduationCap className="w-4 h-4 text-[#818CF8]" />,
+          badgeColor: "bg-[#818CF8]/15 text-[#A5B4FC] border-[#818CF8]/30",
+        };
+      case "rss":
+        return {
+          title: "Feed RSS & Notizie",
+          subtitle: "Canali di informazione, feed Atom/RSS per aggiornamenti in tempo reale sul mondo tech e AI",
+          icon: <Rss className="w-4 h-4 text-[#FB923C]" />,
+          badgeColor: "bg-[#FB923C]/15 text-[#FDBA74] border-[#FB923C]/30",
+        };
+      case "note":
+        return {
+          title: "Note & Scratchpad",
+          subtitle: "Appunti personali al volo, memo di architettura e idee prompt non strutturate",
+          icon: <StickyNote className="w-4 h-4 text-[#FBBF24]" />,
+          badgeColor: "bg-[#FBBF24]/15 text-[#FDE047] border-[#FBBF24]/30",
+        };
       default:
         return {
           title: "Tutte le Risorse",
@@ -179,7 +189,7 @@ export const StatsBanner: React.FC<StatsBannerProps> = ({
       {/* Primary Compact Sub-Header Bar (Height: ~38px) */}
       <div className="flex items-center justify-between gap-3 px-3 py-2 bg-[#0C0C0C] border border-[#1A1A1A] rounded-xl">
         
-        {/* Left: Category Icon + Title + Count Badge */}
+        {/* Left: Category Icon + Title + Count Badge + Subtitle */}
         <div className="flex items-center gap-2.5 min-w-0">
           <div className="w-6 h-6 rounded-md bg-[#16130B] border border-[#C5A059]/30 flex items-center justify-center shrink-0">
             {meta.icon}
@@ -189,6 +199,9 @@ export const StatsBanner: React.FC<StatsBannerProps> = ({
           </h2>
           <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border shrink-0 ${meta.badgeColor}`}>
             {typeof totalFilteredCount === "number" ? totalFilteredCount : counts[currentCategory] || 0}
+          </span>
+          <span className="hidden xl:inline text-[11px] text-[#666] truncate max-w-sm pl-2 border-l border-[#222]">
+            {meta.subtitle}
           </span>
         </div>
 
@@ -321,93 +334,8 @@ export const StatsBanner: React.FC<StatsBannerProps> = ({
               <span>Azzera</span>
             </button>
           )}
-
-          {/* Vault Metrics Toggle Button */}
-          <button
-            onClick={toggleMetrics}
-            className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-mono border transition-all ${
-              isMetricsExpanded
-                ? "bg-[#18140B] text-[#E5C170] border-[#C5A059]/40"
-                : "bg-[#111111] text-[#777] hover:text-[#BBB] border-[#222] hover:bg-[#161616]"
-            }`}
-            title={isMetricsExpanded ? "Comprimi cruscotto metriche" : "Espandi cruscotto metriche Vault"}
-          >
-            <BarChart3 className="w-3 h-3 text-[#C5A059]" />
-            <span className="hidden md:inline">Metriche</span>
-            {isMetricsExpanded ? (
-              <ChevronUp className="w-3 h-3 text-[#C5A059]" />
-            ) : (
-              <ChevronDown className="w-3 h-3 text-[#666]" />
-            )}
-          </button>
         </div>
       </div>
-
-      {/* Expandable Vault Metrics & Insights Drawer */}
-      {isMetricsExpanded && (
-        <div className="p-3 bg-[#0C0C0C] border border-[#1A1A1A] rounded-xl animate-in fade-in slide-in-from-top-2 duration-150 space-y-2.5">
-          <div className="flex items-center justify-between text-xs text-[#777]">
-            <div className="flex items-center gap-1.5 text-xs text-[#AAA]">
-              <Info className="w-3.5 h-3.5 text-[#C5A059]" />
-              <span className="leading-tight">{meta.subtitle}</span>
-            </div>
-            <span className="text-[10px] font-mono text-[#555] uppercase tracking-wider">
-              Distribuzione OKF
-            </span>
-          </div>
-
-          {/* Metric Distribution Cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-1.5 pt-1">
-            <div className="p-2 rounded-lg bg-[#111] border border-[#1C1C1C] flex items-center justify-between">
-              <div className="flex items-center gap-1.5 text-xs font-mono text-[#999]">
-                <BrainCircuit className="w-3.5 h-3.5 text-[#C5A059]" />
-                <span>Knowledge</span>
-              </div>
-              <span className="text-xs font-mono font-semibold text-[#E5C170]">{counts.knowledge || 0}</span>
-            </div>
-
-            <div className="p-2 rounded-lg bg-[#111] border border-[#1C1C1C] flex items-center justify-between">
-              <div className="flex items-center gap-1.5 text-xs font-mono text-[#999]">
-                <Wrench className="w-3.5 h-3.5 text-[#F97316]" />
-                <span>Fixes</span>
-              </div>
-              <span className="text-xs font-mono font-semibold text-[#FB923C]">{counts.troubleshooting || 0}</span>
-            </div>
-
-            <div className="p-2 rounded-lg bg-[#111] border border-[#1C1C1C] flex items-center justify-between">
-              <div className="flex items-center gap-1.5 text-xs font-mono text-[#999]">
-                <Cpu className="w-3.5 h-3.5 text-[#38BDF8]" />
-                <span>MCP Servers</span>
-              </div>
-              <span className="text-xs font-mono font-semibold text-[#7DD3FC]">{counts.mcp_server || 0}</span>
-            </div>
-
-            <div className="p-2 rounded-lg bg-[#111] border border-[#1C1C1C] flex items-center justify-between">
-              <div className="flex items-center gap-1.5 text-xs font-mono text-[#999]">
-                <Github className="w-3.5 h-3.5 text-[#A855F7]" />
-                <span>GitHub</span>
-              </div>
-              <span className="text-xs font-mono font-semibold text-[#C084FC]">{counts.github_repo || 0}</span>
-            </div>
-
-            <div className="p-2 rounded-lg bg-[#111] border border-[#1C1C1C] flex items-center justify-between">
-              <div className="flex items-center gap-1.5 text-xs font-mono text-[#999]">
-                <Sparkles className="w-3.5 h-3.5 text-[#10B981]" />
-                <span>AI Skills</span>
-              </div>
-              <span className="text-xs font-mono font-semibold text-[#34D399]">{counts.ai_skill || 0}</span>
-            </div>
-
-            <div className="p-2 rounded-lg bg-[#111] border border-[#1C1C1C] flex items-center justify-between">
-              <div className="flex items-center gap-1.5 text-xs font-mono text-[#999]">
-                <BookOpen className="w-3.5 h-3.5 text-[#EAB308]" />
-                <span>Guide</span>
-              </div>
-              <span className="text-xs font-mono font-semibold text-[#FACC15]">{counts.article || 0}</span>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

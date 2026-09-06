@@ -1,4 +1,4 @@
-export type ResourceType = 'article' | 'github_repo' | 'mcp_server' | 'ai_skill' | 'knowledge' | 'link' | 'troubleshooting';
+export type ResourceType = 'article' | 'github_repo' | 'mcp_server' | 'ai_skill' | 'knowledge' | 'link' | 'troubleshooting' | 'paper' | 'rss' | 'note';
 
 export interface OKFEntity {
   name: string;
@@ -96,6 +96,27 @@ export interface ResourceMetadata {
   gdocExportedAt?: string;
   gdriveSourceId?: string;
   gdriveSourceUrl?: string;
+
+  // Scientific Paper specific
+  authors?: string[];
+  arxivId?: string;
+  doi?: string;
+  pdfUrl?: string;
+  venue?: string;
+  publishedYear?: number;
+  tldr?: string;
+  abstract?: string;
+
+  // RSS Feed specific
+  feedUrl?: string;
+  feedFormat?: 'rss' | 'atom' | string;
+  lastItemDate?: string;
+  itemsCount?: number;
+
+  // Note & Scratchpad specific
+  noteCategory?: 'scratchpad' | 'memo' | 'prompt_idea' | 'architectural_memo' | string;
+  isPinned?: boolean;
+  colorTag?: string;
 
   // OKF v0.2 Knowledge specific
   okfVersion?: '0.2' | string;
@@ -277,3 +298,170 @@ export interface GraphData {
 }
 
 export type CaptureStage = 'idle' | 'sending' | 'analyzing' | 'saving' | 'success';
+
+// ============================================================================
+// CEKIKJ EPISTEMIC ARCHITECTURE TYPES (Zero-Guessing Knowledge Layer)
+// ============================================================================
+
+export interface EvidenceChunk {
+  id: string;
+  documentId: string;
+  documentTitle: string;
+  text: string;
+  tokenCount: number;
+  canonicalEntityAnchors: string[]; // Canonical entity IDs or names
+  validFrom?: string; // ISO string e.g. "2024-01-01"
+  validTo?: string;   // ISO string or "infinity"
+  recordedAt: string; // ISO timestamp
+  metadata?: Record<string, any>;
+}
+
+export interface EntityTimelineState {
+  timestamp: string;
+  state: string;
+  validFrom: string;
+  validTo: string;
+  description: string;
+  sourceDocId?: string;
+}
+
+export interface StructuredKnowledgeEntity {
+  id: string;
+  canonicalName: string;
+  aliases: string[];
+  domain: string;
+  description: string;
+  entityType: 'concept' | 'architecture' | 'policy' | 'specification' | 'tool' | 'standard';
+  timeline?: EntityTimelineState[];
+  anchoredEvidenceIds?: string[];
+  metadata?: Record<string, any>;
+}
+
+export interface TypedRelationship {
+  id: string;
+  sourceEntityId: string;
+  sourceEntityName: string;
+  targetEntityId: string;
+  targetEntityName: string;
+  relationshipType: 'governs' | 'constrains' | 'extends' | 'contradicts' | 'implements' | 'depends_on' | 'interfaces' | string;
+  weight: number;
+  validFrom?: string;
+  validTo?: string;
+  description?: string;
+  sourceDocId?: string;
+}
+
+export interface ConflictingSourceItem {
+  sourceId: string;
+  sourceTitle: string;
+  statement: string;
+  owner: string;
+  effectiveDate: string;
+  validFrom?: string;
+  validTo?: string;
+  url?: string;
+}
+
+export interface ContradictionRecord {
+  id: string;
+  conceptId: string;
+  conceptName: string;
+  status: 'open' | 'resolved';
+  conflictingSources: ConflictingSourceItem[];
+  resolutionNotes?: string;
+  resolvedAt?: string;
+  resolvedBy?: string;
+  registeredAt: string;
+}
+
+export interface TypedToolTrace {
+  tool: string;
+  params: any;
+  timestamp: string;
+  executionMs: number;
+}
+
+export interface TypedToolEnvelope<T> {
+  data: T | null;
+  insufficient: boolean;
+  trace: TypedToolTrace;
+  error?: string;
+  explanation?: string;
+}
+
+export interface ToolCallStep {
+  round: number;
+  tool: string;
+  params: any;
+  resultSummary: string;
+  insufficient: boolean;
+  touchedEntities: string[];
+  executionMs: number;
+}
+
+export interface ExecutionTrace {
+  id: string;
+  query: string;
+  roundsCount: number;
+  maxRoundsLimit: number;
+  toolCalls: ToolCallStep[];
+  touchedEntities: string[];
+  traversedEdges: string[];
+  citedEvidenceIds: string[];
+  boundsTripped?: {
+    tripped: boolean;
+    reason?: 'MAX_ROUNDS' | 'MAX_HOPS' | 'TIMEOUT' | 'EARLY_EXIT' | 'TOKEN_BUDGET';
+    details?: string;
+  };
+  totalDurationMs: number;
+}
+
+export interface GroundingClaimCheck {
+  claim: string;
+  verified: boolean;
+  supportingEvidenceIds: string[];
+  supportingEdgeIds?: string[];
+  rejectionReason?: string;
+}
+
+export interface GroundingReport {
+  totalClaims: number;
+  verifiedClaimsCount: number;
+  prunedClaimsCount: number;
+  groundingScore: number; // 0.0 to 1.0
+  claims: GroundingClaimCheck[];
+  pass: boolean;
+}
+
+export interface ContradictionGateEvaluation {
+  gatePassed: boolean;
+  status: 'PASS' | 'BLOCKED_CONTRADICTION';
+  conflictsDetected: ContradictionRecord[];
+  refusalPayload?: {
+    conceptName: string;
+    conflictingSources: ConflictingSourceItem[];
+    gateMessage: string;
+  };
+}
+
+export interface BoundedLoopConfig {
+  maxRounds: number; // default 8
+  maxHops: number;   // default 2
+  timeoutMs: number; // default 12000
+  tokenBudget: number;
+}
+
+export interface CekikjEngineResult {
+  id: string;
+  query: string;
+  status: 'SUCCESS' | 'REFUSAL_CONTRADICTION' | 'BOUNDS_EXCEEDED_PARTIAL' | 'INSUFFICIENT_KNOWLEDGE';
+  answerText: string;
+  evidenceItems: EvidenceChunk[];
+  entities: StructuredKnowledgeEntity[];
+  traversedEdges: TypedRelationship[];
+  trace: ExecutionTrace;
+  gateEvaluation: ContradictionGateEvaluation;
+  groundingReport: GroundingReport;
+  timestamp: string;
+}
+

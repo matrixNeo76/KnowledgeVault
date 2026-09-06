@@ -53,6 +53,10 @@ import { ConflictResolutionModal } from "./components/ConflictResolutionModal";
 import { GoogleDriveModal } from "./components/GoogleDriveModal";
 import { RecoveryModal } from "./components/RecoveryModal";
 import { PersistenceStatusModal } from "./components/PersistenceStatusModal";
+import { CekikjInspectorModal } from "./components/CekikjInspectorModal";
+import { VaultIntelligenceFab } from "./components/VaultIntelligenceFab";
+import { VaultIntelligenceDrawer } from "./components/VaultIntelligenceDrawer";
+import { dualLayerStore } from "./lib/cekikj/dualLayerStore";
 import { FolderSearch, Plus, Sparkles, AlertCircle, Network, BrainCircuit, Terminal, RefreshCw, HardDrive, ShieldCheck, GitMerge } from "lucide-react";
 import { 
   saveCachedResources, 
@@ -72,7 +76,6 @@ import { loadResourcesFromIndexedDB, loadRawFilesFromIndexedDB } from "./lib/ind
 import { exportResourcesToJSON } from "./lib/exportUtils";
 import { analyzeResourceConflicts, ConflictAnalysisResult } from "./lib/conflictResolver";
 import { performDeepRecoveryScan } from "./lib/recoveryManager";
-import { SyncStatusBanner } from "./components/SyncStatusBanner";
 import { QuotaTelemetryPage } from "./components/QuotaTelemetryPage";
 import {
   recordFirestoreRead,
@@ -224,6 +227,8 @@ export default function App() {
   const [isPrintDossierOpen, setIsPrintDossierOpen] = useState(false);
   const [isGoogleDriveOpen, setIsGoogleDriveOpen] = useState(false);
   const [googleDriveExportResource, setGoogleDriveExportResource] = useState<ResourceItem | null>(null);
+  const [isCekikjModalOpen, setIsCekikjModalOpen] = useState(false);
+  const [isIntelligenceDrawerOpen, setIsIntelligenceDrawerOpen] = useState(false);
   
   // Staging / Raw Files Buffer State (Supports up to 50MB files)
   const [rawFiles, setRawFiles] = useState<RawFileItem[]>(() => {
@@ -303,9 +308,26 @@ export default function App() {
   const [isPersistenceModalOpen, setIsPersistenceModalOpen] = useState(false);
   const [storageDiscrepancyNotice, setStorageDiscrepancyNotice] = useState<{ foundCount: number; currentCount: number } | null>(null);
 
+  // Global Keyboard Shortcut for Vault Intelligence (Cmd/Ctrl + K)
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      // Don't intercept if user is typing in standard text inputs unless they explicitly pressed Cmd/Ctrl + K
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setIsIntelligenceDrawerOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+  }, []);
+
   const resourcesRef = useRef<ResourceItem[]>(resources);
   useEffect(() => {
     resourcesRef.current = resources;
+    // Keep Cekikj Dual-Layer Knowledge Store & Topology Graph dynamically aligned
+    if (resources && resources.length > 0) {
+      dualLayerStore.syncResources(resources);
+    }
   }, [resources]);
 
   // Multi-Layer Startup Hydration: restore from Backend Server Filesystem or IndexedDB
@@ -609,7 +631,12 @@ export default function App() {
         setStatusMessage(`Sincronizzazione completata: ${analysis.mergedResources.length} risorse allineate.`);
         setTimeout(() => setStatusMessage(null), 4000);
       } else {
-        if (items.length > 0) {
+        // Even when no conflict flags were triggered, ensure we don't accidentally drop local items
+        // if Firestore returned fewer items than what exists in local memory / persistent cache
+        if (resourcesRef.current.length > items.length && resourcesRef.current.length > 15) {
+          setResources(analysis.mergedResources);
+          saveLocalResources(analysis.mergedResources, user.uid, rawFiles);
+        } else if (items.length > 0) {
           setResources(items);
           saveLocalResources(items, user.uid, rawFiles);
         }
@@ -617,8 +644,11 @@ export default function App() {
         wasQuotaExceededRef.current = false;
         setLastSyncTime(new Date());
         updateCacheTimestamp();
-        addLog("success", "FIRESTORE", `Sincronizzazione completata: ${items.length} risorse perfettamente allineate.`);
-        setStatusMessage(`Sincronizzazione completata: ${items.length} risorse allineate.`);
+        const finalCount = (resourcesRef.current.length > items.length && resourcesRef.current.length > 15)
+          ? analysis.mergedResources.length
+          : items.length;
+        addLog("success", "FIRESTORE", `Sincronizzazione completata: ${finalCount} risorse perfettamente allineate.`);
+        setStatusMessage(`Sincronizzazione completata: ${finalCount} risorse allineate.`);
         setTimeout(() => setStatusMessage(null), 4000);
       }
     } catch (err: any) {
@@ -2248,7 +2278,10 @@ export default function App() {
     const res = {
       all: resources.length,
       knowledge: 0,
+      paper: 0,
       troubleshooting: 0,
+      note: 0,
+      rss: 0,
       article: 0,
       github_repo: 0,
       mcp_server: 0,
@@ -2313,6 +2346,7 @@ export default function App() {
         onOpenGoogleDrive={() => setIsGoogleDriveOpen(true)}
         onOpenRecovery={() => setIsRecoveryModalOpen(true)}
         onOpenPersistenceStatus={() => setIsPersistenceModalOpen(true)}
+        onOpenCekikjInspector={() => setIsCekikjModalOpen(true)}
         unsyncedCount={resources.filter((r) => r.id.startsWith("local-") || r.id.startsWith("conv-") || r.id.startsWith("seed-")).length}
         onUploadUnsynced={handleUploadUnsyncedResources}
         selectedTag={selectedTag}
@@ -2350,20 +2384,16 @@ export default function App() {
           onOpenExport={() => setIsExportOpen(true)}
           onOpenPrintDossier={() => setIsPrintDossierOpen(true)}
           onOpenGoogleDrive={() => setIsGoogleDriveOpen(true)}
+          onOpenCekikjInspector={() => setIsCekikjModalOpen(true)}
           user={user}
           onSignIn={handleGoogleSignIn}
           totalCount={counts.all}
           isZenMode={isZenMode}
           onToggleZenMode={handleToggleZenMode}
-        />
-
-        {/* Real-time Cache, Auto-Sync & Quota Reset Countdown Banner with Conflict Notification */}
-        <SyncStatusBanner
           quotaExceeded={quotaExceeded}
           isSyncing={isSyncing}
           lastSyncTime={lastSyncTime}
           onManualSync={handleTriggerSync}
-          resourceCount={counts.all}
           onExportBackup={() => exportResourcesToJSON(resources)}
           hasPendingConflicts={conflictAnalysis ? conflictAnalysis.hasConflicts : false}
           conflictCount={
@@ -2383,29 +2413,27 @@ export default function App() {
           onOpenPersistenceStatus={() => setIsPersistenceModalOpen(true)}
           unsyncedCount={resources.filter((r) => r.id.startsWith("local-") || r.id.startsWith("conv-") || r.id.startsWith("seed-")).length}
           onUploadUnsynced={handleUploadUnsyncedResources}
-          isAnonymous={user?.isAnonymous ?? true}
-          userEmail={user?.email || null}
         />
 
-        {/* Storage Discrepancy & Recovery Alert Banner */}
+        {/* Compact Storage Discrepancy & Recovery Alert */}
         {storageDiscrepancyNotice && storageDiscrepancyNotice.foundCount > resources.length && (
-          <div className="bg-[#1C160B] border-b border-[#C5A059]/40 text-[#E5C170] text-xs px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 z-20 animate-fade-in font-sans">
+          <div className="bg-[#181309] border-b border-[#C5A059]/40 text-[#E5C170] text-xs px-4 py-2 flex flex-wrap items-center justify-between gap-2 z-20 animate-fade-in font-sans">
             <div className="flex items-center gap-2">
               <ShieldCheck className="w-4 h-4 text-[#C5A059] shrink-0" />
               <span>
-                <strong>Risorse archiviate rilevate nello storage:</strong> Trovate {storageDiscrepancyNotice.foundCount} risorse nei livelli locali/server (attualmente visualizzate: {resources.length}).
+                <strong>Risorse archiviate rilevate nello storage:</strong> Trovate {storageDiscrepancyNotice.foundCount} risorse nei livelli locali/server (visualizzate: {resources.length}).
               </span>
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <button
                 onClick={() => setIsRecoveryModalOpen(true)}
-                className="px-3 py-1 rounded bg-[#C5A059] hover:bg-[#D5B069] text-black font-semibold text-xs transition-colors shadow-sm"
+                className="px-2.5 py-1 rounded bg-[#C5A059] hover:bg-[#D5B069] text-black font-semibold text-[11px] transition-colors shadow-xs cursor-pointer"
               >
                 Apri Centro di Recupero
               </button>
               <button
                 onClick={() => setStorageDiscrepancyNotice(null)}
-                className="p-1 text-[#888] hover:text-white text-xs"
+                className="p-1 text-[#888] hover:text-white text-xs cursor-pointer"
                 title="Ignora per ora"
               >
                 ✕
@@ -2414,16 +2442,16 @@ export default function App() {
           </div>
         )}
 
-        {/* Quota Exceeded Alert Banner with Multi-Layer Protection Details */}
+        {/* Compact Quota Alert Strip */}
         {quotaExceeded && (
-          <div className="bg-amber-950/80 border-b border-amber-500/40 text-amber-200 text-xs px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 z-20">
+          <div className="bg-[#1C1204] border-b border-amber-600/30 text-amber-200 text-xs px-4 py-1.5 flex flex-wrap items-center justify-between gap-2 z-20 font-sans">
             <div className="flex items-center gap-2">
               <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
               <span>
-                <strong>Avviso Quota Firestore:</strong> Modalità offline / protezione locale attiva. Se Firestore è tornato disponibile, clicca su Verifica & Sblocca.
+                <strong>Quota Cloud Firestore:</strong> Modalità offline multi-livello attiva ({counts.all} risorse salvate e protette).
               </span>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-2 shrink-0 font-mono">
               <button
                 onClick={async () => {
                   setQuotaExceeded(false);
@@ -2433,26 +2461,18 @@ export default function App() {
                   addLog("info", "FIRESTORE", "Verifica manuale quota Firestore avviata...");
                   handleTriggerSync();
                 }}
-                className="inline-flex items-center gap-1 px-2.5 py-1 bg-[#C5A059] hover:bg-[#D5B069] text-black font-medium rounded transition-colors text-[11px] cursor-pointer"
+                className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-[#C5A059] hover:bg-[#D5B069] text-black font-semibold rounded text-[11px] cursor-pointer shadow-xs"
                 title="Riconnetti Firestore e verifica connettività"
               >
                 <RefreshCw className="w-3 h-3" />
                 Verifica & Sblocca
               </button>
               <button
-                onClick={() => exportResourcesToJSON(resources)}
-                className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 rounded border border-amber-500/40 transition-colors font-medium text-[11px]"
+                onClick={() => setCurrentCategory("quota_monitor")}
+                className="inline-flex items-center gap-1 px-2 py-0.5 bg-[#161616] hover:bg-[#202020] text-[#CCC] hover:text-white rounded border border-[#333] text-[11px] cursor-pointer"
               >
-                Scarica Backup JSON 📥
+                Diagnostica Quote →
               </button>
-              <a
-                href="https://console.firebase.google.com/project/gen-lang-client-0828011049/firestore/databases/ai-studio-knowledgevaultde-43fb758c-8022-4e0b-a5e1-737aad496305/data?openUpgradeDialog=true"
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 px-2.5 py-1 bg-[#1A1A1A] hover:bg-[#252525] text-[#BBB] hover:text-white rounded border border-[#333] transition-colors font-medium text-[11px]"
-              >
-                Console Firebase ↗
-              </a>
               <button
                 onClick={() => {
                   setQuotaExceeded(false);
@@ -2881,6 +2901,59 @@ export default function App() {
         onUploadUnsynced={handleUploadUnsyncedResources}
         isSyncing={isSyncing}
         quotaExceeded={quotaExceeded}
+      />
+
+      {/* Epistemic Zero-Guessing Architecture Inspector (Trilogia Cekikj) */}
+      <CekikjInspectorModal
+        isOpen={isCekikjModalOpen}
+        onClose={() => setIsCekikjModalOpen(false)}
+        onNotification={(msg) => {
+          setStatusMessage(msg);
+          setTimeout(() => setStatusMessage(null), 4000);
+        }}
+      />
+
+      {/* Volatile Floating Action Button (FAB) for Vault Intelligence */}
+      <VaultIntelligenceFab
+        isOpen={isIntelligenceDrawerOpen}
+        onToggle={() => setIsIntelligenceDrawerOpen((prev) => !prev)}
+        resourceCount={resources.length}
+      />
+
+      {/* Slide-over Intelligence Drawer with Multi-Agent Orchestrator */}
+      <VaultIntelligenceDrawer
+        isOpen={isIntelligenceDrawerOpen}
+        onClose={() => setIsIntelligenceDrawerOpen(false)}
+        resources={resources}
+        activeCategory={currentCategory}
+        activeTag={selectedTag}
+        onOpenResource={(res) => {
+          if (res.type === "knowledge") {
+            setSelectedKnowledgeForReader(res);
+          } else {
+            setSelectedResourceForDetail(res);
+          }
+        }}
+        onShowInGraph={(_nodeIds) => {
+          setViewMode("graph");
+          setIsIntelligenceDrawerOpen(false);
+        }}
+        onSaveAsNote={async (payload) => {
+          return await handleManualAdd({
+            title: payload.title,
+            type: "knowledge",
+            summary: payload.summary,
+            tags: payload.tags,
+            metadata: {
+              okfVersion: "0.2",
+              domain: payload.domain || "AI Intelligence Synthesis",
+              docType: "concept",
+              markdownContent: payload.markdown,
+              entities: payload.entities || [],
+              relations: payload.relations || [],
+            },
+          });
+        }}
       />
     </div>
   );

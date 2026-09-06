@@ -106,6 +106,9 @@ function buildPrintableResourceHtml(resource: ResourceItem): string {
   const typeLabelMap: Record<ResourceType, { label: string; bg: string; color: string }> = {
     knowledge: { label: "OKF Knowledge v0.2", bg: "#1A150A", color: "#C5A059" },
     troubleshooting: { label: "Problemi & Fix (Troubleshooting)", bg: "#1C120C", color: "#F97316" },
+    paper: { label: "Paper Scientifico (Research)", bg: "#12132A", color: "#818CF8" },
+    rss: { label: "Feed RSS / Aggiornamenti", bg: "#1F150B", color: "#FB923C" },
+    note: { label: "Nota & Scratchpad", bg: "#1C1A0E", color: "#FBBF24" },
     github_repo: { label: "GitHub Repository", bg: "#18121E", color: "#C084FC" },
     mcp_server: { label: "Model Context Protocol Server", bg: "#0F1820", color: "#38BDF8" },
     ai_skill: { label: "AI Prompt & Skill", bg: "#0D1812", color: "#34D399" },

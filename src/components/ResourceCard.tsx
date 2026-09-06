@@ -29,7 +29,10 @@ import {
   AlertTriangle,
   Printer,
   FileDown,
-  Loader2
+  Loader2,
+  GraduationCap,
+  Rss,
+  StickyNote
 } from "lucide-react";
 import { ResourceItem, ResourceType } from "../types";
 import { formatDate } from "../lib/dateUtils";
@@ -160,6 +163,24 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
           icon: <Wrench className="w-3 h-3 text-[#F97316]" />,
           bg: "bg-[#16100B] border border-[#F97316]/35 text-[#FB923C]",
         };
+      case "paper":
+        return {
+          label: "Paper Scientifico",
+          icon: <GraduationCap className="w-3 h-3 text-[#818CF8]" />,
+          bg: "bg-[#101124] border border-[#818CF8]/35 text-[#A5B4FC]",
+        };
+      case "rss":
+        return {
+          label: "Feed RSS",
+          icon: <Rss className="w-3 h-3 text-[#FB923C]" />,
+          bg: "bg-[#18110B] border border-[#FB923C]/35 text-[#FDBA74]",
+        };
+      case "note":
+        return {
+          label: "Nota Rapida",
+          icon: <StickyNote className="w-3 h-3 text-[#FBBF24]" />,
+          bg: "bg-[#18160B] border border-[#FBBF24]/35 text-[#FDE047]",
+        };
       case "github_repo":
         return {
           label: "GitHub Repo",
@@ -213,6 +234,12 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
 
     if (resource.type === "knowledge") {
       textToCopy = resource.metadata?.markdownContent || resource.summary || "";
+    } else if (resource.type === "paper") {
+      textToCopy = resource.metadata?.arxivId ? `https://arxiv.org/abs/${resource.metadata.arxivId}` : (resource.url || resource.summary || "");
+    } else if (resource.type === "rss") {
+      textToCopy = resource.metadata?.feedUrl || resource.url || "";
+    } else if (resource.type === "note") {
+      textToCopy = resource.metadata?.markdownContent || resource.summary || "";
     } else if (resource.type === "mcp_server") {
       textToCopy = resource.metadata?.configSnippet || resource.metadata?.command || resource.url || "";
     } else if (resource.type === "github_repo") {
@@ -234,6 +261,12 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
     switch (resource.type) {
       case "knowledge":
         return "Copia OKF .md";
+      case "paper":
+        return resource.metadata?.arxivId ? "Copia arXiv" : "Copia Link";
+      case "rss":
+        return "Copia Feed RSS";
+      case "note":
+        return "Copia Nota";
       case "mcp_server":
         return "Copia Config MCP";
       case "github_repo":
@@ -555,6 +588,62 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
                 </button>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Paper Specific Details: Authors & arXiv pill */}
+        {resource.type === "paper" && (
+          <div className="mb-3 bg-[#090A14] border border-[#1A1E38] rounded-md px-2.5 py-1.5 flex items-center justify-between text-[11px] font-mono text-[#818CF8] overflow-hidden gap-2">
+            <div className="flex items-center gap-1.5 truncate">
+              <GraduationCap className="w-3.5 h-3.5 text-[#818CF8] shrink-0" />
+              <span className="truncate text-[#CBD5E1]">
+                {resource.metadata?.authors && resource.metadata.authors.length > 0 
+                  ? resource.metadata.authors.join(", ")
+                  : "Ricerca Accademica"}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              {resource.metadata?.publishedYear && (
+                <span className="text-[10px] bg-[#14182E] text-[#94A3B8] px-1.5 py-0.5 rounded border border-[#273059]">
+                  {resource.metadata.publishedYear}
+                </span>
+              )}
+              {resource.metadata?.arxivId && (
+                <span className="text-[10px] bg-[#1E1B4B] text-[#A5B4FC] font-semibold px-1.5 py-0.5 rounded border border-[#3730A3]">
+                  arXiv:{resource.metadata.arxivId}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* RSS Feed Specific Details */}
+        {resource.type === "rss" && (
+          <div className="mb-3 bg-[#110B07] border border-[#29170E] rounded-md px-2.5 py-1.5 flex items-center justify-between text-[11px] font-mono text-[#FB923C] overflow-hidden gap-2">
+            <div className="flex items-center gap-1.5 truncate">
+              <Rss className="w-3 h-3 text-[#FB923C] shrink-0" />
+              <span className="truncate text-[#FED7AA]">
+                {resource.metadata?.feedUrl || resource.url || "Feed Canale"}
+              </span>
+            </div>
+            <span className="text-[10px] bg-[#2C1810] text-[#FB923C] px-1.5 py-0.5 rounded border border-[#432315] uppercase">
+              {resource.metadata?.feedFormat || "RSS"}
+            </span>
+          </div>
+        )}
+
+        {/* Note Scratchpad Specific Details */}
+        {resource.type === "note" && (
+          <div className="mb-3 bg-[#121008] border border-[#2A2412] rounded-md px-2.5 py-1.5 flex items-center justify-between text-[11px] font-mono text-[#FBBF24] overflow-hidden gap-2">
+            <div className="flex items-center gap-1.5 truncate">
+              <StickyNote className="w-3 h-3 text-[#FBBF24] shrink-0" />
+              <span className="text-[#FEF08A] uppercase text-[10px] font-semibold tracking-wide">
+                {resource.metadata?.noteCategory || "Scratchpad Memo"}
+              </span>
+            </div>
+            <span className="text-[10px] text-[#A1A1AA]">
+              Nota Rapida
+            </span>
           </div>
         )}
 
