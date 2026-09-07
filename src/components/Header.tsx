@@ -17,7 +17,11 @@ import {
   Focus,
   ShieldAlert,
   ShieldCheck,
-  Activity
+  Activity,
+  FileUp,
+  Download,
+  HardDrive,
+  RefreshCw
 } from "lucide-react";
 import { ViewMode, SortOption } from "../types";
 import { User } from "firebase/auth";
@@ -37,6 +41,9 @@ interface HeaderProps {
   onOpenPrintDossier?: () => void;
   onOpenGoogleDrive?: () => void;
   onOpenCekikjInspector?: () => void;
+  onOpenKnowledgeUpload?: () => void;
+  onSeedDemo?: () => void;
+  isSeeding?: boolean;
   user: User | null;
   onSignIn: () => void;
   totalCount: number;
@@ -72,6 +79,9 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenPrintDossier,
   onOpenGoogleDrive,
   onOpenCekikjInspector,
+  onOpenKnowledgeUpload,
+  onSeedDemo,
+  isSeeding = false,
   totalCount,
   isZenMode = false,
   onToggleZenMode,
@@ -97,7 +107,7 @@ export const Header: React.FC<HeaderProps> = ({
   const sortMenuRef = useRef<HTMLDivElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
 
-  // Global shortcuts: Cmd/Ctrl + K or "/" for search, Cmd/Ctrl + Shift + F for Zen Focus
+  // Keyboard shortcuts: "/" for search, Cmd/Ctrl + Shift + F for Zen Focus
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const activeTag = document.activeElement?.tagName.toLowerCase();
@@ -106,10 +116,6 @@ export const Header: React.FC<HeaderProps> = ({
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "f") {
         e.preventDefault();
         if (onToggleZenMode) onToggleZenMode();
-      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        searchInputRef.current?.focus();
-        searchInputRef.current?.select();
       } else if (e.key === "/" && !isInputActive) {
         e.preventDefault();
         searchInputRef.current?.focus();
@@ -252,46 +258,46 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* View Mode Toggle: Grid / Table / Graph */}
-        <div className="flex items-center bg-[#111111] border border-[#202020] rounded-lg p-0.5 shrink-0">
+        <div className="flex items-center bg-[#111111] border border-[#202020] rounded-lg p-0.5 shrink-0 shadow-xs">
           <button
             onClick={() => onViewModeChange("grid")}
-            className={`p-1.5 rounded-md text-xs font-mono flex items-center gap-1 transition-all ${
+            className={`p-2 sm:p-1.5 min-w-[34px] min-h-[34px] rounded-md text-xs font-mono flex items-center justify-center gap-1 transition-all cursor-pointer ${
               viewMode === "grid"
-                ? "bg-[#1F180E] text-[#E5C170] border border-[#C5A059]/40 shadow-xs"
-                : "text-[#777] hover:text-[#CCC] hover:bg-[#161616]"
+                ? "bg-[#241C0E] text-[#E5C170] border border-[#C5A059]/60 shadow-xs font-semibold"
+                : "text-[#888] hover:text-[#EEE] hover:bg-[#181818]"
             }`}
             title="Vista Schede a Griglia"
             aria-label="Vista Griglia"
           >
-            <LayoutGrid className="w-3.5 h-3.5" />
+            <LayoutGrid className="w-4 h-4 sm:w-3.5 sm:h-3.5 shrink-0" />
             <span className="hidden lg:inline text-[10.5px]">Griglia</span>
           </button>
 
           <button
             onClick={() => onViewModeChange("table")}
-            className={`p-1.5 rounded-md text-xs font-mono flex items-center gap-1 transition-all ${
+            className={`p-2 sm:p-1.5 min-w-[34px] min-h-[34px] rounded-md text-xs font-mono flex items-center justify-center gap-1 transition-all cursor-pointer ${
               viewMode === "table"
-                ? "bg-[#1F180E] text-[#E5C170] border border-[#C5A059]/40 shadow-xs"
-                : "text-[#777] hover:text-[#CCC] hover:bg-[#161616]"
+                ? "bg-[#241C0E] text-[#E5C170] border border-[#C5A059]/60 shadow-xs font-semibold"
+                : "text-[#888] hover:text-[#EEE] hover:bg-[#181818]"
             }`}
             title="Vista Elenco a Tabella"
             aria-label="Vista Tabella"
           >
-            <List className="w-3.5 h-3.5" />
+            <List className="w-4 h-4 sm:w-3.5 sm:h-3.5 shrink-0" />
             <span className="hidden lg:inline text-[10.5px]">Tabella</span>
           </button>
 
           <button
             onClick={() => onViewModeChange("graph")}
-            className={`p-1.5 rounded-md text-xs font-mono flex items-center gap-1 transition-all ${
+            className={`p-2 sm:p-1.5 min-w-[34px] min-h-[34px] rounded-md text-xs font-mono flex items-center justify-center gap-1 transition-all cursor-pointer ${
               viewMode === "graph"
-                ? "bg-[#1F180E] text-[#E5C170] border border-[#C5A059]/40 shadow-xs"
-                : "text-[#777] hover:text-[#CCC] hover:bg-[#161616]"
+                ? "bg-[#241C0E] text-[#E5C170] border border-[#C5A059]/60 shadow-xs font-semibold"
+                : "text-[#888] hover:text-[#EEE] hover:bg-[#181818]"
             }`}
             title="Vista Grafo Ontologico OKF"
             aria-label="Vista Grafo"
           >
-            <Network className="w-3.5 h-3.5" />
+            <Network className="w-4 h-4 sm:w-3.5 sm:h-3.5 shrink-0" />
             <span className="hidden lg:inline text-[10.5px]">Grafo</span>
           </button>
         </div>
@@ -365,91 +371,227 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
 
           {isMoreMenuOpen && (
-            <div className="absolute right-0 mt-1.5 w-56 bg-[#111111] border border-[#222222] rounded-lg shadow-2xl py-1 z-30 font-sans text-xs">
-              <div className="px-3 py-1 text-[10px] font-mono text-[#555] uppercase tracking-wider border-b border-[#1A1A1A]">
-                Strumenti Vault
+            <div className="absolute right-0 mt-1.5 w-64 bg-[#111111] border border-[#222222] rounded-xl shadow-2xl py-1.5 z-30 font-sans text-xs divide-y divide-[#1A1A1A]">
+              {/* Sezione 1: Dati & File */}
+              <div className="py-1">
+                <div className="px-3 py-1 text-[10px] font-mono text-[#666] uppercase tracking-wider flex items-center justify-between">
+                  <span>Dati & File</span>
+                  <span className="text-[9px] text-[#444]">Vault</span>
+                </div>
+
+                {/* Importa Doc (.md / OKF) */}
+                {onOpenKnowledgeUpload && (
+                  <button
+                    onClick={() => {
+                      setIsMoreMenuOpen(false);
+                      onOpenKnowledgeUpload();
+                    }}
+                    className="w-full flex items-center justify-between px-3 py-1.5 text-[#CCC] hover:text-white hover:bg-[#181818] transition-colors text-left group cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2.5 truncate">
+                      <FileUp className="w-3.5 h-3.5 text-[#C5A059] shrink-0" />
+                      <span className="font-medium truncate">Importa Doc</span>
+                    </div>
+                    <span className="text-[9px] font-mono text-[#666] group-hover:text-[#C5A059] bg-[#161616] px-1.5 py-0.2 rounded border border-[#222]">
+                      .md / OKF
+                    </span>
+                  </button>
+                )}
+
+                {/* Esporta Backup (JSON) */}
+                {(onOpenExport || onExportBackup) && (
+                  <button
+                    onClick={() => {
+                      setIsMoreMenuOpen(false);
+                      if (onOpenExport) onOpenExport();
+                      else if (onExportBackup) onExportBackup();
+                    }}
+                    className="w-full flex items-center justify-between px-3 py-1.5 text-[#CCC] hover:text-white hover:bg-[#181818] transition-colors text-left group cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2.5 truncate">
+                      <Download className="w-3.5 h-3.5 text-[#888] group-hover:text-white shrink-0 transition-colors" />
+                      <span className="font-medium truncate">Esporta Backup</span>
+                    </div>
+                    <span className="text-[9px] font-mono text-[#666] group-hover:text-[#DDD] bg-[#161616] px-1.5 py-0.2 rounded border border-[#222]">
+                      JSON
+                    </span>
+                  </button>
+                )}
+
+                {/* Google Drive & Docs Hub */}
+                {onOpenGoogleDrive && (
+                  <button
+                    onClick={() => {
+                      setIsMoreMenuOpen(false);
+                      onOpenGoogleDrive();
+                    }}
+                    className="w-full flex items-center justify-between px-3 py-1.5 text-[#CCC] hover:text-white hover:bg-[#181818] transition-colors text-left group cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2.5 truncate">
+                      <FileText className="w-3.5 h-3.5 text-[#38BDF8] shrink-0" />
+                      <span className="font-medium truncate">Google Drive & Docs</span>
+                    </div>
+                    <span className="text-[9px] font-mono text-[#666] group-hover:text-[#38BDF8] bg-[#161616] px-1.5 py-0.2 rounded border border-[#222]">
+                      Hub
+                    </span>
+                  </button>
+                )}
+
+                {/* Stampa / Dossier PDF */}
+                {onOpenPrintDossier && (
+                  <button
+                    onClick={() => {
+                      setIsMoreMenuOpen(false);
+                      onOpenPrintDossier();
+                    }}
+                    className="w-full flex items-center justify-between px-3 py-1.5 text-[#CCC] hover:text-white hover:bg-[#181818] transition-colors text-left group cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2.5 truncate">
+                      <Printer className="w-3.5 h-3.5 text-[#C5A059] shrink-0" />
+                      <span className="font-medium truncate">Stampa / Dossier</span>
+                    </div>
+                    <span className="text-[9px] font-mono text-[#666] group-hover:text-[#C5A059] bg-[#161616] px-1.5 py-0.2 rounded border border-[#222]">
+                      PDF
+                    </span>
+                  </button>
+                )}
               </div>
 
-              {onOpenCekikjInspector && (
-                <button
-                  onClick={() => {
-                    setIsMoreMenuOpen(false);
-                    onOpenCekikjInspector();
-                  }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 text-[#E5C170] hover:text-white hover:bg-[#1C160B] transition-colors text-left"
-                >
-                  <ShieldAlert className="w-3.5 h-3.5 text-[#C5A059]" />
-                  <div className="flex flex-col">
-                    <span className="font-semibold">Zero-Guessing (Cekikj)</span>
-                    <span className="text-[10px] text-neutral-400">Contradiction Gate & Trace</span>
-                  </div>
-                </button>
-              )}
+              {/* Sezione 2: Epistemica & Protezione */}
+              <div className="py-1">
+                <div className="px-3 py-1 text-[10px] font-mono text-[#666] uppercase tracking-wider flex items-center justify-between">
+                  <span>Epistemica & Sicurezza</span>
+                </div>
 
-              {onOpenRecoveryModal && (
-                <button
-                  onClick={() => {
-                    setIsMoreMenuOpen(false);
-                    onOpenRecoveryModal();
-                  }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 text-[#CCC] hover:text-white hover:bg-[#181818] transition-colors text-left"
-                >
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Centro di Recupero & Diagnostica</span>
-                </button>
-              )}
+                {/* Zero-Guessing (Cekikj) */}
+                {onOpenCekikjInspector && (
+                  <button
+                    onClick={() => {
+                      setIsMoreMenuOpen(false);
+                      onOpenCekikjInspector();
+                    }}
+                    className="w-full flex items-center justify-between px-3 py-1.5 text-[#E5C170] hover:text-white hover:bg-[#1C160B] transition-colors text-left group cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2.5 truncate">
+                      <ShieldAlert className="w-3.5 h-3.5 text-[#C5A059] shrink-0" />
+                      <div className="flex flex-col truncate">
+                        <span className="font-semibold truncate">Zero-Guessing (Cekikj)</span>
+                        <span className="text-[9.5px] text-[#A68848]">Contradiction Gate & Trace</span>
+                      </div>
+                    </div>
+                    <span className="text-[9px] font-mono text-[#C5A059] bg-[#C5A059]/20 px-1.5 py-0.2 rounded border border-[#C5A059]/30">
+                      Gate
+                    </span>
+                  </button>
+                )}
 
-              {onOpenQuotaTelemetry && (
-                <button
-                  onClick={() => {
-                    setIsMoreMenuOpen(false);
-                    onOpenQuotaTelemetry();
-                  }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 text-[#CCC] hover:text-white hover:bg-[#181818] transition-colors text-left"
-                >
-                  <Activity className="w-3.5 h-3.5 text-[#C5A059]" />
-                  <span>Monitor Quote & Telemetria</span>
-                </button>
-              )}
+                {/* Centro di Recupero & Protezione */}
+                {onOpenRecoveryModal && (
+                  <button
+                    onClick={() => {
+                      setIsMoreMenuOpen(false);
+                      onOpenRecoveryModal();
+                    }}
+                    className="w-full flex items-center justify-between px-3 py-1.5 text-[#CCC] hover:text-white hover:bg-[#181818] transition-colors text-left group cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2.5 truncate">
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span className="font-medium truncate">Centro di Recupero Dati</span>
+                    </div>
+                    <span className="text-[9px] font-mono text-emerald-400 bg-emerald-950/40 px-1.5 py-0.2 rounded border border-emerald-800/30">
+                      Attivo
+                    </span>
+                  </button>
+                )}
 
-              {onOpenPrintDossier && (
-                <button
-                  onClick={() => {
-                    setIsMoreMenuOpen(false);
-                    onOpenPrintDossier();
-                  }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 text-[#CCC] hover:text-white hover:bg-[#181818] transition-colors text-left"
-                >
-                  <Printer className="w-3.5 h-3.5 text-[#C5A059]" />
-                  <span>Stampa / Dossier PDF</span>
-                </button>
-              )}
+                {/* Stato Persistenza Multi-Livello */}
+                {onOpenPersistenceStatus && (
+                  <button
+                    onClick={() => {
+                      setIsMoreMenuOpen(false);
+                      onOpenPersistenceStatus();
+                    }}
+                    className="w-full flex items-center justify-between px-3 py-1.5 text-[#CCC] hover:text-white hover:bg-[#181818] transition-colors text-left group cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2.5 truncate">
+                      <HardDrive className="w-3.5 h-3.5 text-[#C5A059] shrink-0" />
+                      <span className="font-medium truncate">Stato Persistenza</span>
+                    </div>
+                    <span className="text-[9px] font-mono text-[#777] group-hover:text-[#DDD] bg-[#161616] px-1.5 py-0.2 rounded border border-[#222]">
+                      3 Livelli
+                    </span>
+                  </button>
+                )}
+              </div>
 
-              {onOpenDiagnostic && (
-                <button
-                  onClick={() => {
-                    setIsMoreMenuOpen(false);
-                    onOpenDiagnostic();
-                  }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 text-[#CCC] hover:text-white hover:bg-[#181818] transition-colors text-left"
-                >
-                  <Terminal className="w-3.5 h-3.5 text-[#C5A059]" />
-                  <span>Console Log & Tracing</span>
-                </button>
-              )}
+              {/* Sezione 3: Diagnostica & Sistema */}
+              <div className="py-1">
+                <div className="px-3 py-1 text-[10px] font-mono text-[#666] uppercase tracking-wider flex items-center justify-between">
+                  <span>Diagnostica & Sistema</span>
+                </div>
 
-              {onOpenGoogleDrive && (
-                <button
-                  onClick={() => {
-                    setIsMoreMenuOpen(false);
-                    onOpenGoogleDrive();
-                  }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 text-[#CCC] hover:text-white hover:bg-[#181818] transition-colors text-left"
-                >
-                  <FileText className="w-3.5 h-3.5 text-[#38BDF8]" />
-                  <span>Google Drive & Docs Hub</span>
-                </button>
-              )}
+                {/* Monitor Quote & Telemetria */}
+                {onOpenQuotaTelemetry && (
+                  <button
+                    onClick={() => {
+                      setIsMoreMenuOpen(false);
+                      onOpenQuotaTelemetry();
+                    }}
+                    className="w-full flex items-center justify-between px-3 py-1.5 text-[#CCC] hover:text-white hover:bg-[#181818] transition-colors text-left group cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2.5 truncate">
+                      <Activity className={`w-3.5 h-3.5 ${quotaExceeded ? "text-amber-400 animate-pulse" : "text-[#C5A059]"} shrink-0`} />
+                      <span className="font-medium truncate">Monitor Quote</span>
+                    </div>
+                    <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded border ${
+                      quotaExceeded
+                        ? "bg-amber-950/60 text-amber-300 border-amber-800/50"
+                        : "bg-[#161616] text-emerald-400 border-emerald-900/40"
+                    }`}>
+                      {quotaExceeded ? "Blocco" : "Live"}
+                    </span>
+                  </button>
+                )}
+
+                {/* Console Log & Tracing */}
+                {onOpenDiagnostic && (
+                  <button
+                    onClick={() => {
+                      setIsMoreMenuOpen(false);
+                      onOpenDiagnostic();
+                    }}
+                    className="w-full flex items-center justify-between px-3 py-1.5 text-[#CCC] hover:text-white hover:bg-[#181818] transition-colors text-left group cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2.5 truncate">
+                      <Terminal className="w-3.5 h-3.5 text-[#C5A059] shrink-0" />
+                      <span className="font-medium truncate">Console Log & Tracing</span>
+                    </div>
+                    <span className="text-[9px] font-mono text-[#777] group-hover:text-[#DDD] bg-[#161616] px-1.5 py-0.2 rounded border border-[#222]">
+                      Debug
+                    </span>
+                  </button>
+                )}
+
+                {/* Sincronizza Demo OKF */}
+                {onSeedDemo && (
+                  <button
+                    onClick={() => {
+                      setIsMoreMenuOpen(false);
+                      onSeedDemo();
+                    }}
+                    disabled={isSeeding}
+                    className="w-full flex items-center justify-between px-3 py-1.5 text-[#AAA] hover:text-[#E5C170] hover:bg-[#16130B] transition-colors text-left group cursor-pointer disabled:opacity-50"
+                  >
+                    <div className="flex items-center gap-2.5 truncate">
+                      <RefreshCw className={`w-3.5 h-3.5 text-[#C5A059] shrink-0 ${isSeeding ? "animate-spin" : ""}`} />
+                      <span className="font-medium truncate">Sincronizza Demo OKF</span>
+                    </div>
+                    <span className="text-[9px] font-mono text-[#666] group-hover:text-[#C5A059] bg-[#161616] px-1.5 py-0.2 rounded border border-[#222]">
+                      v0.2
+                    </span>
+                  </button>
+                )}
+              </div>
             </div>
           )}
         </div>

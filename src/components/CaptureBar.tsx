@@ -21,7 +21,10 @@ import {
   Zap,
   GraduationCap,
   Rss,
-  StickyNote
+  StickyNote,
+  Mic,
+  Square,
+  Trash2
 } from "lucide-react";
 import { ResourceType, CaptureStage } from "../types";
 
@@ -34,6 +37,9 @@ interface CaptureBarProps {
   onOpenDiagnostic?: () => void;
   onOpenGoogleDrive?: () => void;
   onUploadRawFile?: (file: File) => Promise<boolean>;
+  onOpenIntelligence?: (prefilledQuery?: string) => void;
+  isIntelligenceOpen?: boolean;
+  resourceCount?: number;
 }
 
 export const CaptureBar: React.FC<CaptureBarProps> = ({
@@ -43,12 +49,23 @@ export const CaptureBar: React.FC<CaptureBarProps> = ({
   captureStageMessage,
   onOpenKnowledgeUpload,
   onUploadRawFile,
+  onOpenIntelligence,
+  isIntelligenceOpen = false,
+  resourceCount,
 }) => {
   const [input, setInput] = useState("");
   const [selectedType, setSelectedType] = useState<ResourceType | "auto">("auto");
   const [isTypeDropdownOpen, setIsTypeDropdownOpen] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [isUploadingFile, setIsUploadingFile] = useState(false);
+
+  // Audio Voice Memo Recording State
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const audioTimerRef = useRef<any>(null);
+  const audioStreamRef = useRef<MediaStream | null>(null);
   
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -100,6 +117,145 @@ export const CaptureBar: React.FC<CaptureBarProps> = ({
       e.preventDefault();
       handleSubmit();
     }
+  };
+
+  // Cleanup audio recorder on unmount
+  useEffect(() => {
+    return () => {
+      if (audioTimerRef.current) clearInterval(audioTimerRef.current);
+      if (audioStreamRef.current) {
+        audioStreamRef.current.getTracks().forEach((track) => track.stop());
+      }
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+        mediaRecorderRef.current.stop();
+      }
+    };
+  }, []);
+
+  const handleStartRecording = async () => {
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        alert("La registrazione vocale richiede un browser con supporto MediaDevices.");
+        return;
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioStreamRef.current = stream;
+      audioChunksRef.current = [];
+
+      const mimeCandidates = [
+        "audio/webm;codecs=opus",
+        "audio/webm",
+        "audio/ogg;codecs=opus",
+        "audio/mp4",
+        "audio/wav",
+      ];
+      let selectedMime = "";
+      if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported) {
+        for (const m of mimeCandidates) {
+          if (MediaRecorder.isTypeSupported(m)) {
+            selectedMime = m;
+            break;
+          }
+        }
+      }
+
+      const recorder = new MediaRecorder(
+        stream,
+        selectedMime ? { mimeType: selectedMime } : undefined
+      );
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
+        }
+      };
+
+      recorder.start(250);
+      setIsRecording(true);
+      setRecordingDuration(0);
+
+      audioTimerRef.current = setInterval(() => {
+        setRecordingDuration((prev) => prev + 1);
+      }, 1000);
+    } catch (err: any) {
+      console.warn("Accesso microfono non consentito o errore:", err);
+      alert("Impossibile accedere al microfono. Verifica le autorizzazioni nel browser.");
+    }
+  };
+
+  const handleStopAndUploadRecording = () => {
+    if (!mediaRecorderRef.current || mediaRecorderRef.current.state === "inactive") return;
+
+    if (audioTimerRef.current) clearInterval(audioTimerRef.current);
+
+    const recorder = mediaRecorderRef.current;
+    const stream = audioStreamRef.current;
+
+    recorder.onstop = async () => {
+      if (stream) {
+        stream.getTracks().forEach((track) => track.stop());
+      }
+      setIsRecording(false);
+      setRecordingDuration(0);
+
+      if (audioChunksRef.current.length > 0 && onUploadRawFile) {
+        const mime = recorder.mimeType || "audio/webm";
+        const ext = mime.includes("ogg")
+          ? "ogg"
+          : mime.includes("mp4")
+          ? "mp4"
+          : mime.includes("wav")
+          ? "wav"
+          : "webm";
+        const audioBlob = new Blob(audioChunksRef.current, { type: mime });
+
+        if (audioBlob.size > 500) {
+          const timestampStr = new Date().toISOString().replace(/[:.]/g, "-");
+          const audioFile = new File(
+            [audioBlob],
+            `nota-vocale-${timestampStr}.${ext}`,
+            { type: mime }
+          );
+
+          try {
+            setIsUploadingFile(true);
+            const ok = await onUploadRawFile(audioFile);
+            if (ok) {
+              setShowSuccess(true);
+              setTimeout(() => setShowSuccess(false), 3000);
+            }
+          } catch (err) {
+            console.error("Errore upload nota vocale:", err);
+          } finally {
+            setIsUploadingFile(false);
+          }
+        }
+      }
+    };
+
+    recorder.stop();
+  };
+
+  const handleCancelRecording = () => {
+    if (audioTimerRef.current) clearInterval(audioTimerRef.current);
+    if (audioStreamRef.current) {
+      audioStreamRef.current.getTracks().forEach((track) => track.stop());
+    }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.onstop = null;
+      mediaRecorderRef.current.stop();
+    }
+    audioChunksRef.current = [];
+    setIsRecording(false);
+    setRecordingDuration(0);
+  };
+
+  const formatDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
   const typeOptions: { 
@@ -202,20 +358,20 @@ export const CaptureBar: React.FC<CaptureBarProps> = ({
               )}
             </div>
 
-            {/* Right: Engine Indicator & Helper Hints */}
-            <div className="flex items-center gap-2 text-[10.5px] font-mono text-[#666] shrink-0">
+            {/* Right: Engine Indicator & Helper Hints & Vault Intelligence CTA */}
+            <div className="flex items-center gap-1.5 sm:gap-2 text-[10.5px] font-mono text-[#666] shrink-0">
               {showSuccess ? (
                 <span className="text-emerald-400 flex items-center gap-1 font-semibold animate-fade-in">
                   <CheckCircle className="w-3 h-3" /> Salvato nel Vault!
                 </span>
               ) : (
                 <>
-                  <div className="hidden sm:flex items-center gap-1 text-[#888] bg-[#121212] px-2 py-0.5 rounded-md border border-[#202020]">
+                  <div className="hidden lg:flex items-center gap-1 text-[#888] bg-[#121212] px-2 py-0.5 rounded-md border border-[#202020]">
                     <Zap className="w-2.5 h-2.5 text-[#C5A059]" />
                     <span>Gemini 3.7 Flash</span>
                   </div>
 
-                  <span className="hidden lg:inline text-[#555]">
+                  <span className="hidden xl:inline text-[#555]">
                     Invio per analizzare • Shift+Invio per a capo
                   </span>
                 </>
@@ -225,11 +381,40 @@ export const CaptureBar: React.FC<CaptureBarProps> = ({
                 <button
                   type="button"
                   onClick={onOpenKnowledgeUpload}
-                  className="flex items-center gap-1 text-[#C5A059] hover:underline text-[10.5px] ml-1 bg-[#1A1408] border border-[#C5A059]/30 px-2 py-0.5 rounded-md hover:bg-[#261E0E] transition-colors"
+                  className="hidden md:flex items-center gap-1 text-[#C5A059] hover:underline text-[10.5px] bg-[#1A1408] border border-[#C5A059]/30 px-2 py-0.5 rounded-md hover:bg-[#261E0E] transition-colors cursor-pointer"
                   title="Importa file .md, note o documentazione tecnica direttamente nello standard OKF v0.2"
                 >
                   <UploadCloud className="w-3 h-3" />
-                  <span>Uploader File / .md</span>
+                  <span className="hidden lg:inline">Uploader</span> .md
+                </button>
+              )}
+
+              {/* Unified Vault Intelligence Command Button */}
+              {onOpenIntelligence && (
+                <button
+                  type="button"
+                  id="capturebar-vault-intelligence-btn"
+                  onClick={() => {
+                    if (input.trim()) {
+                      onOpenIntelligence(input.trim());
+                      setInput("");
+                    } else {
+                      onOpenIntelligence();
+                    }
+                  }}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono transition-all cursor-pointer border shrink-0 ${
+                    isIntelligenceOpen
+                      ? "bg-[#C5A059] text-black border-[#C5A059] font-bold shadow-[0_0_12px_rgba(197,160,89,0.4)]"
+                      : "bg-[#18130B] hover:bg-[#241A0D] text-[#E5C170] hover:text-[#F8E2A8] border-[#C5A059]/60 hover:border-[#C5A059] shadow-xs active:scale-95"
+                  }`}
+                  title="Apri Vault Intelligence: Orquestratore Agenti Autonomi con Grounding Ontologico (Scorciatoia globale: ⌘K / Ctrl+K)"
+                  aria-label="Apri Vault Intelligence"
+                >
+                  <BrainCircuit className="w-3.5 h-3.5 text-[#C5A059] shrink-0" />
+                  <span className="font-semibold text-[11px] sm:text-xs">Intelligence</span>
+                  <span className="hidden sm:inline-block text-[9.5px] px-1 py-0.2 rounded bg-black/40 text-[#C5A059] border border-[#C5A059]/30 font-mono font-medium">
+                    ⌘K
+                  </span>
                 </button>
               )}
             </div>
@@ -306,61 +491,116 @@ export const CaptureBar: React.FC<CaptureBarProps> = ({
             accept=".pdf,.txt,.md,.markdown,.json,.yaml,.yml,.csv,.log,.png,.jpg,.jpeg,.webp,.svg,.ts,.js,.py,.rs,.go,.mp3,.wav,.m4a,.ogg,.aac,.flac,.opus,.webm,audio/*,image/*"
           />
 
-          {/* Main Agentic Input Row */}
-          <div className="flex items-end gap-2 px-1 pt-0.5">
-            <textarea
-              ref={textareaRef}
-              rows={1}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={
-                selectedType === "knowledge"
-                  ? "Incolla testo, specifiche, guide o note .md da strutturare nello standard OKF v0.2..."
-                  : selectedType === "troubleshooting"
-                  ? "Descrivi l'errore, incolla il messaggio o il codice per estrarre la procedura di fix..."
-                  : "Chiedi all'agente o incolla link, repo GitHub, server MCP o file .md (elaborati in OKF v0.2)..."
-              }
-              disabled={isAnalyzing || isUploadingFile}
-              className="bg-transparent border-none text-xs sm:text-sm w-full text-[#E0E0E0] focus:outline-none placeholder-[#555] disabled:opacity-50 resize-none py-1.5 max-h-32 overflow-y-auto leading-relaxed custom-scrollbar font-sans"
-            />
+          {/* Audio Recording Live State */}
+          {isRecording ? (
+            <div className="flex items-center justify-between gap-3 px-3 py-2 bg-[#160B0B] border border-red-900/50 rounded-xl animate-fade-in my-1">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span className="flex h-3 w-3 relative shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-red-600"></span>
+                </span>
+                <span className="font-mono font-bold text-xs text-red-400 shrink-0">
+                  REC {formatDuration(recordingDuration)}
+                </span>
+                <span className="text-xs text-[#AAA] truncate hidden sm:inline">
+                  Registrazione nota vocale in corso...
+                </span>
+              </div>
 
-            {/* Quick File Attachment Button */}
-            {onUploadRawFile && (
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleCancelRecording}
+                  className="flex items-center gap-1 px-2.5 py-1 text-xs text-[#999] hover:text-red-400 hover:bg-red-950/40 rounded-lg transition-colors cursor-pointer"
+                  title="Annulla registrazione vocale"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Annulla</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleStopAndUploadRecording}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white font-semibold text-xs rounded-lg shadow-sm transition-all cursor-pointer active:scale-95"
+                  title="Ferma la registrazione e salva la nota nel Vault"
+                >
+                  <Square className="w-3 h-3 fill-current" />
+                  <span>Salva Nota Vocale</span>
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* Main Agentic Input Row */
+            <div className="flex items-end gap-2 px-1 pt-0.5">
+              <textarea
+                ref={textareaRef}
+                rows={1}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={
+                  selectedType === "knowledge"
+                    ? "Incolla testo, specifiche, guide o note .md da strutturare nello standard OKF v0.2..."
+                    : selectedType === "troubleshooting"
+                    ? "Descrivi l'errore, incolla il messaggio o il codice per estrarre la procedura di fix..."
+                    : "Incolla link, repository GitHub, server MCP o digita note da archiviare nel Vault..."
+                }
                 disabled={isAnalyzing || isUploadingFile}
-                className="p-2 text-[#777] hover:text-[#E5C170] hover:bg-[#181818] rounded-xl border border-transparent hover:border-[#282828] transition-colors shrink-0 mb-0.5 cursor-pointer"
-                title="Allega file per staging (Audio, PDF, TXT, MD, Immagini fino a 50MB)"
+                className="bg-transparent border-none text-xs sm:text-sm w-full text-[#E0E0E0] focus:outline-none placeholder-[#555] disabled:opacity-50 resize-none py-1.5 max-h-32 overflow-y-auto leading-relaxed custom-scrollbar font-sans"
+              />
+
+              {/* Voice Memo Direct Microphone Button */}
+              {onUploadRawFile && (
+                <button
+                  type="button"
+                  onClick={handleStartRecording}
+                  disabled={isAnalyzing || isUploadingFile}
+                  className="p-2 text-[#777] hover:text-[#E5C170] hover:bg-[#181818] rounded-xl border border-transparent hover:border-[#282828] transition-colors shrink-0 mb-0.5 cursor-pointer disabled:opacity-50"
+                  title="Registra nota vocale (trascrizione automatica Gemini ed archiviazione in OKF v0.2)"
+                  aria-label="Registra nota vocale"
+                >
+                  <Mic className="w-4 h-4" />
+                </button>
+              )}
+
+              {/* Quick File Attachment Button */}
+              {onUploadRawFile && (
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isAnalyzing || isUploadingFile}
+                  className="p-2 text-[#777] hover:text-[#E5C170] hover:bg-[#181818] rounded-xl border border-transparent hover:border-[#282828] transition-colors shrink-0 mb-0.5 cursor-pointer disabled:opacity-50"
+                  title="Allega file per staging (Audio, PDF, TXT, MD, Immagini fino a 50MB)"
+                  aria-label="Allega file"
+                >
+                  {isUploadingFile ? (
+                    <Loader2 className="w-4 h-4 text-[#C5A059] animate-spin" />
+                  ) : (
+                    <Paperclip className="w-4 h-4" />
+                  )}
+                </button>
+              )}
+
+              {/* Submit Action Button */}
+              <button
+                type="submit"
+                disabled={!input.trim() || isAnalyzing || isUploadingFile}
+                className="bg-[#C5A059] hover:bg-[#D5B069] disabled:bg-[#1A1A1A] disabled:text-[#444] text-black font-semibold text-xs py-2 px-4 rounded-xl transition-all flex items-center gap-1.5 shrink-0 shadow-sm active:scale-95 self-end mb-0.5 cursor-pointer disabled:cursor-not-allowed"
               >
-                {isUploadingFile ? (
-                  <Loader2 className="w-4 h-4 text-[#C5A059] animate-spin" />
+                {isAnalyzing ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span className="hidden sm:inline">Analisi...</span>
+                  </>
                 ) : (
-                  <Paperclip className="w-4 h-4" />
+                  <>
+                    <Send className="w-3.5 h-3.5 stroke-[2.5]" />
+                    <span className="hidden sm:inline font-medium">Cattura</span>
+                  </>
                 )}
               </button>
-            )}
-
-            {/* Submit Action Button */}
-            <button
-              type="submit"
-              disabled={!input.trim() || isAnalyzing || isUploadingFile}
-              className="bg-[#C5A059] hover:bg-[#D5B069] disabled:bg-[#1A1A1A] disabled:text-[#444] text-black font-semibold text-xs py-2 px-4 rounded-xl transition-all flex items-center gap-1.5 shrink-0 shadow-sm active:scale-95 self-end mb-0.5 cursor-pointer disabled:cursor-not-allowed"
-            >
-              {isAnalyzing ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span className="hidden sm:inline">Analisi...</span>
-                </>
-              ) : (
-                <>
-                  <Send className="w-3.5 h-3.5 stroke-[2.5]" />
-                  <span className="hidden sm:inline font-medium">Cattura</span>
-                </>
-              )}
-            </button>
-          </div>
+            </div>
+          )}
         </div>
       </form>
     </div>

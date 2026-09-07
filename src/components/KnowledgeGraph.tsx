@@ -47,9 +47,11 @@ import {
   ArrowRight,
   GraduationCap,
   Rss,
-  StickyNote
+  StickyNote,
+  LayoutGrid,
+  List
 } from "lucide-react";
-import { ResourceItem, GraphNode, GraphLink, ResourceType, OKFEntity } from "../types";
+import { ResourceItem, GraphNode, GraphLink, ResourceType, OKFEntity, ViewMode } from "../types";
 import { parseSearchQuery, evaluateResourceSearch } from "../lib/searchEngine";
 
 interface KnowledgeGraphProps {
@@ -57,6 +59,9 @@ interface KnowledgeGraphProps {
   onSelectResource: (resource: ResourceItem) => void;
   selectedTag: string | null;
   onSelectTag: (tag: string | null) => void;
+  viewMode?: ViewMode;
+  onViewModeChange?: (mode: ViewMode) => void;
+  onOpenIntelligence?: () => void;
 }
 
 export type GraphScopeMode = "hubs" | "focus" | "domain" | "all";
@@ -196,6 +201,9 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
   onSelectResource,
   selectedTag,
   onSelectTag,
+  viewMode = "graph",
+  onViewModeChange,
+  onOpenIntelligence,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -1774,8 +1782,8 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
 
         {/* Floating Island HUD Top Bar */}
         <div className="absolute top-3.5 left-3.5 right-3.5 z-30 pointer-events-none flex flex-wrap items-center justify-between gap-2.5">
-          {/* Left Floating Pill: Title & Status */}
-          <div className="pointer-events-auto flex items-center gap-2.5 bg-[#0A0A0A]/90 backdrop-blur-md border border-[#222] rounded-full px-3 py-1.5 shadow-xl">
+          {/* Left Floating Pill: Title & Status + View Switcher */}
+          <div className="pointer-events-auto flex items-center gap-2 bg-[#0A0A0A]/90 backdrop-blur-md border border-[#222] rounded-full px-3 py-1.5 shadow-xl">
             <div className="w-6 h-6 rounded-full bg-[#141414] border border-[#C5A059]/40 flex items-center justify-center text-[#C5A059]">
               <BrainCircuit className="w-3.5 h-3.5" />
             </div>
@@ -1797,6 +1805,43 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
               >
                 <Eye className="w-2.5 h-2.5 text-[#C5A059]" />
                 <span>Tutti</span>
+              </button>
+            )}
+
+            {/* View Mode switcher quick switch */}
+            {onViewModeChange && (
+              <div className="flex items-center bg-[#141414] border border-[#262626] rounded-full p-0.5 ml-1">
+                <button
+                  type="button"
+                  onClick={() => onViewModeChange("grid")}
+                  className="p-1 px-2 rounded-full text-[10px] font-mono flex items-center gap-1 text-[#888] hover:text-[#EEE] hover:bg-[#202020] transition-colors cursor-pointer"
+                  title="Torna alla vista Griglia"
+                >
+                  <LayoutGrid className="w-3 h-3 text-[#C5A059]" />
+                  <span>Griglia</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onViewModeChange("table")}
+                  className="p-1 px-2 rounded-full text-[10px] font-mono flex items-center gap-1 text-[#888] hover:text-[#EEE] hover:bg-[#202020] transition-colors cursor-pointer"
+                  title="Passa alla vista Tabella"
+                >
+                  <List className="w-3 h-3 text-[#C5A059]" />
+                  <span>Tabella</span>
+                </button>
+              </div>
+            )}
+
+            {/* Vault Intelligence Button on Graph HUD */}
+            {onOpenIntelligence && (
+              <button
+                type="button"
+                onClick={onOpenIntelligence}
+                className="p-1 px-2.5 rounded-full text-[10px] font-mono flex items-center gap-1.5 bg-[#1C150B] hover:bg-[#2A1E0E] text-[#E5C170] border border-[#C5A059]/40 hover:border-[#C5A059] transition-colors cursor-pointer shadow-xs ml-0.5"
+                title="Vault Intelligence: Interroga gli agenti sul grafo (⌘K)"
+              >
+                <BrainCircuit className="w-3 h-3 text-[#C5A059]" />
+                <span className="font-semibold hidden sm:inline">Intelligence</span>
               </button>
             )}
           </div>

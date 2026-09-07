@@ -54,7 +54,6 @@ import { GoogleDriveModal } from "./components/GoogleDriveModal";
 import { RecoveryModal } from "./components/RecoveryModal";
 import { PersistenceStatusModal } from "./components/PersistenceStatusModal";
 import { CekikjInspectorModal } from "./components/CekikjInspectorModal";
-import { VaultIntelligenceFab } from "./components/VaultIntelligenceFab";
 import { VaultIntelligenceDrawer } from "./components/VaultIntelligenceDrawer";
 import { dualLayerStore } from "./lib/cekikj/dualLayerStore";
 import { FolderSearch, Plus, Sparkles, AlertCircle, Network, BrainCircuit, Terminal, RefreshCw, HardDrive, ShieldCheck, GitMerge } from "lucide-react";
@@ -229,6 +228,7 @@ export default function App() {
   const [googleDriveExportResource, setGoogleDriveExportResource] = useState<ResourceItem | null>(null);
   const [isCekikjModalOpen, setIsCekikjModalOpen] = useState(false);
   const [isIntelligenceDrawerOpen, setIsIntelligenceDrawerOpen] = useState(false);
+  const [intelligencePrefilledQuery, setIntelligencePrefilledQuery] = useState<string>("");
   
   // Staging / Raw Files Buffer State (Supports up to 50MB files)
   const [rawFiles, setRawFiles] = useState<RawFileItem[]>(() => {
@@ -2349,6 +2349,8 @@ export default function App() {
         onOpenCekikjInspector={() => setIsCekikjModalOpen(true)}
         unsyncedCount={resources.filter((r) => r.id.startsWith("local-") || r.id.startsWith("conv-") || r.id.startsWith("seed-")).length}
         onUploadUnsynced={handleUploadUnsyncedResources}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
         selectedTag={selectedTag}
         onSelectTag={(tag) => {
           setSelectedTag(tag);
@@ -2413,6 +2415,9 @@ export default function App() {
           onOpenPersistenceStatus={() => setIsPersistenceModalOpen(true)}
           unsyncedCount={resources.filter((r) => r.id.startsWith("local-") || r.id.startsWith("conv-") || r.id.startsWith("seed-")).length}
           onUploadUnsynced={handleUploadUnsyncedResources}
+          onOpenKnowledgeUpload={() => setIsKnowledgeUploadOpen(true)}
+          onSeedDemo={() => handleSeedDemoData(true)}
+          isSeeding={isSeeding}
         />
 
         {/* Compact Storage Discrepancy & Recovery Alert */}
@@ -2519,6 +2524,9 @@ export default function App() {
               }}
               selectedTag={selectedTag}
               onSelectTag={setSelectedTag}
+              viewMode={viewMode}
+              onViewModeChange={setViewMode}
+              onOpenIntelligence={() => setIsIntelligenceDrawerOpen((prev) => !prev)}
             />
           </div>
         ) : (
@@ -2724,6 +2732,16 @@ export default function App() {
                   onOpenDiagnostic={() => setIsDiagnosticOpen(true)}
                   onOpenGoogleDrive={() => setIsGoogleDriveOpen(true)}
                   onUploadRawFile={handleUploadRawFile}
+                  onOpenIntelligence={(prefill) => {
+                    if (prefill) {
+                      setIntelligencePrefilledQuery(prefill);
+                      setIsIntelligenceDrawerOpen(true);
+                    } else {
+                      setIsIntelligenceDrawerOpen((prev) => !prev);
+                    }
+                  }}
+                  isIntelligenceOpen={isIntelligenceDrawerOpen}
+                  resourceCount={resources.length}
                 />
               </div>
             </div>
@@ -2913,17 +2931,15 @@ export default function App() {
         }}
       />
 
-      {/* Volatile Floating Action Button (FAB) for Vault Intelligence */}
-      <VaultIntelligenceFab
-        isOpen={isIntelligenceDrawerOpen}
-        onToggle={() => setIsIntelligenceDrawerOpen((prev) => !prev)}
-        resourceCount={resources.length}
-      />
-
       {/* Slide-over Intelligence Drawer with Multi-Agent Orchestrator */}
       <VaultIntelligenceDrawer
         isOpen={isIntelligenceDrawerOpen}
-        onClose={() => setIsIntelligenceDrawerOpen(false)}
+        onClose={() => {
+          setIsIntelligenceDrawerOpen(false);
+          setIntelligencePrefilledQuery("");
+        }}
+        initialQuery={intelligencePrefilledQuery}
+        onClearInitialQuery={() => setIntelligencePrefilledQuery("")}
         resources={resources}
         activeCategory={currentCategory}
         activeTag={selectedTag}

@@ -294,3 +294,15 @@ Un task o milestone è considerato **COMPLETO (DONE)** se e solo se:
 4. Il linter (`npm run lint`) non restituisce errori di sintassi o import mancanti.
 5. Il build di produzione (`npm run build`) compila con successo.
 6. La documentazione OKF del Knowledge Vault è aggiornata coerentemente.
+
+---
+
+## 7. Integrazione con CaptureBar & Vault Intelligence Agentico
+
+La roadmap di convergenza tra l'infrastruttura Cekikj (Typed Tools, Bounded Grounding, Contradiction Gate) e le interfacce utente del Vault è formalizzata nel documento:
+`/SPEC_PIANO_CAPTUREBAR_INTELLIGENCE.md`
+
+In particolare:
+- **CaptureBar Unificata**: Riconoscimento rapido dell'intento con switch automatico tra cattura risorsa e interrogazione agentica (slash commands `/ask`, `/note`, `/mcp`, `/paper`, `/fix`), registrazione vocale diretta (Web MediaRecorder + `gemini-3.5-transcribe`), e peek anti-duplicati in tempo reale.
+- **Vault Intelligence Drawer**: Esposizione diretta degli 8 Typed Tools di Cekikj nel loop generativo Gemini 3.7 Flash, memoria contestuale multi-turno, e bottoni operativi interattivi sulle raccomandazioni dell'agente (creazione relazioni nel grafo D3, isolamento subgrafo, apertura Contradiction Desk).
+

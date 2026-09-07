@@ -479,7 +479,14 @@ REGOLE RIGOROSE DI GROUNDING & ZERO-GUESSING (CEKIKJ ARCHITECTURE):
    - **Applicazione Pratica / Codice** (se pertinente per repository GitHub o server MCP).
 5. Mantieni un tono sobrio, tecnico, autorevole e privo di cliché o convenevoli generici.`;
 
-    const userPromptText = `Domanda dell'utente:
+    const historyBlock = Array.isArray(request.history) && request.history.length > 0
+      ? `CRONOLOGIA DELLA CONVERSAZIONE PRECEDENTE NEL THREAD:\n${request.history
+          .slice(-6)
+          .map((h) => `${h.role === "user" ? "Utente" : "Assistente Vault"}: ${h.content}`)
+          .join("\n\n")}\n\n`
+      : "";
+
+    const userPromptText = `${historyBlock}Domanda attuale dell'utente:
 "${query}"
 
 Modalità richiesta: ${request.mode || "quick_synthesis"}
@@ -489,7 +496,7 @@ Tag attivo nel filtro: ${request.activeTag || "Nessuno"}
 RISORSE DEL VAULT SELEZIONATE DAGLI AGENTI COME CONTESTO DI RIFERIMENTO:
 ${compactContext}
 
-Fornisci la sintesi epistemica verificata seguendo le istruzioni di sistema.`;
+Fornisci la sintesi epistemica verificata seguendo le istruzioni di sistema. Rispondi alla domanda attuale tenendo conto del contesto pregresso se presente, citando sempre le risorse pertinenti.`;
 
     for (const modelName of modelsToTry) {
       try {

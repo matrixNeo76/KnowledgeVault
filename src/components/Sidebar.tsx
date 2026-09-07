@@ -28,9 +28,13 @@ import {
   Activity,
   GraduationCap,
   Rss,
-  StickyNote
+  StickyNote,
+  LayoutGrid,
+  List,
+  Network,
+  ChevronDown
 } from "lucide-react";
-import { ResourceType, NavCategory } from "../types";
+import { ResourceType, NavCategory, ViewMode } from "../types";
 import { User } from "firebase/auth";
 
 interface SidebarProps {
@@ -67,6 +71,8 @@ interface SidebarProps {
   onOpenCekikjInspector?: () => void;
   unsyncedCount?: number;
   onUploadUnsynced?: () => void;
+  viewMode?: ViewMode;
+  onViewModeChange?: (mode: ViewMode) => void;
   // Modern 2026 UX extensions
   selectedTag?: string | null;
   onSelectTag?: (tag: string | null) => void;
@@ -95,6 +101,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenCekikjInspector,
   unsyncedCount = 0,
   onUploadUnsynced,
+  viewMode = "grid",
+  onViewModeChange,
   selectedTag,
   onSelectTag,
   availableTags = [],
@@ -108,6 +116,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
     return false;
   });
+
+  // Collapsible Tools section state (defaults to false / collapsed to avoid taking excessive space)
+  const [isToolsOpen, setIsToolsOpen] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("KV_SIDEBAR_TOOLS_OPEN") === "true";
+    }
+    return false;
+  });
+
+  const toggleToolsOpen = () => {
+    setIsToolsOpen((prev) => {
+      const next = !prev;
+      localStorage.setItem("KV_SIDEBAR_TOOLS_OPEN", String(next));
+      return next;
+    });
+  };
 
   // Category quick filter in sidebar
   const [categoryFilter, setCategoryFilter] = useState("");
@@ -154,6 +178,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: <Star className="w-4 h-4 text-[#E5C170] fill-[#E5C170]/20" />,
       count: counts.favorites,
     },
+    ...((counts.raw_files ?? 0) > 0
+      ? [
+          {
+            id: "raw_files" as NavCategory,
+            label: "Buffer File Grezzi",
+            icon: <Paperclip className="w-4 h-4 text-[#A89874]" />,
+            count: counts.raw_files!,
+            badgeText: "Inbox",
+          },
+        ]
+      : []),
   ];
 
   // 2. Structured Resource Categories
@@ -380,11 +415,77 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Scrollable Navigation Body */}
         <div className={`flex-1 ${isCollapsed ? "px-2" : "px-3"} py-2 space-y-4 overflow-y-auto custom-scrollbar`}>
           
+          {/* Section 0: Modalità di Visualizzazione (Griglia, Tabella, Grafo) */}
+          {onViewModeChange && (
+            <div>
+              {!isCollapsed && (
+                <div className="text-[10px] uppercase tracking-widest text-[#555] px-2 mb-1.5 font-mono font-semibold flex items-center justify-between">
+                  <span>Visualizzazione</span>
+                </div>
+              )}
+              <div className={isCollapsed ? "space-y-1" : "grid grid-cols-3 gap-1 bg-[#101010] p-1 rounded-lg border border-[#1E1E1E]"}>
+                <button
+                  onClick={() => {
+                    onViewModeChange("grid");
+                    onCloseMobile();
+                  }}
+                  title="Vista Schede a Griglia"
+                  className={`flex ${
+                    isCollapsed ? "justify-center p-2" : "flex-col items-center justify-center gap-1 py-1.5 px-1 min-h-[42px]"
+                  } rounded-md text-xs font-mono transition-all cursor-pointer ${
+                    viewMode === "grid"
+                      ? "bg-[#251C0E] text-[#E5C170] border border-[#C5A059]/60 shadow-xs font-semibold"
+                      : "text-[#888] hover:text-[#EEE] hover:bg-[#181818]"
+                  }`}
+                >
+                  <LayoutGrid className="w-3.5 h-3.5 text-[#C5A059] shrink-0" />
+                  {!isCollapsed && <span className="text-[10px]">Griglia</span>}
+                </button>
+
+                <button
+                  onClick={() => {
+                    onViewModeChange("table");
+                    onCloseMobile();
+                  }}
+                  title="Vista Elenco a Tabella"
+                  className={`flex ${
+                    isCollapsed ? "justify-center p-2" : "flex-col items-center justify-center gap-1 py-1.5 px-1 min-h-[42px]"
+                  } rounded-md text-xs font-mono transition-all cursor-pointer ${
+                    viewMode === "table"
+                      ? "bg-[#251C0E] text-[#E5C170] border border-[#C5A059]/60 shadow-xs font-semibold"
+                      : "text-[#888] hover:text-[#EEE] hover:bg-[#181818]"
+                  }`}
+                >
+                  <List className="w-3.5 h-3.5 text-[#C5A059] shrink-0" />
+                  {!isCollapsed && <span className="text-[10px]">Tabella</span>}
+                </button>
+
+                <button
+                  onClick={() => {
+                    onViewModeChange("graph");
+                    onCloseMobile();
+                  }}
+                  title="Vista Grafo Ontologico"
+                  className={`flex ${
+                    isCollapsed ? "justify-center p-2" : "flex-col items-center justify-center gap-1 py-1.5 px-1 min-h-[42px]"
+                  } rounded-md text-xs font-mono transition-all cursor-pointer ${
+                    viewMode === "graph"
+                      ? "bg-[#251C0E] text-[#E5C170] border border-[#C5A059]/60 shadow-xs font-semibold"
+                      : "text-[#888] hover:text-[#EEE] hover:bg-[#181818]"
+                  }`}
+                >
+                  <Network className="w-3.5 h-3.5 text-[#C5A059] shrink-0" />
+                  {!isCollapsed && <span className="text-[10px]">Grafo</span>}
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Section 1: Navigazione Principale */}
           <div>
             {!isCollapsed && (
               <div className="text-[10px] uppercase tracking-widest text-[#555] px-2 mb-1 font-mono font-semibold">
-                Viste
+                Filtri Principali
               </div>
             )}
             <div className="space-y-0.5">
@@ -512,193 +613,208 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           )}
 
-          {/* Section 3: Strumenti Vault */}
+          {/* Section 3: Strumenti Vault (Collassabile) */}
           <div className="pt-2 border-t border-[#181818]">
-            {!isCollapsed && (
-              <div className="text-[10px] uppercase tracking-widest text-[#555] px-2 mb-1.5 font-mono font-semibold flex items-center justify-between">
-                <span>Strumenti</span>
+            {isCollapsed ? (
+              <div className="flex justify-center p-1">
                 <button
-                  onClick={() => onSeedDemo()}
-                  disabled={isSeeding}
-                  title="Sincronizza / ricarica suite documentale OKF di base"
-                  className="text-[#666] hover:text-[#C5A059] p-0.5 rounded transition-colors disabled:opacity-40"
+                  type="button"
+                  onClick={() => {
+                    setIsCollapsed(false);
+                    setIsToolsOpen(true);
+                  }}
+                  title="Espandi Strumenti Vault"
+                  className="p-2 rounded-md text-[#777] hover:text-[#C5A059] hover:bg-[#121212] transition-colors cursor-pointer"
                 >
-                  <RefreshCw className={`w-3 h-3 ${isSeeding ? "animate-spin text-[#C5A059]" : ""}`} />
+                  <Wrench className="w-4 h-4" />
                 </button>
               </div>
+            ) : (
+              <div>
+                <button
+                  type="button"
+                  onClick={toggleToolsOpen}
+                  className="w-full flex items-center justify-between px-2 py-1.5 rounded-md text-[10px] font-mono uppercase tracking-wider text-[#777] hover:text-[#C5A059] hover:bg-[#121212] transition-colors group cursor-pointer select-none"
+                  title="Espandi o collassa gli strumenti della sidebar (tutti disponibili anche nel menu ··· in alto a destra)"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <Wrench className="w-3 h-3 text-[#C5A059]/80 group-hover:text-[#C5A059]" />
+                    <span className="font-semibold text-[#888] group-hover:text-[#E5C170]">Strumenti</span>
+                    <span className="text-[8.5px] text-[#555] font-normal lowercase tracking-normal">
+                      {isToolsOpen ? "" : "(menu ···)"}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-[#161616] text-[#666] group-hover:text-[#AAA]">
+                      {isToolsOpen ? "Nascondi" : "6 tool"}
+                    </span>
+                    <ChevronDown
+                      className={`w-3.5 h-3.5 text-[#555] group-hover:text-[#C5A059] transition-transform duration-200 ${
+                        isToolsOpen ? "rotate-180" : ""
+                      }`}
+                    />
+                  </div>
+                </button>
+
+                {isToolsOpen && (
+                  <div className="space-y-1 mt-1 pl-0.5">
+                    {/* Sync Demo OKF */}
+                    <div className="flex items-center justify-between px-2 py-1 text-[10px] text-[#666]">
+                      <span className="font-mono">Sync Demo OKF</span>
+                      <button
+                        onClick={() => onSeedDemo()}
+                        disabled={isSeeding}
+                        title="Sincronizza / ricarica suite documentale OKF di base"
+                        className="text-[#666] hover:text-[#C5A059] p-0.5 rounded transition-colors disabled:opacity-40 cursor-pointer"
+                      >
+                        <RefreshCw className={`w-3 h-3 ${isSeeding ? "animate-spin text-[#C5A059]" : ""}`} />
+                      </button>
+                    </div>
+
+                    {/* Google Drive */}
+                    {onOpenGoogleDrive && (
+                      <button
+                        onClick={() => {
+                          onOpenGoogleDrive();
+                          onCloseMobile();
+                        }}
+                        className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-md bg-[#121212] hover:bg-[#181818] border border-[#1E1E1E] hover:border-[#38BDF8]/40 text-[#BBB] hover:text-white text-xs transition-all group text-left cursor-pointer"
+                      >
+                        <div className="flex items-center gap-2.5 truncate">
+                          <FileText className="w-3.5 h-3.5 text-[#38BDF8] shrink-0" />
+                          <span className="truncate font-medium">Google Drive</span>
+                        </div>
+                        <span className="text-[9px] font-mono text-[#555] group-hover:text-[#38BDF8] transition-colors">
+                          Docs
+                        </span>
+                      </button>
+                    )}
+
+                    {/* Importa Doc */}
+                    <button
+                      onClick={() => {
+                        onOpenKnowledgeUpload();
+                        onCloseMobile();
+                      }}
+                      className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-md bg-[#121212] hover:bg-[#181818] border border-[#1E1E1E] hover:border-[#C5A059]/40 text-[#BBB] hover:text-white text-xs transition-all group text-left cursor-pointer"
+                    >
+                      <div className="flex items-center gap-2.5 truncate">
+                        <FileUp className="w-3.5 h-3.5 text-[#C5A059] shrink-0" />
+                        <span className="truncate font-medium">Importa Doc</span>
+                      </div>
+                      <span className="text-[9px] font-mono text-[#555] group-hover:text-[#C5A059] transition-colors">
+                        .md
+                      </span>
+                    </button>
+
+                    {/* Centro Recupero */}
+                    {onOpenRecovery && (
+                      <button
+                        onClick={() => {
+                          onOpenRecovery();
+                          onCloseMobile();
+                        }}
+                        className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-md bg-[#121212] hover:bg-[#181818] border border-[#1E1E1E] hover:border-[#E5C170]/40 text-[#BBB] hover:text-white text-xs transition-all group text-left cursor-pointer"
+                      >
+                        <div className="flex items-center gap-2.5 truncate">
+                          <ShieldCheck className="w-3.5 h-3.5 text-[#E5C170] shrink-0" />
+                          <span className="truncate font-medium">Centro Recupero</span>
+                        </div>
+                        <span className="text-[9px] font-mono text-emerald-500/80 bg-emerald-950/40 px-1 py-0.2 rounded border border-emerald-800/30">
+                          Attivo
+                        </span>
+                      </button>
+                    )}
+
+                    {/* Zero-Guessing */}
+                    {onOpenCekikjInspector && (
+                      <button
+                        onClick={() => {
+                          onOpenCekikjInspector();
+                          onCloseMobile();
+                        }}
+                        className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-md bg-[#161208] hover:bg-[#20180B] border border-[#C5A059]/40 hover:border-[#C5A059] text-[#E5C170] hover:text-white text-xs transition-all group text-left cursor-pointer"
+                      >
+                        <div className="flex items-center gap-2.5 truncate">
+                          <ShieldAlert className="w-3.5 h-3.5 text-[#C5A059] shrink-0" />
+                          <span className="truncate font-medium">Zero-Guessing</span>
+                        </div>
+                        <span className="text-[9px] font-mono text-[#C5A059] bg-[#C5A059]/20 px-1 py-0.2 rounded border border-[#C5A059]/40">
+                          Gate
+                        </span>
+                      </button>
+                    )}
+
+                    {/* Monitor Quote */}
+                    <button
+                      onClick={() => {
+                        onSelectCategory("quota_monitor");
+                        onCloseMobile();
+                      }}
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs transition-all cursor-pointer ${
+                        currentCategory === "quota_monitor"
+                          ? "bg-[#1C160B] border border-[#C5A059]/50 text-white font-medium"
+                          : "text-[#888] hover:text-[#DDD] hover:bg-[#121212]"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 truncate">
+                        <Activity className={`w-3.5 h-3.5 ${quotaExceeded ? "text-amber-400 animate-pulse" : "text-[#C5A059]"} shrink-0`} />
+                        <span className="truncate">Monitor Quote</span>
+                      </div>
+                      <span className={`text-[9px] font-mono px-1 py-0.2 rounded border ${
+                        quotaExceeded
+                          ? "bg-amber-950/60 text-amber-300 border-amber-800/50"
+                          : "bg-[#161616] text-emerald-400 border-emerald-900/40"
+                      }`}>
+                        {quotaExceeded ? "Bloccata" : "Live"}
+                      </span>
+                    </button>
+
+                    {/* Buffer File Grezzi */}
+                    {(counts.raw_files ?? 0) > 0 && (
+                      <button
+                        onClick={() => {
+                          onSelectCategory("raw_files");
+                          onCloseMobile();
+                        }}
+                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs transition-all cursor-pointer ${
+                          currentCategory === "raw_files"
+                            ? "bg-[#1C160B] border border-[#C5A059]/50 text-white font-medium"
+                            : "text-[#888] hover:text-[#DDD] hover:bg-[#121212]"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 truncate">
+                          <Paperclip className="w-3.5 h-3.5 text-[#A89874] shrink-0" />
+                          <span className="truncate">File Grezzi</span>
+                        </div>
+                        <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-[#161616] text-[#777]">
+                          {counts.raw_files}
+                        </span>
+                      </button>
+                    )}
+
+                    {/* Esporta Backup */}
+                    {onOpenExport && (
+                      <button
+                        onClick={() => {
+                          onOpenExport();
+                          onCloseMobile();
+                        }}
+                        className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-md bg-[#121212] hover:bg-[#181818] border border-[#1E1E1E] hover:border-[#888]/40 text-[#999] hover:text-white text-xs transition-all group text-left cursor-pointer"
+                      >
+                        <div className="flex items-center gap-2.5 truncate">
+                          <Download className="w-3.5 h-3.5 text-[#888] group-hover:text-white shrink-0 transition-colors" />
+                          <span className="truncate font-medium">Esporta Backup</span>
+                        </div>
+                        <span className="text-[9px] font-mono text-[#555] group-hover:text-[#888] transition-colors">
+                          JSON
+                        </span>
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
             )}
-            <div className="space-y-1">
-              {onOpenGoogleDrive && (
-                <button
-                  onClick={() => {
-                    onOpenGoogleDrive();
-                    onCloseMobile();
-                  }}
-                  title={isCollapsed ? "Google Drive & Docs Hub" : undefined}
-                  className={`w-full flex items-center ${
-                    isCollapsed ? "justify-center p-2" : "justify-between px-2.5 py-1.5"
-                  } rounded-md bg-[#121212] hover:bg-[#181818] border border-[#1E1E1E] hover:border-[#38BDF8]/40 text-[#BBB] hover:text-white text-xs transition-all group text-left`}
-                >
-                  <div className="flex items-center gap-2.5 truncate">
-                    <FileText className="w-3.5 h-3.5 text-[#38BDF8] shrink-0" />
-                    {!isCollapsed && <span className="truncate font-medium">Google Drive</span>}
-                  </div>
-                  {!isCollapsed && (
-                    <span className="text-[9px] font-mono text-[#555] group-hover:text-[#38BDF8] transition-colors">
-                      Docs
-                    </span>
-                  )}
-                </button>
-              )}
-
-              <button
-                onClick={() => {
-                  onOpenKnowledgeUpload();
-                  onCloseMobile();
-                }}
-                title={isCollapsed ? "Importa Doc Markdown conforme a OKF v0.2" : undefined}
-                className={`w-full flex items-center ${
-                  isCollapsed ? "justify-center p-2" : "justify-between px-2.5 py-1.5"
-                } rounded-md bg-[#121212] hover:bg-[#181818] border border-[#1E1E1E] hover:border-[#C5A059]/40 text-[#BBB] hover:text-white text-xs transition-all group text-left`}
-              >
-                <div className="flex items-center gap-2.5 truncate">
-                  <FileUp className="w-3.5 h-3.5 text-[#C5A059] shrink-0" />
-                  {!isCollapsed && <span className="truncate font-medium">Importa Doc</span>}
-                </div>
-                {!isCollapsed && (
-                  <span className="text-[9px] font-mono text-[#555] group-hover:text-[#C5A059] transition-colors">
-                    .md
-                  </span>
-                )}
-              </button>
-
-              {onOpenRecovery && (
-                <button
-                  onClick={() => {
-                    onOpenRecovery();
-                    onCloseMobile();
-                  }}
-                  title={isCollapsed ? "Centro di Recupero Dati & Protezione" : undefined}
-                  className={`w-full flex items-center ${
-                    isCollapsed ? "justify-center p-2" : "justify-between px-2.5 py-1.5"
-                  } rounded-md bg-[#121212] hover:bg-[#181818] border border-[#1E1E1E] hover:border-[#E5C170]/40 text-[#BBB] hover:text-white text-xs transition-all group text-left`}
-                >
-                  <div className="flex items-center gap-2.5 truncate">
-                    <ShieldCheck className="w-3.5 h-3.5 text-[#E5C170] shrink-0" />
-                    {!isCollapsed && <span className="truncate font-medium">Centro Recupero</span>}
-                  </div>
-                  {!isCollapsed && (
-                    <span className="text-[9px] font-mono text-emerald-500/80 bg-emerald-950/40 px-1 py-0.2 rounded border border-emerald-800/30">
-                      Attivo
-                    </span>
-                  )}
-                </button>
-              )}
-
-              {onOpenCekikjInspector && (
-                <button
-                  onClick={() => {
-                    onOpenCekikjInspector();
-                    onCloseMobile();
-                  }}
-                  title={isCollapsed ? "Zero-Guessing Epistemic Engine (Cekikj)" : undefined}
-                  className={`w-full flex items-center ${
-                    isCollapsed ? "justify-center p-2" : "justify-between px-2.5 py-1.5"
-                  } rounded-md bg-[#161208] hover:bg-[#20180B] border border-[#C5A059]/40 hover:border-[#C5A059] text-[#E5C170] hover:text-white text-xs transition-all group text-left`}
-                >
-                  <div className="flex items-center gap-2.5 truncate">
-                    <ShieldAlert className="w-3.5 h-3.5 text-[#C5A059] shrink-0" />
-                    {!isCollapsed && <span className="truncate font-medium">Zero-Guessing</span>}
-                  </div>
-                  {!isCollapsed && (
-                    <span className="text-[9px] font-mono text-[#C5A059] bg-[#C5A059]/20 px-1 py-0.2 rounded border border-[#C5A059]/40">
-                      Gate
-                    </span>
-                  )}
-                </button>
-              )}
-
-              {/* Quote & Telemetria */}
-              <button
-                onClick={() => {
-                  onSelectCategory("quota_monitor");
-                  onCloseMobile();
-                }}
-                title={isCollapsed ? "Monitor Quote Firestore & Telemetria" : undefined}
-                className={`w-full flex items-center ${
-                  isCollapsed ? "justify-center p-2" : "justify-between px-2.5 py-1.5"
-                } rounded-md text-xs transition-all ${
-                  currentCategory === "quota_monitor"
-                    ? "bg-[#1C160B] border border-[#C5A059]/50 text-white font-medium"
-                    : "text-[#888] hover:text-[#DDD] hover:bg-[#121212]"
-                }`}
-              >
-                <div className="flex items-center gap-2.5 truncate">
-                  <Activity className={`w-3.5 h-3.5 ${quotaExceeded ? "text-amber-400 animate-pulse" : "text-[#C5A059]"} shrink-0`} />
-                  {!isCollapsed && <span className="truncate">Monitor Quote</span>}
-                </div>
-                {!isCollapsed && (
-                  <span className={`text-[9px] font-mono px-1 py-0.2 rounded border ${
-                    quotaExceeded
-                      ? "bg-amber-950/60 text-amber-300 border-amber-800/50"
-                      : "bg-[#161616] text-emerald-400 border-emerald-900/40"
-                  }`}>
-                    {quotaExceeded ? "Bloccata" : "Live"}
-                  </span>
-                )}
-              </button>
-
-              {/* Buffer File Grezzi */}
-              {(counts.raw_files ?? 0) > 0 && (
-                <button
-                  onClick={() => {
-                    onSelectCategory("raw_files");
-                    onCloseMobile();
-                  }}
-                  title={isCollapsed ? `Buffer File Grezzi (${counts.raw_files})` : undefined}
-                  className={`w-full flex items-center ${
-                    isCollapsed ? "justify-center p-2" : "justify-between px-2.5 py-1.5"
-                  } rounded-md text-xs transition-all ${
-                    currentCategory === "raw_files"
-                      ? "bg-[#1C160B] border border-[#C5A059]/50 text-white font-medium"
-                      : "text-[#888] hover:text-[#DDD] hover:bg-[#121212]"
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5 truncate">
-                    <Paperclip className="w-3.5 h-3.5 text-[#A89874] shrink-0" />
-                    {!isCollapsed && <span className="truncate">File Grezzi</span>}
-                  </div>
-                  {!isCollapsed && (
-                    <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-[#161616] text-[#777]">
-                      {counts.raw_files}
-                    </span>
-                  )}
-                </button>
-              )}
-
-              {onOpenExport && (
-                <button
-                  onClick={() => {
-                    onOpenExport();
-                    onCloseMobile();
-                  }}
-                  title={isCollapsed ? "Esporta Backup Completo" : undefined}
-                  className={`w-full flex items-center ${
-                    isCollapsed ? "justify-center p-2" : "justify-between px-2.5 py-1.5"
-                  } rounded-md bg-[#121212] hover:bg-[#181818] border border-[#1E1E1E] hover:border-[#888]/40 text-[#999] hover:text-white text-xs transition-all group text-left`}
-                >
-                  <div className="flex items-center gap-2.5 truncate">
-                    <Download className="w-3.5 h-3.5 text-[#888] group-hover:text-white shrink-0 transition-colors" />
-                    {!isCollapsed && <span className="truncate font-medium">Esporta Backup</span>}
-                  </div>
-                  {!isCollapsed && (
-                    <span className="text-[9px] font-mono text-[#555] group-hover:text-[#888] transition-colors">
-                      JSON
-                    </span>
-                  )}
-                </button>
-              )}
-            </div>
           </div>
         </div>
 

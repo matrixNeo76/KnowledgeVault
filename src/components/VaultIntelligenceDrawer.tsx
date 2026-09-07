@@ -104,6 +104,8 @@ interface VaultIntelligenceDrawerProps {
   resources: ResourceItem[];
   activeCategory?: string;
   activeTag?: string | null;
+  initialQuery?: string;
+  onClearInitialQuery?: () => void;
   onOpenResource: (resource: ResourceItem) => void;
   onShowInGraph: (nodeIds?: string[]) => void;
   onSaveAsNote?: (payload: SaveNotePayload) => Promise<boolean | ResourceItem>;
@@ -115,6 +117,8 @@ export const VaultIntelligenceDrawer: React.FC<VaultIntelligenceDrawerProps> = (
   resources,
   activeCategory,
   activeTag,
+  initialQuery,
+  onClearInitialQuery,
   onOpenResource,
   onShowInGraph,
   onSaveAsNote,
@@ -128,6 +132,16 @@ export const VaultIntelligenceDrawer: React.FC<VaultIntelligenceDrawerProps> = (
   const [savedNotesMap, setSavedNotesMap] = useState<Record<string, { title: string; savedAt: string }>>({});
   const [isSavingNoteId, setIsSavingNoteId] = useState<string | null>(null);
   const [expandedTraceIds, setExpandedTraceIds] = useState<Record<string, boolean>>({});
+
+  // Ascolta query iniziale (es. passata dalla CaptureBar)
+  useEffect(() => {
+    if (initialQuery && initialQuery.trim()) {
+      setQuery(initialQuery.trim());
+      if (onClearInitialQuery) {
+        onClearInitialQuery();
+      }
+    }
+  }, [initialQuery, onClearInitialQuery]);
 
   // Menu Dropdown Stati
   const [openCopyMenuId, setOpenCopyMenuId] = useState<string | null>(null);
@@ -251,11 +265,21 @@ export const VaultIntelligenceDrawer: React.FC<VaultIntelligenceDrawerProps> = (
     setActiveStageIndex(0);
 
     try {
+      // Estrae la cronologia degli ultimi scambi per dare memoria multi-turno agli agenti
+      const historyPayload = conversation
+        .filter((msg) => msg.response && msg.response.answer)
+        .slice(-5)
+        .flatMap((msg) => [
+          { role: "user" as const, content: msg.userQuery },
+          { role: "assistant" as const, content: msg.response!.answer.slice(0, 1000) },
+        ]);
+
       const payload = {
         query: textToSend,
         mode,
         activeCategory,
         activeTag: activeTag || undefined,
+        history: historyPayload,
         clientResources: resources.slice(0, 150),
       };
 

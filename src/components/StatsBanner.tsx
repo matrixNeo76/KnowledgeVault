@@ -19,7 +19,10 @@ import {
   Paperclip,
   GraduationCap,
   Rss,
-  StickyNote
+  StickyNote,
+  LayoutGrid,
+  List,
+  Network
 } from "lucide-react";
 import { ResourceType, NavCategory, SortOption, ViewMode } from "../types";
 
@@ -58,6 +61,8 @@ export const StatsBanner: React.FC<StatsBannerProps> = ({
   allTags,
   selectedTag,
   onSelectTag,
+  viewMode = "grid",
+  onViewModeChange,
   totalFilteredCount,
   searchQuery = "",
   onClearSearch,
@@ -319,6 +324,56 @@ export const StatsBanner: React.FC<StatsBannerProps> = ({
               </div>
             )}
           </div>
+
+          {/* View Mode Toggle: Grid / Table / Graph */}
+          {onViewModeChange && (
+            <div className="flex items-center bg-[#141414] border border-[#222] rounded-lg p-0.5 shrink-0 shadow-xs">
+              <button
+                type="button"
+                onClick={() => onViewModeChange("grid")}
+                className={`p-1.5 min-w-[30px] min-h-[30px] rounded-md text-xs font-mono flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                  viewMode === "grid"
+                    ? "bg-[#251C0E] text-[#E5C170] border border-[#C5A059]/60 shadow-xs font-semibold"
+                    : "text-[#777] hover:text-[#CCC] hover:bg-[#1A1A1A]"
+                }`}
+                title="Visualizza a Griglia"
+                aria-label="Vista Griglia"
+              >
+                <LayoutGrid className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden sm:inline text-[10.5px]">Griglia</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onViewModeChange("table")}
+                className={`p-1.5 min-w-[30px] min-h-[30px] rounded-md text-xs font-mono flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                  viewMode === "table"
+                    ? "bg-[#251C0E] text-[#E5C170] border border-[#C5A059]/60 shadow-xs font-semibold"
+                    : "text-[#777] hover:text-[#CCC] hover:bg-[#1A1A1A]"
+                }`}
+                title="Visualizza a Tabella"
+                aria-label="Vista Tabella"
+              >
+                <List className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden sm:inline text-[10.5px]">Tabella</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onViewModeChange("graph")}
+                className={`p-1.5 min-w-[30px] min-h-[30px] rounded-md text-xs font-mono flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                  viewMode === "graph"
+                    ? "bg-[#251C0E] text-[#E5C170] border border-[#C5A059]/60 shadow-xs font-semibold"
+                    : "text-[#777] hover:text-[#CCC] hover:bg-[#1A1A1A]"
+                }`}
+                title="Visualizza a Grafo Ontologico"
+                aria-label="Vista Grafo"
+              >
+                <Network className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden sm:inline text-[10.5px]">Grafo</span>
+              </button>
+            </div>
+          )}
 
           {/* Reset All Filters Button */}
           {hasActiveFilters && (

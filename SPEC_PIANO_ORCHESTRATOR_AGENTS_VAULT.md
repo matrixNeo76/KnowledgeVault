@@ -167,12 +167,12 @@ Il nuovo modulo non reinventa la logica di base, ma fa leva su componenti già c
 
 ---
 
-## 5. Specifiche dell'Interfaccia Utente (Floating Intelligence Drawer)
+## 5. Specifiche dell'Interfaccia Utente (CaptureBar Unificata & Intelligence Drawer)
 
-### 5.1 Il Pulsante Volatile (Floating Action Button - FAB)
-- **Posizionamento**: Angolo inferiore destro dello schermo (`bottom-6 right-6`), sopraelevato rispetto alla griglia (`z-40`).
-- **Aspetto Visivo**: Bottone circolare elegante (48x48px) con sfondo scuro `#16130B`, bordo dorato `#C5A059`/50, icona combinata `Sparkles` / `BrainCircuit`, ed effetto glow dorato soffuso.
-- **Micro-interazione**: Badge discreto indicante lo stato di prontezza (`● Agenti Pronti`) e tooltip con scorciatoia da tastiera (`Cmd/Ctrl + K`).
+### 5.1 Punto di Accesso Unificato nella CaptureBar (Sostituzione del FAB)
+- **Posizionamento Ergonomico**: Integrato direttamente nell'angolo destro della **CaptureBar** (`id="capturebar-vault-intelligence-btn"`), eliminando pulsanti duplicati fluttuanti a schermo e unificando il flusso di cattura e consultazione.
+- **Aspetto Visivo & Feedback**: Bottone con styling coordinato `#18130B`, bordo dorato `#C5A059`/60, icona `BrainCircuit`, etichetta *"Intelligence"* e pillola per la scorciatoia da tastiera (`⌘K / Ctrl+K`). Quando il drawer è attivo, il pulsante assume fondo dorato `#C5A059` con testo nero a contrasto e glow.
+- **Sinergia Operativa Completa**: Specifiche dettagliate, comandi slash (`/ask`, `/note`, `/mcp`, `/paper`, `/fix`) e registrazione vocale push-to-talk sono documentate in `/SPEC_PIANO_CAPTUREBAR_INTELLIGENCE.md`.
 
 ### 5.2 Il Cassetto di Consultazione (Slide-Over Drawer)
 - **Comportamento**: Si apre da destra con transizione fluida (larghezza 440px su desktop, a schermo intero su mobile), senza oscurare completamente la navigazione retrostante.
