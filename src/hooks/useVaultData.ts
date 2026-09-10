@@ -1,0 +1,1581 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import { useState, useEffect, useRef } from "react";
+import { 
+  auth, 
+  googleProvider, 
+  signInWithPopup, 
+  fbSignOut, 
+  onAuthStateChanged, 
+  signInAnonymously,
+  db, 
+  collection, 
+  doc, 
+  addDoc, 
+  updateDoc, 
+  deleteDoc, 
+  onSnapshot, 
+  query, 
+  where, 
+  serverTimestamp,
+  getDocs,
+  setDoc,
+  writeBatch,
+  disableNetwork,
+  enableNetwork,
+  User
+} from "../lib/firebase";
+import { ResourceItem, DiagnosticLog, RawFileItem } from "../types";
+import { initialSampleResources, getInitialSampleResourcesWithIds } from "../lib/sampleData";
+import { parseDate, getTimestampMillis } from "../lib/dateUtils";
+import { dualLayerStore } from "../lib/cekikj/dualLayerStore";
+import { 
+  saveCachedResources, 
+  loadCachedResources, 
+  updateCacheTimestamp,
+  DEFAULT_SYNC_INTERVAL_MS,
+  saveMultiLayerResources,
+  loadFromServerFilesystem,
+  isQuotaExceededSaved,
+  saveQuotaExceededStatus
+} from "../lib/cacheManager";
+import { loadResourcesFromIndexedDB, loadRawFilesFromIndexedDB } from "../lib/indexedDb";
+import { analyzeResourceConflicts, ConflictAnalysisResult } from "../lib/conflictResolver";
+import { performDeepRecoveryScan } from "../lib/recoveryManager";
+import { recordLifecycleEvent } from "../lib/resourceLifecycleTracker";
+import {
+  recordFirestoreRead,
+  recordFirestoreWrite,
+  recordFirestoreDelete,
+  recordFirestoreError,
+  setActiveFirestoreListenersCount,
+} from "../lib/quotaTelemetry";
+
+// Checks if a value is a plain JavaScript object
+function isPlainObject(value: any): boolean {
+  if (value === null || typeof value !== "object") return false;
+  if (Array.isArray(value)) return false;
+  if (value instanceof Date) return false;
+  if (typeof value.toMillis === "function" || typeof value.toDate === "function") return false;
+  if ("_methodName" in value || "_delegate" in value) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === null || proto === Object.prototype;
+}
+
+// Robust Firestore sanitizer to eliminate all undefined fields recursively
+export function sanitizeForFirestore<T extends Record<string, any>>(obj: T): T {
+  if (!obj || typeof obj !== "object") return obj;
+  if (Array.isArray(obj)) {
+    return obj
+      .filter((v) => v !== undefined)
+      .map((v) => (isPlainObject(v) || Array.isArray(v) ? sanitizeForFirestore(v) : v)) as any;
+  }
+  if (!isPlainObject(obj)) {
+    return obj;
+  }
+  const result: Record<string, any> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value === undefined) {
+      continue;
+    } else if (isPlainObject(value)) {
+      result[key] = sanitizeForFirestore(value);
+    } else if (Array.isArray(value)) {
+      result[key] = value
+        .filter((v) => v !== undefined)
+        .map((v) => (isPlainObject(v) || Array.isArray(v) ? sanitizeForFirestore(v) : v));
+    } else {
+      result[key] = value;
+    }
+  }
+  return result as T;
+}
+
+// Check if error is strictly related to Firestore quota exhaustion (RESOURCE_EXHAUSTED / 429)
+export function isQuotaError(err: any): boolean {
+  if (!err) return false;
+  const msg = String(err.message || "").toLowerCase();
+  const code = String(err.code || "").toLowerCase();
+
+  // Exclude not-found, permission, network and timeout errors from being marked as quota exhaustion
+  if (code.includes("not-found") || msg.includes("not-found") || msg.includes("does not exist")) return false;
+  if (code.includes("permission-denied") || msg.includes("permission-denied")) return false;
+  if (code.includes("deadline-exceeded") || msg.includes("timed out") || msg.includes("timeout")) return false;
+  if (code.includes("unavailable") || msg.includes("could not reach cloud firestore backend")) return false;
+
+  return (
+    code.includes("resource-exhausted") ||
+    msg.includes("quota limit exceeded") ||
+    msg.includes("quota exceeded") ||
+    code === "429" ||
+    msg.includes(" 429 ")
+  );
+}
+
+// Execute Firestore operations with realistic network timeout
+export async function withFirestoreTimeout<T>(operation: Promise<T>, timeoutMs = 8000): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let completed = false;
+    const timer = setTimeout(() => {
+      if (!completed) {
+        completed = true;
+        reject(new Error("Firestore operation timed out (latenza di connessione di rete temporanea)"));
+      }
+    }, timeoutMs);
+
+    operation
+      .then((res) => {
+        if (!completed) {
+          completed = true;
+          clearTimeout(timer);
+          resolve(res);
+        }
+      })
+      .catch((err) => {
+        if (!completed) {
+          completed = true;
+          clearTimeout(timer);
+          reject(err);
+        }
+      });
+  });
+}
+
+const DELETED_IDS_STORAGE_KEY = "vault_deleted_resource_ids_v1";
+
+export function getDeletedResourceIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(DELETED_IDS_STORAGE_KEY);
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) return new Set(arr);
+    }
+  } catch {}
+  return new Set();
+}
+
+export function recordDeletedResourceId(id: string): void {
+  try {
+    const set = getDeletedResourceIds();
+    set.add(id);
+    localStorage.setItem(DELETED_IDS_STORAGE_KEY, JSON.stringify(Array.from(set)));
+  } catch {}
+}
+
+let multiLayerSaveTimeout: ReturnType<typeof setTimeout> | null = null;
+let lastPendingItems: ResourceItem[] | null = null;
+let lastPendingRawFiles: RawFileItem[] | undefined = undefined;
+let lastPendingUid: string | undefined = undefined;
+let lastPendingDeleted: string[] = [];
+
+export function saveLocalResources(items: ResourceItem[], uid?: string, currentRawFiles?: RawFileItem[]) {
+  if (items.length === 0) {
+    const existing = loadCachedResources(uid);
+    if (existing && existing.length > 0) {
+      console.warn("[useVaultData] Prevented saving empty array over existing cached resources!");
+      return;
+    }
+  }
+
+  const deletedSet = getDeletedResourceIds();
+  let cleanItems = items;
+  if (deletedSet.size > 0) {
+    cleanItems = items.filter((r) => !deletedSet.has(r.id));
+    if (cleanItems.length < items.length) {
+      const dropped = items.filter((r) => deletedSet.has(r.id));
+      dropped.forEach((d) => {
+        recordLifecycleEvent({
+          stage: "RESOURCE_DROPPED_TOMBSTONE",
+          resourceId: d.id,
+          resourceTitle: d.title,
+          resourceType: d.type,
+          status: "warn",
+          message: `Risorsa "${d.title}" (ID: ${d.id}) rimossa dal salvataggio perché marcata nel registro eliminazioni (tombstone)`,
+          details: { id: d.id, title: d.title },
+        });
+      });
+    }
+  }
+
+  // 1. Instant synchronous localStorage cache persistence
+  saveCachedResources(cleanItems, uid);
+
+  // 2. Debounced multi-layer persistence save (IndexedDB + Server filesystem)
+  // Collapses rapid state updates and prevents concurrent overlapping network backups
+  lastPendingItems = cleanItems;
+  lastPendingRawFiles = currentRawFiles;
+  lastPendingUid = uid;
+  lastPendingDeleted = Array.from(deletedSet);
+
+  if (multiLayerSaveTimeout) {
+    clearTimeout(multiLayerSaveTimeout);
+  }
+
+  multiLayerSaveTimeout = setTimeout(() => {
+    if (lastPendingItems) {
+      const toSave = lastPendingItems;
+      const toRaw = lastPendingRawFiles;
+      const toUid = lastPendingUid;
+      const toDeleted = lastPendingDeleted;
+      saveMultiLayerResources(toSave, toRaw, toUid, toDeleted).catch((err) => {
+        console.warn("[useVaultData] Multi-layer persistence background save error:", err);
+      });
+    }
+  }, 400);
+}
+
+export function useVaultData() {
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [resources, setResources] = useState<ResourceItem[]>(() => {
+    const cached = loadCachedResources();
+    return cached && cached.length > 0 ? cached : getInitialSampleResourcesWithIds();
+  });
+  const [isLoadingResources, setIsLoadingResources] = useState(false);
+
+  const [logs, setLogs] = useState<DiagnosticLog[]>([
+    {
+      id: "init-1",
+      timestamp: new Date().toLocaleTimeString(),
+      level: "info",
+      category: "AUTH",
+      message: "Knowledge Vault inizializzato con Persistenza Multi-Livello. Avvio sessione...",
+    }
+  ]);
+
+  const addLog = (
+    level: DiagnosticLog["level"],
+    category: DiagnosticLog["category"],
+    message: string,
+    details?: any
+  ) => {
+    const newLog: DiagnosticLog = {
+      id: "log-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6),
+      timestamp: new Date().toLocaleTimeString(),
+      level,
+      category,
+      message,
+      details,
+    };
+    setLogs((prev) => [...prev.slice(-150), newLog]);
+  };
+
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [quotaExceeded, setQuotaExceeded] = useState<boolean>(() => isQuotaExceededSaved());
+  const wasQuotaExceededRef = useRef<boolean>(isQuotaExceededSaved());
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(new Date());
+  const [isSeeding, setIsSeeding] = useState(false);
+  const isSeedingRef = useRef(false);
+
+  // Conflict Resolution States
+  const [conflictAnalysis, setConflictAnalysis] = useState<ConflictAnalysisResult | null>(null);
+  const [isConflictModalOpen, setIsConflictModalOpen] = useState(false);
+  const [isApplyingMerge, setIsApplyingMerge] = useState(false);
+
+  // Recovery Center & Deep Storage Detection States
+  const [isRecoveryModalOpen, setIsRecoveryModalOpen] = useState(false);
+  const [isPersistenceModalOpen, setIsPersistenceModalOpen] = useState(false);
+  const [storageDiscrepancyNotice, setStorageDiscrepancyNotice] = useState<{ foundCount: number; currentCount: number } | null>(null);
+
+  const resourcesRef = useRef<ResourceItem[]>(resources);
+  useEffect(() => {
+    resourcesRef.current = resources;
+    if (resources && resources.length > 0) {
+      dualLayerStore.syncResources(resources);
+    }
+  }, [resources]);
+
+  // Multi-Layer Startup Hydration: restore from Backend Server Filesystem or IndexedDB
+  useEffect(() => {
+    let isMounted = true;
+    async function hydrateMultiLayer() {
+      try {
+        const serverData = await loadFromServerFilesystem();
+        if (serverData && serverData.resources && serverData.resources.length > 0 && isMounted) {
+          addLog("success", "CACHE", `Archivio persistente Server Backend caricato (${serverData.resources.length} risorse).`);
+          setResources((prev) => {
+            const analysis = analyzeResourceConflicts(prev, serverData.resources);
+            saveLocalResources(analysis.mergedResources, user?.uid);
+            return analysis.mergedResources;
+          });
+        }
+
+        const idbItems = await loadResourcesFromIndexedDB();
+        if (idbItems && idbItems.length > 0 && isMounted) {
+          addLog("info", "CACHE", `Archivio IndexedDB caricato (${idbItems.length} risorse).`);
+          setResources((prev) => {
+            const analysis = analyzeResourceConflicts(prev, idbItems);
+            saveLocalResources(analysis.mergedResources, user?.uid);
+            return analysis.mergedResources;
+          });
+        }
+
+        setTimeout(async () => {
+          if (!isMounted) return;
+          try {
+            const scan = await performDeepRecoveryScan(resourcesRef.current);
+            if (scan.totalUniqueResources > resourcesRef.current.length) {
+              setStorageDiscrepancyNotice({
+                foundCount: scan.totalUniqueResources,
+                currentCount: resourcesRef.current.length,
+              });
+              addLog(
+                "warn",
+                "CACHE",
+                `Rilevate ${scan.totalUniqueResources} risorse archiviate nei livelli di storage rispetto a ${resourcesRef.current.length} visualizzate. Centro di Recupero disponibile.`
+              );
+            }
+          } catch (e) {
+            console.warn("Deep scan background notice:", e);
+          }
+        }, 1500);
+      } catch (err: any) {
+        console.warn("Startup multi-layer hydration check:", err?.message || err);
+      }
+    }
+
+    hydrateMultiLayer();
+    return () => { isMounted = false; };
+  }, []);
+
+  // Auth state listener
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      if (currentUser) {
+        setUser(currentUser);
+        setAuthLoading(false);
+        addLog("success", "AUTH", `Utente autenticato: ${currentUser.email || "Anonimo"} (${currentUser.uid})`);
+      } else {
+        try {
+          addLog("info", "AUTH", "Tentativo di autenticazione anonima rapida...");
+          const anonCred = await signInAnonymously(auth);
+          setUser(anonCred.user);
+          addLog("success", "AUTH", `Sessione anonima stabilita: UID ${anonCred.user.uid}`);
+        } catch (err: any) {
+          console.warn("Anonymous auth failed, waiting for explicit login:", err);
+          addLog("warn", "AUTH", `Autenticazione anonima non riuscita: ${err.message}`);
+          setUser(null);
+        } finally {
+          setAuthLoading(false);
+        }
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Proactively disable/enable network according to quota status
+  useEffect(() => {
+    saveQuotaExceededStatus(quotaExceeded);
+    if (quotaExceeded) {
+      disableNetwork(db).catch(() => {});
+    } else {
+      enableNetwork(db).catch(() => {});
+    }
+  }, [quotaExceeded]);
+
+  // Realtime listener for User's Firestore Resources
+  useEffect(() => {
+    if (!user) {
+      const localCached = loadCachedResources();
+      if (localCached && localCached.length > 0) {
+        setResources(localCached);
+      }
+      setIsLoadingResources(false);
+      return;
+    }
+
+    if (quotaExceeded) {
+      setIsLoadingResources(false);
+      const cached = loadCachedResources(user.uid);
+      if (cached && cached.length > 0) {
+        setResources(cached);
+      }
+      return;
+    }
+
+    setIsLoadingResources(true);
+    addLog("info", "FIRESTORE", `Sottoscrizione realtime alla collezione 'resources' per UID: ${user.uid}`);
+
+    const resourcesColRef = collection(db, "resources");
+    const q = query(
+      resourcesColRef,
+      where("userId", "==", user.uid)
+    );
+
+    let unsubscribe: (() => void) | null = null;
+    try {
+      setActiveFirestoreListenersCount(1);
+      unsubscribe = onSnapshot(
+        q,
+        (snapshot) => {
+          const readCount = snapshot.docChanges().length || snapshot.size;
+          if (readCount > 0) {
+            recordFirestoreRead(
+              readCount,
+              "Listener Realtime (onSnapshot)",
+              `Ricevuti ${snapshot.size} documenti (${snapshot.docChanges().length} modificati)`
+            );
+          }
+
+          const items: ResourceItem[] = [];
+          snapshot.forEach((docSnap) => {
+            const rawData = docSnap.data() as Omit<ResourceItem, "id">;
+            const validatedCreatedAt = parseDate(rawData.createdAt) || parseDate(rawData.updatedAt) || new Date();
+            items.push({
+              id: docSnap.id,
+              ...rawData,
+              createdAt: rawData.createdAt ? (parseDate(rawData.createdAt) ? rawData.createdAt : validatedCreatedAt) : validatedCreatedAt,
+            });
+          });
+
+          items.sort((a, b) => {
+            const timeA = getTimestampMillis(a.createdAt);
+            const timeB = getTimestampMillis(b.createdAt);
+            return timeB - timeA;
+          });
+
+          const currentLocalItems = resourcesRef.current;
+          const currentLocalCount = currentLocalItems.length;
+
+          recordLifecycleEvent({
+            stage: "REALTIME_SNAPSHOT_RECEIVED",
+            status: "info",
+            message: `Snapshot realtime Firestore: ricevuti ${items.length} documenti remoti (stato locale attuale: ${currentLocalCount})`,
+            details: { remoteCount: items.length, localCount: currentLocalCount },
+          });
+
+          if (snapshot.empty) {
+            if (currentLocalCount > 0) {
+              addLog(
+                "info",
+                "FIRESTORE",
+                `Firestore connesso per ${user.email || user.uid} (0 documenti remoti trovati). ${currentLocalCount} risorse locali mantenute e protette dallo scudo di sicurezza.`
+              );
+              setIsLoadingResources(false);
+              return;
+            } else {
+              const cached = loadCachedResources(user.uid);
+              if (cached && cached.length > 0) {
+                setResources(cached);
+              }
+              setIsLoadingResources(false);
+              return;
+            }
+          }
+
+          // Reconcile remote snapshot with current local state safely
+          const analysis = analyzeResourceConflicts(currentLocalItems, items);
+
+          // Audit for any local resource that might have been unmerged
+          const mergedIdSet = new Set(analysis.mergedResources.map((r) => r.id));
+          const unmergedItems = currentLocalItems.filter((r) => !mergedIdSet.has(r.id));
+          if (unmergedItems.length > 0) {
+            unmergedItems.forEach((unm) => {
+              recordLifecycleEvent({
+                stage: "CONFLICT_RECONCILIATION",
+                resourceId: unm.id,
+                resourceTitle: unm.title,
+                resourceType: unm.type,
+                status: "info",
+                message: `Riconciliazione: ID locale "${unm.id}" ("${unm.title}") unificato con record Firestore`,
+                details: { originalId: unm.id, title: unm.title },
+              });
+            });
+          }
+
+          recordLifecycleEvent({
+            stage: "CONFLICT_RECONCILIATION",
+            status: "success",
+            message: `Merge completato: ${analysis.mergedResources.length} risorse attive nel Vault (${analysis.localOnlyCount} locali, ${analysis.remoteOnlyCount} remote, ${analysis.identicalCount} identiche)`,
+            details: {
+              total: analysis.mergedResources.length,
+              localOnly: analysis.localOnlyCount,
+              remoteOnly: analysis.remoteOnlyCount,
+              identical: analysis.identicalCount,
+            },
+          });
+
+          setConflictAnalysis(analysis.hasConflicts ? analysis : null);
+          setResources(analysis.mergedResources);
+          saveLocalResources(analysis.mergedResources, user.uid);
+          setQuotaExceeded(false);
+          wasQuotaExceededRef.current = false;
+          saveQuotaExceededStatus(false);
+          addLog(
+            "info",
+            "FIRESTORE",
+            `Sincronizzazione realtime Firestore: ${analysis.mergedResources.length} risorse attive allineate e preservate.`
+          );
+          setIsLoadingResources(false);
+        },
+        (error) => {
+          console.warn("Firestore snapshot notice:", error?.message || error);
+          recordFirestoreError(error, "Listener Realtime (onSnapshot)");
+          if (isQuotaError(error)) {
+            setQuotaExceeded(true);
+            wasQuotaExceededRef.current = true;
+            disableNetwork(db).catch(() => {});
+            addLog("warn", "FIRESTORE", "Limite quota giornaliera Firestore (Free Tier) raggiunto. Attivata persistenza multi-livello offline/locale.");
+            const cached = loadCachedResources(user?.uid);
+            if (cached && cached.length > 0) {
+              setResources(cached);
+            }
+          } else {
+            addLog("error", "FIRESTORE", `Errore sincronizzazione Firestore: ${error.message}`, error);
+            setStatusMessage(`Errore di connessione Firestore: ${error.message}`);
+          }
+          setIsLoadingResources(false);
+        }
+      );
+    } catch (err: any) {
+      console.warn("Snapshot setup error:", err);
+      recordFirestoreError(err, "Listener Realtime setup");
+      if (isQuotaError(err)) {
+        setQuotaExceeded(true);
+        wasQuotaExceededRef.current = true;
+        disableNetwork(db).catch(() => {});
+      }
+      setIsLoadingResources(false);
+    }
+
+    return () => {
+      setActiveFirestoreListenersCount(0);
+      if (unsubscribe) unsubscribe();
+    };
+  }, [user, quotaExceeded]);
+
+  // Periodic Auto-Sync Timer (10m)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!quotaExceeded) {
+        addLog("info", "CACHE", "Timer di auto-sincronizzazione (10m) scattato.");
+        handleTriggerSync();
+      }
+    }, DEFAULT_SYNC_INTERVAL_MS);
+
+    return () => clearInterval(interval);
+  }, [user, quotaExceeded]);
+
+  // Apply resolved merge back to Firestore and local state
+  const handleApplyConflictMerge = async (resolvedItems: ResourceItem[], toUpload: ResourceItem[]) => {
+    let activeUser = user || auth.currentUser;
+    if (!activeUser) return;
+    setIsApplyingMerge(true);
+    addLog("info", "FIRESTORE", `Avvio applicazione merge: ${resolvedItems.length} risorse totali, ${toUpload.length} da inviare a Firestore...`);
+    
+    try {
+      if (toUpload.length > 0) {
+        let uploadCount = 0;
+        for (const item of toUpload) {
+          const docRef = doc(db, "resources", item.id);
+          const cleanPayload = sanitizeForFirestore({
+            userId: activeUser.uid,
+            type: item.type,
+            title: item.title,
+            url: item.url || "",
+            rawInput: item.rawInput || "",
+            summary: item.summary,
+            tags: item.tags || [],
+            isFavorite: item.isFavorite || false,
+            rating: item.rating,
+            metadata: item.metadata || {},
+            createdAt: parseDate(item.createdAt) || new Date(),
+            updatedAt: serverTimestamp(),
+          });
+          await setDoc(docRef, cleanPayload);
+          uploadCount++;
+        }
+        addLog("success", "FIRESTORE", `Caricate ${uploadCount} risorse su Firestore durante la riconciliazione.`);
+      }
+
+      setResources(resolvedItems);
+      saveLocalResources(resolvedItems, activeUser.uid);
+      setQuotaExceeded(false);
+      wasQuotaExceededRef.current = false;
+      setLastSyncTime(new Date());
+      updateCacheTimestamp();
+      setIsConflictModalOpen(false);
+      setConflictAnalysis(null);
+      setStatusMessage(`Merge completato: ${resolvedItems.length} risorse unificate e sincronizzate con il cloud.`);
+      setTimeout(() => setStatusMessage(null), 5000);
+      addLog("success", "FIRESTORE", `Riconciliazione conflitti completata con successo (${resolvedItems.length} risorse totali).`);
+    } catch (err: any) {
+      console.error("Conflict merge error:", err);
+      if (isQuotaError(err)) {
+        setQuotaExceeded(true);
+        wasQuotaExceededRef.current = true;
+        addLog("warn", "FIRESTORE", "Quota Firestore ancora esaurita durante il merge. Le modifiche rimangono protette in locale.");
+        setErrorMessage("Quota Firestore non ancora reimpostata. Le modifiche rimangono protette in memoria locale e su disco.");
+      } else {
+        addLog("error", "FIRESTORE", `Errore applicazione merge: ${err.message}`, err);
+        setErrorMessage(`Errore merge: ${err.message}`);
+      }
+      setTimeout(() => setErrorMessage(null), 5000);
+    } finally {
+      setIsApplyingMerge(false);
+    }
+  };
+
+  // Upload local-only resources directly to Firestore
+  const handleUploadUnsyncedResources = async () => {
+    const activeUser = user || auth.currentUser;
+    if (!activeUser) {
+      setErrorMessage("Nessun utente attivo per inviare a Firestore. Accedi con Google.");
+      setTimeout(() => setErrorMessage(null), 4000);
+      return;
+    }
+
+    const localOnly = resources.filter(
+      (r) =>
+        r.id.startsWith("local-") ||
+        r.id.startsWith("conv-") ||
+        r.id.startsWith("seed-") ||
+        r.id.startsWith("okf-sync-") ||
+        r.id.startsWith("spec-")
+    );
+
+    if (localOnly.length === 0) {
+      setStatusMessage("Tutte le risorse sono già collegate a Firestore!");
+      setTimeout(() => setStatusMessage(null), 3000);
+      return;
+    }
+
+    setIsSyncing(true);
+    addLog("info", "FIRESTORE", `Caricamento di ${localOnly.length} risorse locali su Firestore...`);
+
+    try {
+      await enableNetwork(db).catch(() => {});
+      const updatedResources = [...resources];
+      let uploadedCount = 0;
+
+      for (const item of localOnly) {
+        const rawData = {
+          userId: activeUser.uid,
+          type: item.type,
+          title: item.title,
+          url: item.url || "",
+          rawInput: item.rawInput || "",
+          summary: item.summary,
+          tags: item.tags || [],
+          isFavorite: item.isFavorite || false,
+          rating: item.rating,
+          metadata: item.metadata || {},
+          createdAt: parseDate(item.createdAt) || new Date(),
+          updatedAt: serverTimestamp(),
+        };
+
+        const docRef = await withFirestoreTimeout(
+          addDoc(collection(db, "resources"), sanitizeForFirestore(rawData)),
+          10000
+        );
+        recordFirestoreWrite();
+
+        const idx = updatedResources.findIndex((r) => r.id === item.id);
+        if (idx !== -1) {
+          updatedResources[idx] = {
+            ...item,
+            id: docRef.id,
+            userId: activeUser.uid,
+            createdAt: item.createdAt,
+            updatedAt: new Date(),
+          };
+        }
+        uploadedCount++;
+      }
+
+      setResources(updatedResources);
+      saveLocalResources(updatedResources, activeUser.uid);
+      setQuotaExceeded(false);
+      wasQuotaExceededRef.current = false;
+      saveQuotaExceededStatus(false);
+      setLastSyncTime(new Date());
+
+      addLog("success", "FIRESTORE", `${uploadedCount} risorsa/e caricata/e su Firestore con successo.`);
+      setStatusMessage(`${uploadedCount} risorsa/e salvata/e su Firestore! ID cloud generato.`);
+      setTimeout(() => setStatusMessage(null), 4000);
+    } catch (err: any) {
+      addLog("error", "FIRESTORE", `Errore caricamento su Firestore: ${err.message}`, err);
+      if (isQuotaError(err)) {
+        setQuotaExceeded(true);
+        wasQuotaExceededRef.current = true;
+        saveQuotaExceededStatus(true);
+        setErrorMessage("Quota Firestore esaurita per oggi.");
+      } else {
+        setErrorMessage(`Errore Firestore: ${err.message}`);
+      }
+      setTimeout(() => setErrorMessage(null), 5000);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // Trigger sync with Firestore & conflict analysis
+  const handleTriggerSync = async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    addLog("info", "FIRESTORE", "Avvio sincronizzazione con Firestore e verifica conflitti...");
+    try {
+      if (!user) {
+        setIsSyncing(false);
+        return;
+      }
+      await enableNetwork(db).catch(() => {});
+
+      const resourcesRefCollection = collection(db, "resources");
+      const q = query(resourcesRefCollection, where("userId", "==", user.uid));
+      const snap = await getDocs(q);
+      
+      recordFirestoreRead(
+        snap.size,
+        "Sincronizzazione Manuale / Periodica",
+        `Letti ${snap.size} documenti dalla collezione Firestore`
+      );
+
+      const items: ResourceItem[] = [];
+      snap.forEach((docSnap) => {
+        const rawData = docSnap.data() as Omit<ResourceItem, "id">;
+        const validatedCreatedAt = parseDate(rawData.createdAt) || parseDate(rawData.updatedAt) || new Date();
+        items.push({
+          id: docSnap.id,
+          ...rawData,
+          createdAt: rawData.createdAt ? (parseDate(rawData.createdAt) ? rawData.createdAt : validatedCreatedAt) : validatedCreatedAt,
+        });
+      });
+
+      items.sort((a, b) => getTimestampMillis(b.createdAt) - getTimestampMillis(a.createdAt));
+      const analysis = analyzeResourceConflicts(resourcesRef.current, items);
+
+      // Only open conflict review dialog if there are TRUE timestamp divergences
+      const hasTrueDivergence = analysis.localNewerCount > 0 || analysis.remoteNewerCount > 0;
+      setConflictAnalysis(hasTrueDivergence ? analysis : null);
+
+      setResources(analysis.mergedResources);
+      saveLocalResources(analysis.mergedResources, user.uid);
+      setQuotaExceeded(false);
+      wasQuotaExceededRef.current = false;
+      setLastSyncTime(new Date());
+      updateCacheTimestamp();
+
+      // Automatically promote any pending local/temporary resources to Firestore
+      const pendingToPromote = analysis.mergedResources.filter(
+        (r) =>
+          r.id.startsWith("local-") ||
+          r.id.startsWith("conv-") ||
+          r.id.startsWith("okf-sync-") ||
+          r.id.startsWith("seed-")
+      );
+
+      if (pendingToPromote.length > 0 && !wasQuotaExceededRef.current) {
+        addLog("info", "FIRESTORE", `Auto-sincronizzazione: rilevate ${pendingToPromote.length} risorse locali in attesa, avvio promozione cloud...`);
+        setTimeout(() => {
+          handleUploadUnsyncedResources().catch((promoErr) => {
+            console.warn("Auto-promotion deferred:", promoErr);
+          });
+        }, 1200);
+      }
+
+      addLog(
+        "success",
+        "FIRESTORE",
+        `Sincronizzazione completata: ${analysis.mergedResources.length} risorse allineate (${items.length} cloud, ${analysis.localOnlyCount} locali).`
+      );
+      setStatusMessage(`Sincronizzazione completata: ${analysis.mergedResources.length} risorse allineate.`);
+      setTimeout(() => setStatusMessage(null), 4000);
+    } catch (err: any) {
+      recordFirestoreError(err, "Sincronizzazione (handleTriggerSync)");
+      if (isQuotaError(err)) {
+        setQuotaExceeded(true);
+        wasQuotaExceededRef.current = true;
+        disableNetwork(db).catch(() => {});
+        addLog("warn", "FIRESTORE", "Quota Firestore esaurita durante il sync. Modalità locale mantenuta attiva.");
+      } else {
+        addLog("error", "FIRESTORE", `Errore sincronizzazione: ${err.message}`, err);
+        setErrorMessage(`Errore sincronizzazione: ${err.message}`);
+        setTimeout(() => setErrorMessage(null), 4000);
+      }
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleCheckConflicts = async () => {
+    if (!user) return;
+    try {
+      const resourcesRefCollection = collection(db, "resources");
+      const q = query(resourcesRefCollection, where("userId", "==", user.uid));
+      const snap = await getDocs(q);
+      const items: ResourceItem[] = [];
+      snap.forEach((docSnap) => {
+        const rawData = docSnap.data() as Omit<ResourceItem, "id">;
+        const validatedCreatedAt = parseDate(rawData.createdAt) || parseDate(rawData.updatedAt) || new Date();
+        items.push({
+          id: docSnap.id,
+          ...rawData,
+          createdAt: rawData.createdAt ? (parseDate(rawData.createdAt) ? rawData.createdAt : validatedCreatedAt) : validatedCreatedAt,
+        });
+      });
+      const analysis = analyzeResourceConflicts(resourcesRef.current, items);
+      setConflictAnalysis(analysis);
+      setIsConflictModalOpen(true);
+    } catch (err: any) {
+      if (isQuotaError(err)) {
+        setQuotaExceeded(true);
+        wasQuotaExceededRef.current = true;
+        setErrorMessage("Quota Firestore esaurita.");
+      }
+    }
+  };
+
+  // Auth Handlers
+  const handleGoogleSignIn = async () => {
+    try {
+      addLog("info", "AUTH", "Avvio login con Google popup...");
+      const result = await signInWithPopup(auth, googleProvider);
+      addLog("success", "AUTH", `Login Google completato: ${result.user.email}`);
+    } catch (error: any) {
+      console.error("Google Sign-In failed:", error);
+      addLog("error", "AUTH", `Login Google fallito: ${error.message}`, error);
+      alert("Accesso con Google non riuscito o popup bloccato.");
+    }
+  };
+
+  const handleSignOut = async () => {
+    try {
+      addLog("info", "AUTH", "Disconnessione utente...");
+      await fbSignOut(auth);
+      await signInAnonymously(auth);
+      addLog("success", "AUTH", "Disconnesso. Nuova sessione anonima creata.");
+    } catch (error: any) {
+      console.error("Sign-Out error:", error);
+      addLog("error", "AUTH", `Errore durante sign-out: ${error.message}`, error);
+    }
+  };
+
+  // Seed / Sync system documentation suite & demo data
+  const handleSeedDemoData = async (forceOverwrite = false, currentResourceList?: ResourceItem[]) => {
+    const activeUser = user || auth.currentUser;
+    if (!activeUser) return;
+    if (isSeedingRef.current) return;
+    
+    isSeedingRef.current = true;
+    setIsSeeding(true);
+    addLog("info", "CAPTURE", "Inizializzazione e allineamento suite documentale OKF v0.2 nel Vault...");
+
+    if (quotaExceeded) {
+      const activeResources = currentResourceList || resources;
+      const merged = [...activeResources];
+      let addedCount = 0;
+
+      for (const sample of initialSampleResources) {
+        const existingIdx = merged.findIndex(
+          (r) =>
+            r.title.trim().toLowerCase() === sample.title.trim().toLowerCase() ||
+            (sample.url && r.url && r.url.trim().toLowerCase() === sample.url.trim().toLowerCase())
+        );
+
+        if (existingIdx === -1) {
+          merged.push({
+            ...sample,
+            id: `seed-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            userId: activeUser.uid,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          } as ResourceItem);
+          addedCount++;
+        }
+      }
+
+      setResources(merged);
+      saveLocalResources(merged, activeUser.uid);
+      setStatusMessage(`Suite OKF v0.2 sincronizzata in memoria locale (${addedCount} documenti).`);
+      setTimeout(() => setStatusMessage(null), 4000);
+      isSeedingRef.current = false;
+      setIsSeeding(false);
+      return;
+    }
+
+    try {
+      const activeResources = currentResourceList || resources;
+      const batch = writeBatch(db);
+      let addedCount = 0;
+      let updatedCount = 0;
+
+      for (const sample of initialSampleResources) {
+        const existing = activeResources.find(
+          (r) =>
+            r.title.trim().toLowerCase() === sample.title.trim().toLowerCase() ||
+            (sample.url && r.url && r.url.trim().toLowerCase() === sample.url.trim().toLowerCase())
+        );
+
+        if (existing) {
+          const currentMdLen = (existing.metadata?.markdownContent || "").length;
+          const sampleMdLen = (sample.metadata?.markdownContent || "").length;
+
+          if (forceOverwrite || currentMdLen < 500 || (sampleMdLen > currentMdLen + 200 && existing.type === "knowledge")) {
+            const docRef = doc(db, "resources", existing.id);
+            const itemToUpdate = sanitizeForFirestore({
+              title: sample.title,
+              summary: sample.summary,
+              type: sample.type,
+              tags: sample.tags,
+              isFavorite: sample.isFavorite ?? existing.isFavorite ?? false,
+              metadata: {
+                ...existing.metadata,
+                ...sample.metadata,
+                markdownContent: sample.metadata?.markdownContent || existing.metadata?.markdownContent,
+              },
+              updatedAt: serverTimestamp(),
+            });
+            batch.update(docRef, itemToUpdate);
+            updatedCount++;
+          }
+        } else {
+          const newDocRef = doc(collection(db, "resources"));
+          const itemToSave = sanitizeForFirestore({
+            ...sample,
+            url: sample.url || "",
+            userId: activeUser.uid,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+          batch.set(newDocRef, itemToSave);
+          addedCount++;
+        }
+      }
+
+      if (addedCount > 0 || updatedCount > 0) {
+        await withFirestoreTimeout(batch.commit(), 10000);
+        addLog("success", "CAPTURE", `Sincronizzazione OKF v0.2 completata: ${addedCount} nuove, ${updatedCount} aggiornate!`);
+        setStatusMessage(`Suite OKF v0.2 allineata: ${addedCount} create, ${updatedCount} aggiornate.`);
+      } else {
+        addLog("info", "CAPTURE", "Tutti i documenti del Vault sono già allineati alle specifiche complete OKF v0.2.");
+        setStatusMessage("I documenti del Vault sono già aggiornati alle specifiche complete OKF v0.2.");
+      }
+      setTimeout(() => setStatusMessage(null), 4000);
+    } catch (err: any) {
+      console.warn("Seed notice:", err?.message || err);
+      if (isQuotaError(err)) {
+        setQuotaExceeded(true);
+        wasQuotaExceededRef.current = true;
+        saveQuotaExceededStatus(true);
+        disableNetwork(db).catch(() => {});
+        addLog("warn", "FIRESTORE", "Quota scritture giornaliere Firestore esaurita durante il seed. Caricamento documentazione in memoria locale.");
+        setResources(initialSampleResources as ResourceItem[]);
+        saveLocalResources(initialSampleResources as ResourceItem[], activeUser.uid);
+        setStatusMessage("Modalità sessione locale: Suite documentale OKF v0.2 caricata con successo.");
+      } else {
+        addLog("error", "CAPTURE", `Errore sincronizzazione documentazione: ${err.message}`, err);
+        setErrorMessage("Errore nel caricamento della documentazione: " + err.message);
+      }
+      setTimeout(() => setStatusMessage(null), 5000);
+    } finally {
+      isSeedingRef.current = false;
+      setIsSeeding(false);
+    }
+  };
+
+  // Alias for semantic clarity across the application
+  const handleSyncSystemSpecs = handleSeedDemoData;
+
+  // Batch Import OKF Items (e.g. from GitHub or Local Sync)
+  const handleBatchImportOkfItems = async (
+    itemsToImport: Array<Omit<ResourceItem, "id" | "userId" | "createdAt" | "updatedAt">>,
+    sourceLabel = "GitHub / OKF Sync"
+  ): Promise<{ added: number; updated: number }> => {
+    let activeUser = user || auth.currentUser;
+    if (!activeUser) {
+      try {
+        const anonCred = await signInAnonymously(auth);
+        activeUser = anonCred.user;
+        setUser(activeUser);
+      } catch {
+        activeUser = { uid: "local-user" } as any;
+      }
+    }
+
+    if (!itemsToImport || itemsToImport.length === 0) {
+      return { added: 0, updated: 0 };
+    }
+
+    addLog("info", "CAPTURE", `Avvio importazione batch di ${itemsToImport.length} risorse da ${sourceLabel}...`);
+
+    if (quotaExceeded) {
+      let added = 0;
+      let updated = 0;
+      const currentList = [...resources];
+
+      for (const item of itemsToImport) {
+        const existingIdx = currentList.findIndex(
+          (r) =>
+            r.title.trim().toLowerCase() === item.title.trim().toLowerCase() ||
+            (item.url && r.url && r.url.trim().toLowerCase() === item.url.trim().toLowerCase())
+        );
+
+        if (existingIdx !== -1) {
+          currentList[existingIdx] = {
+            ...currentList[existingIdx],
+            ...item,
+            metadata: {
+              ...currentList[existingIdx].metadata,
+              ...item.metadata,
+            },
+            updatedAt: new Date(),
+          };
+          updated++;
+        } else {
+          currentList.unshift({
+            ...item,
+            id: `okf-sync-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            userId: activeUser!.uid,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          } as ResourceItem);
+          added++;
+        }
+      }
+
+      setResources(currentList);
+      saveLocalResources(currentList, activeUser!.uid);
+      addLog("success", "CAPTURE", `Importazione batch completata in memoria locale: ${added} nuove, ${updated} aggiornate.`);
+      setStatusMessage(`Sincronizzate ${added + updated} risorse nel Vault.`);
+      setTimeout(() => setStatusMessage(null), 4000);
+      return { added, updated };
+    }
+
+    try {
+      const batch = writeBatch(db);
+      let added = 0;
+      let updated = 0;
+
+      for (const item of itemsToImport) {
+        const existing = resources.find(
+          (r) =>
+            r.title.trim().toLowerCase() === item.title.trim().toLowerCase() ||
+            (item.url && r.url && r.url.trim().toLowerCase() === item.url.trim().toLowerCase())
+        );
+
+        if (existing) {
+          const docRef = doc(db, "resources", existing.id);
+          const itemToUpdate = sanitizeForFirestore({
+            title: item.title,
+            summary: item.summary,
+            type: item.type,
+            tags: item.tags,
+            url: item.url || existing.url || "",
+            metadata: {
+              ...existing.metadata,
+              ...item.metadata,
+            },
+            updatedAt: serverTimestamp(),
+          });
+          batch.update(docRef, itemToUpdate);
+          updated++;
+        } else {
+          const newDocRef = doc(collection(db, "resources"));
+          const itemToSave = sanitizeForFirestore({
+            ...item,
+            url: item.url || "",
+            userId: activeUser!.uid,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+          batch.set(newDocRef, itemToSave);
+          added++;
+        }
+      }
+
+      await withFirestoreTimeout(batch.commit(), 5500);
+      
+      recordLifecycleEvent({
+        stage: "FIRESTORE_WRITE_SUCCESS",
+        status: "success",
+        message: `Importazione batch Firestore completata: ${added} nuove risorse inserite, ${updated} aggiornate`,
+        details: { added, updated, totalItems: itemsToImport.length },
+      });
+
+      // Update state in memory immediately so cards and counts reflect the imported items without waiting
+      setResources((prev) => {
+        const list = [...prev];
+        itemsToImport.forEach((imported) => {
+          const idx = list.findIndex(
+            (r) =>
+              (imported.url && r.url && r.url.trim().toLowerCase() === imported.url.trim().toLowerCase()) ||
+              r.title.trim().toLowerCase() === imported.title.trim().toLowerCase()
+          );
+          if (idx !== -1) {
+            list[idx] = { ...list[idx], ...imported, updatedAt: new Date() };
+          } else {
+            list.unshift({
+              ...imported,
+              id: "imp-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7),
+              userId: activeUser!.uid,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            });
+          }
+        });
+        saveLocalResources(list, activeUser!.uid);
+        return list;
+      });
+
+      addLog("success", "CAPTURE", `Sincronizzazione OKF completata: ${added} create, ${updated} aggiornate.`);
+      setStatusMessage(`Sincronizzate con successo ${added + updated} risorse nel Vault!`);
+      setTimeout(() => setStatusMessage(null), 4000);
+      return { added, updated };
+    } catch (err: any) {
+      console.warn("Batch import error:", err);
+      if (isQuotaError(err)) {
+        setQuotaExceeded(true);
+        wasQuotaExceededRef.current = true;
+        saveQuotaExceededStatus(true);
+      }
+      let added = 0;
+      let updated = 0;
+      const currentList = [...resources];
+      for (const item of itemsToImport) {
+        const existingIdx = currentList.findIndex(
+          (r) =>
+            r.title.trim().toLowerCase() === item.title.trim().toLowerCase() ||
+            (item.url && r.url && r.url.trim().toLowerCase() === item.url.trim().toLowerCase())
+        );
+        if (existingIdx !== -1) {
+          currentList[existingIdx] = {
+            ...currentList[existingIdx],
+            ...item,
+            updatedAt: new Date(),
+          };
+          updated++;
+        } else {
+          currentList.unshift({
+            ...item,
+            id: `okf-sync-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            userId: activeUser!.uid,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          } as ResourceItem);
+          added++;
+        }
+      }
+      setResources(currentList);
+      saveLocalResources(currentList, activeUser!.uid);
+      setStatusMessage(`Risorse salvate nella memoria locale (${added + updated} elementi).`);
+      setTimeout(() => setStatusMessage(null), 4000);
+      return { added, updated };
+    }
+  };
+
+  // Manual Add Handler
+  const handleManualAdd = async (
+    newResource: Omit<ResourceItem, "id" | "userId" | "createdAt" | "updatedAt">
+  ): Promise<boolean> => {
+    let activeUser = user || auth.currentUser;
+    if (!activeUser) {
+      try {
+        const anonCred = await signInAnonymously(auth);
+        activeUser = anonCred.user;
+        setUser(activeUser);
+      } catch (authErr: any) {
+        addLog("warn", "FIRESTORE", "Tentativo di inserimento manuale senza utente.");
+        return false;
+      }
+    }
+
+    if (quotaExceeded) {
+      const localId = "local-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
+      const localResource: ResourceItem = {
+        id: localId,
+        userId: activeUser.uid,
+        type: newResource.type,
+        title: newResource.title,
+        url: newResource.url ? newResource.url.trim() : "",
+        rawInput: newResource.rawInput || "",
+        summary: newResource.summary,
+        tags: newResource.tags || [],
+        isFavorite: !!newResource.isFavorite,
+        metadata: newResource.metadata || {},
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      setResources((prev) => {
+        const updated = [localResource, ...prev];
+        saveLocalResources(updated, activeUser.uid);
+        return updated;
+      });
+
+      setStatusMessage("Risorsa salvata con successo nel Vault!");
+      setTimeout(() => setStatusMessage(null), 3000);
+      return true;
+    }
+
+    try {
+      addLog("info", "FIRESTORE", `Inserimento manuale: "${newResource.title}" [${newResource.type}]`);
+      const rawData = {
+        userId: activeUser.uid,
+        type: newResource.type,
+        title: newResource.title,
+        url: newResource.url ? newResource.url.trim() : "",
+        rawInput: newResource.rawInput || "",
+        summary: newResource.summary,
+        tags: newResource.tags || [],
+        isFavorite: !!newResource.isFavorite,
+        metadata: newResource.metadata || {},
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      };
+
+      const docRef = await withFirestoreTimeout(addDoc(collection(db, "resources"), sanitizeForFirestore(rawData)), 8000);
+      recordFirestoreWrite(1, "Creazione Risorsa", newResource.title);
+      addLog("success", "FIRESTORE", `Risorsa inserita con successo (ID: ${docRef.id})`);
+
+      const savedItem: ResourceItem = {
+        id: docRef.id,
+        ...rawData,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as ResourceItem;
+
+      setResources((prev) => {
+        const filtered = prev.filter((r) => r.id !== docRef.id);
+        const updated = [savedItem, ...filtered];
+        saveLocalResources(updated, activeUser.uid);
+        return updated;
+      });
+
+      setStatusMessage("Risorsa salvata con successo nel Vault!");
+      setTimeout(() => setStatusMessage(null), 3000);
+      return true;
+    } catch (error: any) {
+      console.error("Add failed:", error);
+      recordFirestoreError(error, "Creazione Risorsa");
+      if (isQuotaError(error)) {
+        setQuotaExceeded(true);
+        wasQuotaExceededRef.current = true;
+        saveQuotaExceededStatus(true);
+        disableNetwork(db).catch(() => {});
+        const localId = "local-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
+        const localResource: ResourceItem = {
+          id: localId,
+          userId: activeUser.uid,
+          type: newResource.type,
+          title: newResource.title,
+          url: newResource.url ? newResource.url.trim() : "",
+          rawInput: newResource.rawInput || "",
+          summary: newResource.summary,
+          tags: newResource.tags || [],
+          isFavorite: !!newResource.isFavorite,
+          metadata: newResource.metadata || {},
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+
+        setResources((prev) => {
+          const updated = [localResource, ...prev];
+          saveLocalResources(updated, activeUser.uid);
+          return updated;
+        });
+
+        setStatusMessage("Risorsa salvata in modalità offline (Quota Firestore esaurita)");
+        setTimeout(() => setStatusMessage(null), 3000);
+        return true;
+      }
+
+      // If Firestore failed due to database NOT_FOUND or network/timeout, save safely to local storage
+      const localId = "local-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
+      const localResource: ResourceItem = {
+        id: localId,
+        userId: activeUser.uid,
+        type: newResource.type,
+        title: newResource.title,
+        url: newResource.url ? newResource.url.trim() : "",
+        rawInput: newResource.rawInput || "",
+        summary: newResource.summary,
+        tags: newResource.tags || [],
+        isFavorite: !!newResource.isFavorite,
+        metadata: newResource.metadata || {},
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      setResources((prev) => {
+        const updated = [localResource, ...prev];
+        saveLocalResources(updated, activeUser.uid);
+        return updated;
+      });
+
+      const isNotFound = String(error?.message || "").includes("NOT_FOUND") || String(error?.code || "").includes("not-found");
+      const noticeMsg = isNotFound
+        ? "Risorsa salvata nel Vault locale (Database Cloud Firestore in attesa di configurazione/provisioning)"
+        : `Risorsa salvata nel Vault locale (Connessione Cloud non riuscita: ${error.message || "offline"})`;
+
+      addLog("warn", "FIRESTORE", noticeMsg, error);
+      setStatusMessage(noticeMsg);
+      setTimeout(() => setStatusMessage(null), 4000);
+      return true;
+    }
+  };
+
+  // Toggle Favorite
+  const handleToggleFavorite = async (id: string, currentFav: boolean) => {
+    const nextFav = !currentFav;
+    setResources((prev) => {
+      const updated = prev.map((item) => (item.id === id ? { ...item, isFavorite: nextFav } : item));
+      saveLocalResources(updated, user?.uid);
+      return updated;
+    });
+
+    if (quotaExceeded || id.startsWith("local-") || id.startsWith("seed-") || id.startsWith("sample-")) {
+      return;
+    }
+
+    try {
+      const docRef = doc(db, "resources", id);
+      await withFirestoreTimeout(updateDoc(docRef, {
+        isFavorite: nextFav,
+        updatedAt: serverTimestamp(),
+      }), 10000);
+      addLog("info", "FIRESTORE", `Preferito aggiornato per risorsa ${id}: ${nextFav ? "Aggiunto" : "Rimosso"}`);
+    } catch (err: any) {
+      if (isQuotaError(err)) {
+        setQuotaExceeded(true);
+        wasQuotaExceededRef.current = true;
+        saveQuotaExceededStatus(true);
+        disableNetwork(db).catch(() => {});
+        return;
+      }
+      console.error("Toggle favorite failed:", err);
+      setResources((prev) => {
+        const reverted = prev.map((item) => (item.id === id ? { ...item, isFavorite: currentFav } : item));
+        saveLocalResources(reverted, user?.uid);
+        return reverted;
+      });
+      addLog("error", "FIRESTORE", `Errore salvataggio preferito: ${err.message}`, err);
+    }
+  };
+
+  // Update Reading Progress for Articles
+  const handleUpdateReadingProgress = async (id: string, progress: number) => {
+    try {
+      const resource = resources.find((r) => r.id === id);
+      const clamped = Math.max(0, Math.min(100, Math.round(progress)));
+      const status: "unread" | "in_progress" | "completed" = clamped === 100 ? "completed" : clamped > 0 ? "in_progress" : "unread";
+
+      setResources((prev) => {
+        const updated = prev.map((item) =>
+          item.id === id
+            ? { ...item, metadata: { ...item.metadata, readingProgress: clamped, readingStatus: status } }
+            : item
+        );
+        saveLocalResources(updated, user?.uid);
+        return updated;
+      });
+
+      if (quotaExceeded || id.startsWith("local-") || id.startsWith("seed-") || id.startsWith("sample-")) {
+        return;
+      }
+
+      const docRef = doc(db, "resources", id);
+      const updatedMetadata = {
+        ...(resource?.metadata || {}),
+        readingProgress: clamped,
+        readingStatus: status,
+      };
+
+      await withFirestoreTimeout(
+        updateDoc(
+          docRef,
+          sanitizeForFirestore({
+            metadata: updatedMetadata,
+            updatedAt: serverTimestamp(),
+          })
+        ),
+        10000
+      );
+
+      addLog("info", "FIRESTORE", `Avanzamento lettura aggiornato per "${resource?.title || id}": ${clamped}%`);
+    } catch (err: any) {
+      if (isQuotaError(err)) {
+        setQuotaExceeded(true);
+        wasQuotaExceededRef.current = true;
+        saveQuotaExceededStatus(true);
+        disableNetwork(db).catch(() => {});
+        return;
+      }
+      console.error("Reading progress update failed:", err);
+      addLog("error", "FIRESTORE", `Errore aggiornamento lettura: ${err.message}`, err);
+    }
+  };
+
+  // Update Resource
+  const handleUpdateResource = async (id: string, updatedData: Partial<ResourceItem>): Promise<boolean> => {
+    setResources((prev) => {
+      const updated = prev.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              ...updatedData,
+              metadata: {
+                ...(item.metadata || {}),
+                ...(updatedData.metadata || {}),
+              },
+            }
+          : item
+      );
+      saveLocalResources(updated, user?.uid);
+      return updated;
+    });
+
+    if (quotaExceeded || id.startsWith("local-") || id.startsWith("seed-") || id.startsWith("sample-") || id.startsWith("conv-")) {
+      return true;
+    }
+
+    try {
+      const existing = resources.find((r) => r.id === id);
+      const mergedMetadata = updatedData.metadata
+        ? { ...(existing?.metadata || {}), ...updatedData.metadata }
+        : undefined;
+
+      const docRef = doc(db, "resources", id);
+      const dataToClean = {
+        ...updatedData,
+        ...(mergedMetadata ? { metadata: mergedMetadata } : {}),
+        ...(updatedData.url !== undefined ? { url: updatedData.url.trim() } : {}),
+        updatedAt: serverTimestamp(),
+      };
+      delete (dataToClean as any).id;
+      const sanitized = sanitizeForFirestore(dataToClean);
+      await withFirestoreTimeout(updateDoc(docRef, sanitized), 8000);
+      recordFirestoreWrite(1, "Aggiornamento Risorsa", (updatedData as any).title || id);
+      return true;
+    } catch (err: any) {
+      recordFirestoreError(err, "Aggiornamento Risorsa");
+      if (isQuotaError(err)) {
+        setQuotaExceeded(true);
+        wasQuotaExceededRef.current = true;
+        saveQuotaExceededStatus(true);
+        disableNetwork(db).catch(() => {});
+        return true;
+      }
+      console.error("Update failed:", err);
+      return true;
+    }
+  };
+
+  // Delete Resource
+  const handleDeleteResource = async (id: string): Promise<boolean> => {
+    let activeUser = user || auth.currentUser;
+    if (!activeUser) {
+      try {
+        const anonCred = await signInAnonymously(auth);
+        activeUser = anonCred.user;
+        setUser(activeUser);
+      } catch (authErr: any) {
+        addLog("warn", "FIRESTORE", "Tentativo di eliminazione senza utente autenticato.");
+        setErrorMessage("Errore di autenticazione. Riprova tra un istante.");
+        setTimeout(() => setErrorMessage(null), 4000);
+        return false;
+      }
+    }
+
+    const targetItem = resources.find((r) => r.id === id);
+    recordLifecycleEvent({
+      stage: "RESOURCE_DELETED",
+      resourceId: id,
+      resourceTitle: targetItem?.title || id,
+      resourceType: targetItem?.type,
+      status: "info",
+      message: `Eliminazione richiesta per risorsa "${targetItem?.title || id}" (ID: ${id})`,
+      details: { id, title: targetItem?.title, type: targetItem?.type },
+    });
+
+    const previousResources = [...resources];
+
+    recordDeletedResourceId(id);
+
+    setResources((prev) => {
+      const updated = prev.filter((item) => item.id !== id);
+      saveLocalResources(updated, activeUser?.uid);
+      return updated;
+    });
+
+    if (quotaExceeded || id.startsWith("local-") || id.startsWith("seed-") || id.startsWith("sample-") || id.startsWith("conv-")) {
+      setStatusMessage("Risorsa rimossa dal Vault.");
+      setTimeout(() => setStatusMessage(null), 3000);
+      return true;
+    }
+
+    try {
+      addLog("info", "FIRESTORE", `Eliminazione risorsa ID: ${id}...`);
+      await withFirestoreTimeout(deleteDoc(doc(db, "resources", id)), 8000);
+      recordFirestoreDelete(1, "Eliminazione Risorsa", id);
+      addLog("success", "FIRESTORE", `Risorsa eliminata con successo dal Vault (ID: ${id})`);
+      setStatusMessage("Risorsa eliminata con successo!");
+      setTimeout(() => setStatusMessage(null), 3000);
+      return true;
+    } catch (err: any) {
+      recordFirestoreError(err, "Eliminazione Risorsa");
+      if (isQuotaError(err)) {
+        setQuotaExceeded(true);
+        wasQuotaExceededRef.current = true;
+        saveQuotaExceededStatus(true);
+        disableNetwork(db).catch(() => {});
+        setStatusMessage("Risorsa rimossa dalla memoria locale.");
+        setTimeout(() => setStatusMessage(null), 3000);
+        return true;
+      }
+      console.error("Delete failed:", err);
+      setResources(previousResources);
+      saveLocalResources(previousResources, activeUser?.uid);
+      addLog("error", "FIRESTORE", `Errore durante eliminazione risorsa: ${err.message}`, err);
+      setErrorMessage("Impossibile eliminare la risorsa: " + (err.message || "Errore sconosciuto"));
+      setTimeout(() => setErrorMessage(null), 5000);
+      return false;
+    }
+  };
+
+  return {
+    user,
+    authLoading,
+    resources,
+    setResources,
+    isLoadingResources,
+    logs,
+    addLog,
+    setLogs,
+    quotaExceeded,
+    setQuotaExceeded,
+    isSyncing,
+    lastSyncTime,
+    isSeeding,
+    statusMessage,
+    setStatusMessage,
+    errorMessage,
+    setErrorMessage,
+    conflictAnalysis,
+    setConflictAnalysis,
+    isConflictModalOpen,
+    setIsConflictModalOpen,
+    isApplyingMerge,
+    storageDiscrepancyNotice,
+    setStorageDiscrepancyNotice,
+    handleGoogleSignIn,
+    handleSignOut,
+    handleSeedDemoData,
+    handleSyncSystemSpecs,
+    handleBatchImportOkfItems,
+    handleManualAdd,
+    handleToggleFavorite,
+    handleUpdateReadingProgress,
+    handleUpdateResource,
+    handleDeleteResource,
+    handleApplyConflictMerge,
+    handleUploadUnsyncedResources,
+    handleTriggerSync,
+    handleCheckConflicts,
+  };
+}

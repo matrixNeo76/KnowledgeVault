@@ -192,7 +192,8 @@ export function localFallbackAnalyzeResource(
         (text.startsWith('http') ||
           text.includes('link:') ||
           text.includes('tool:') ||
-          text.includes('web:')))
+          text.includes('web:') ||
+          !text.startsWith('---')))
     ) {
       type = 'link';
       tags.push('link', 'web', 'tool');
@@ -234,7 +235,7 @@ export function localFallbackAnalyzeResource(
       text.startsWith('---') ||
       text.includes('okf_version') ||
       text.includes('# ') ||
-      text.length > 300 ||
+      (!url && text.length > 300) ||
       explicitType === 'knowledge'
     ) {
       type = 'knowledge';

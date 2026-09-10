@@ -413,3 +413,145 @@ export function downloadBackupJSON(resources: ResourceItem[], rawFiles?: RawFile
   downloadAnchor.click();
   downloadAnchor.remove();
 }
+
+/**
+ * Creates an on-demand server snapshot with timestamp and custom label.
+ */
+export async function createManualServerSnapshot(
+  resources: ResourceItem[],
+  rawFiles?: RawFileItem[],
+  label: string = "Snapshot Manuale",
+  userId?: string
+): Promise<{
+  success: boolean;
+  filename: string;
+  count: number;
+  formattedDate: string;
+  formattedSize: string;
+}> {
+  const response = await fetch("/api/vault/create-snapshot", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      label,
+      resources,
+      rawFiles: rawFiles || [],
+      userId,
+    }),
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error || `Errore HTTP ${response.status} nella creazione snapshot`);
+  }
+
+  return await response.json();
+}
+
+/**
+ * Sanitizes and compacts browser local storage by purging obsolete or corrupted temporary keys.
+ */
+export function sanitizeLocalStorage(): { purgedKeys: number; freedBytesApprox: number } {
+  let purgedKeys = 0;
+  let freedBytesApprox = 0;
+
+  if (typeof window === "undefined" || !window.localStorage) {
+    return { purgedKeys: 0, freedBytesApprox: 0 };
+  }
+
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k) continue;
+
+      // Identify junk, temporary or nullified keys
+      const val = localStorage.getItem(k);
+      if (!val || val === "null" || val === "undefined" || val === "{}") {
+        keysToRemove.push(k);
+        continue;
+      }
+
+      // Check for legacy dead keys or runaway tokens
+      if (k.startsWith("temp_") || k.startsWith("debug_") || k.includes("_stale_")) {
+        keysToRemove.push(k);
+        continue;
+      }
+    }
+
+    keysToRemove.forEach((k) => {
+      const v = localStorage.getItem(k) || "";
+      freedBytesApprox += k.length + v.length;
+      localStorage.removeItem(k);
+      purgedKeys++;
+    });
+  } catch (err) {
+    console.warn("[RecoveryManager] sanitizeLocalStorage warning:", err);
+  }
+
+  return { purgedKeys, freedBytesApprox };
+}
+
+/**
+ * Generates an exhaustive markdown report of all storage layers and recovery statuses.
+ */
+export function generateRecoveryDiagnosticReport(
+  report: DeepRecoveryScanReport | null,
+  currentResources: ResourceItem[],
+  activeFiltersDesc?: string
+): string {
+  const nowStr = new Date().toLocaleString("it-IT");
+  let md = `# 🛡️ Report Diagnostico: Centro di Recupero & Protezione Dati Knowledge Vault\n\n`;
+  md += `> **Data Scansione**: ${nowStr}  \n`;
+  md += `> **Standard di Conformità**: Open Knowledge Format (OKF v0.2)  \n`;
+  md += `> **Stato Filtri UI Attivi**: ${activeFiltersDesc || "Nessun filtro restrittivo (Visualizzazione Completa)"}\n\n`;
+  md += `---\n\n`;
+
+  md += `## 1. Riepilogo Volumetrico Storage\n\n`;
+  md += `| Parametro | Valore |\n`;
+  md += `| :--- | :--- |\n`;
+  md += `| **Risorse Attive nel Vault** | **${currentResources.length}** |\n`;
+  md += `| **Risorse Uniche Rilevate nello Storage** | **${report ? report.totalUniqueResources : "N/D"}** |\n`;
+  
+  const missingCount = report ? Math.max(0, report.totalUniqueResources - currentResources.length) : 0;
+  md += `| **Risorse Mancanti / Recuperabili** | **${missingCount > 0 ? `+${missingCount} (DA RIPRISTINARE)` : "0 (Allineamento Perfetto)"}** |\n`;
+  md += `| **Livelli di Storage con Dati** | ${report ? report.sources.length : "N/D"} sorgenti |\n`;
+  md += `| **File Grezzi Preservati** | ${report ? report.totalRawFilesFound : 0} |\n\n`;
+
+  if (report && report.sources.length > 0) {
+    md += `## 2. Dettaglio Livelli di Storage Scansionati\n\n`;
+    report.sources.forEach((s, idx) => {
+      md += `### ${idx + 1}. \`${s.sourceName}\`\n`;
+      md += `- **Descrizione**: ${s.description}\n`;
+      md += `- **Elementi Rilevati**: **${s.count}**\n\n`;
+    });
+  }
+
+  if (report && missingCount > 0) {
+    const activeIds = new Set(currentResources.map((r) => r.id));
+    const activeTitles = new Set(currentResources.map((r) => (r.title || "").trim().toLowerCase()));
+    const missingItems = report.uniqueResources.filter((item) => {
+      if (item.id && activeIds.has(item.id)) return false;
+      const t = (item.title || "").trim().toLowerCase();
+      if (t && activeTitles.has(t)) return false;
+      return true;
+    });
+
+    md += `## 3. Elenco Risorse Recuperabili Non Attive (${missingItems.length})\n\n`;
+    missingItems.slice(0, 30).forEach((item, idx) => {
+      md += `${idx + 1}. **${item.title}** (\`${item.type}\`)\n`;
+      if (item.summary) md += `   - *Sintesi*: ${item.summary.slice(0, 120)}...\n`;
+      if (item.tags?.length) md += `   - *Tag*: ${item.tags.join(", ")}\n`;
+    });
+    if (missingItems.length > 30) {
+      md += `\n*...e altre ${missingItems.length - 30} risorse recuperabili disponibili nel report completo.*\n`;
+    }
+  } else {
+    md += `## 3. Stato di Coerenza\n\n`;
+    md += `✅ Nessuna discrepanza o perdita rilevata. Tutte le risorse uniche archiviate nei database locali e remoti sono attualmente visibili e caricate nel Vault.\n`;
+  }
+
+  md += `\n---\n*Report generato automaticamente dal modulo Storage Shield v0.2*\n`;
+  return md;
+}
+

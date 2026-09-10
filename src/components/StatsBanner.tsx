@@ -22,7 +22,8 @@ import {
   StickyNote,
   LayoutGrid,
   List,
-  Network
+  Network,
+  Printer
 } from "lucide-react";
 import { ResourceType, NavCategory, SortOption, ViewMode } from "../types";
 
@@ -53,6 +54,8 @@ interface StatsBannerProps {
   totalFilteredCount?: number;
   searchQuery?: string;
   onClearSearch?: () => void;
+  onOpenPrintDossier?: () => void;
+  onOpenDiscrepancyInspector?: () => void;
 }
 
 export const StatsBanner: React.FC<StatsBannerProps> = ({
@@ -66,6 +69,8 @@ export const StatsBanner: React.FC<StatsBannerProps> = ({
   totalFilteredCount,
   searchQuery = "",
   onClearSearch,
+  onOpenPrintDossier,
+  onOpenDiscrepancyInspector,
 }) => {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [tagSearchInput, setTagSearchInput] = useState("");
@@ -202,9 +207,30 @@ export const StatsBanner: React.FC<StatsBannerProps> = ({
           <h2 className="text-xs sm:text-sm font-semibold text-white tracking-tight truncate font-sans">
             {meta.title}
           </h2>
-          <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border shrink-0 ${meta.badgeColor}`}>
-            {typeof totalFilteredCount === "number" ? totalFilteredCount : counts[currentCategory] || 0}
-          </span>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border shrink-0 ${meta.badgeColor}`}>
+              {typeof totalFilteredCount === "number" ? (
+                totalFilteredCount !== counts.all ? (
+                  <span>
+                    {totalFilteredCount} <span className="text-[#888] font-normal">/ {counts.all}</span>
+                  </span>
+                ) : (
+                  totalFilteredCount
+                )
+              ) : (
+                counts[currentCategory] || 0
+              )}
+            </span>
+            {typeof totalFilteredCount === "number" && totalFilteredCount !== counts.all && onOpenDiscrepancyInspector && (
+              <button
+                onClick={onOpenDiscrepancyInspector}
+                className="hidden md:inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#161208] hover:bg-[#20180B] text-[#C5A059] border border-[#3A2C14] transition-colors cursor-pointer"
+                title={`Verifica perché sono visibili ${totalFilteredCount} su ${counts.all} risorse`}
+              >
+                <span>Filtri attivi</span>
+              </button>
+            )}
+          </div>
           <span className="hidden xl:inline text-[11px] text-[#666] truncate max-w-sm pl-2 border-l border-[#222]">
             {meta.subtitle}
           </span>
@@ -373,6 +399,19 @@ export const StatsBanner: React.FC<StatsBannerProps> = ({
                 <span className="hidden sm:inline text-[10.5px]">Grafo</span>
               </button>
             </div>
+          )}
+
+          {/* Quick Stampa / Dossier Trigger */}
+          {onOpenPrintDossier && (
+            <button
+              type="button"
+              onClick={onOpenPrintDossier}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-mono bg-[#14120B] hover:bg-[#201A0E] text-[#E5C170] border border-[#C5A059]/40 shadow-xs transition-all cursor-pointer shrink-0 active:scale-95"
+              title="Genera ed esporta il Dossier delle schede correnti in PDF/HTML"
+            >
+              <Printer className="w-3.5 h-3.5 text-[#C5A059]" />
+              <span className="hidden sm:inline text-[11px] font-semibold">Dossier</span>
+            </button>
           )}
 
           {/* Reset All Filters Button */}

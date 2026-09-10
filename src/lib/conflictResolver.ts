@@ -1,5 +1,6 @@
 import { ResourceItem } from "../types";
 import { parseDate, getTimestampMillis } from "./dateUtils";
+import { recordLifecycleEvent } from "./resourceLifecycleTracker";
 
 export type ConflictStatus =
   | "local_newer"
@@ -54,7 +55,7 @@ export function analyzeResourceConflicts(
   const remoteMap = new Map<string, ResourceItem>();
 
   // Helper function to create a canonical resource signature
-  // Note: Only merge temp local IDs with remote items when there is an exact, unambiguous match on both URL and title (or exact matching title when URL is absent)
+  // Note: Only merge temp local IDs with remote items when there is an exact, unambiguous match on both URL and title, or a specific unique title
   const getResourceSignature = (item: ResourceItem): string => {
     const cleanUrl = item.url && item.url.trim().length > 3 ? item.url.trim().toLowerCase().replace(/\/$/, "") : "";
     const cleanTitle = (item.title || "").trim().toLowerCase();
@@ -64,7 +65,13 @@ export function analyzeResourceConflicts(
     if (cleanUrl) {
       return `url:${item.type}:${cleanUrl}`;
     }
-    return `title:${item.type}:${cleanTitle}`;
+    // Prevent generic titles from falsely colliding
+    const genericTitles = new Set(["readme", "documento", "note", "nota", "nuova risorsa", "untitled", "senza titolo", "appunti"]);
+    if (cleanTitle.length > 8 && !genericTitles.has(cleanTitle)) {
+      return `title:${item.type}:${cleanTitle}`;
+    }
+    // For short/generic titles without URL, keep strictly isolated by ID
+    return `isolated:${item.id}`;
   };
 
   // Build remote signature index to detect when a local-ID document is actually already on remote
@@ -72,7 +79,10 @@ export function analyzeResourceConflicts(
   remoteItems.forEach((item) => {
     if (item.id) {
       remoteMap.set(item.id, item);
-      remoteSigMap.set(getResourceSignature(item), item);
+      const sig = getResourceSignature(item);
+      if (!sig.startsWith("isolated:")) {
+        remoteSigMap.set(sig, item);
+      }
     }
   });
 
@@ -81,17 +91,35 @@ export function analyzeResourceConflicts(
     if (!item.id) return;
 
     // Check if this is a temp local ID that matches a remote resource by signature
-    const isTempId = item.id.startsWith("local-") || item.id.startsWith("conv-") || item.id.startsWith("seed-");
+    const isTempId = 
+      item.id.startsWith("local-") || 
+      item.id.startsWith("conv-") || 
+      item.id.startsWith("seed-") || 
+      item.id.startsWith("okf-sync-") ||
+      item.id.startsWith("spec-");
+
     if (isTempId) {
       const sig = getResourceSignature(item);
-      const matchedRemote = remoteSigMap.get(sig);
-      if (matchedRemote) {
-        // Associate this local item with the remote ID instead of keeping a split identity
-        localMap.set(matchedRemote.id, {
-          ...item,
-          id: matchedRemote.id,
-        });
-        return;
+      if (!sig.startsWith("isolated:")) {
+        const matchedRemote = remoteSigMap.get(sig);
+        if (matchedRemote) {
+          recordLifecycleEvent({
+            stage: "RESOURCE_COLLAPSED_DEDUPED",
+            resourceId: item.id,
+            resourceTitle: item.title,
+            resourceType: item.type,
+            status: "info",
+            message: `Riconciliazione ID: risorsa temporanea "${item.id}" unificata con documento Firestore remoto "${matchedRemote.id}" ("${item.title}")`,
+            details: { tempId: item.id, remoteId: matchedRemote.id, title: item.title, type: item.type, signature: sig },
+          });
+
+          // Associate this local item with the remote ID instead of keeping a split identity
+          localMap.set(matchedRemote.id, {
+            ...item,
+            id: matchedRemote.id,
+          });
+          return;
+        }
       }
     }
 

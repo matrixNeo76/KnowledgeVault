@@ -21,7 +21,8 @@ import {
   FileUp,
   Download,
   HardDrive,
-  RefreshCw
+  RefreshCw,
+  GitBranch
 } from "lucide-react";
 import { ViewMode, SortOption } from "../types";
 import { User } from "firebase/auth";
@@ -42,11 +43,15 @@ interface HeaderProps {
   onOpenGoogleDrive?: () => void;
   onOpenCekikjInspector?: () => void;
   onOpenKnowledgeUpload?: () => void;
+  onOpenOkfSync?: () => void;
   onSeedDemo?: () => void;
   isSeeding?: boolean;
   user: User | null;
   onSignIn: () => void;
   totalCount: number;
+  userResourcesCount?: number;
+  systemResourcesCount?: number;
+  rawFilesCount?: number;
   isZenMode?: boolean;
   onToggleZenMode?: () => void;
   // Status Capsule props
@@ -61,6 +66,8 @@ interface HeaderProps {
   onOpenRecoveryModal?: () => void;
   onOpenQuotaTelemetry?: () => void;
   onOpenPersistenceStatus?: () => void;
+  onOpenDiscrepancyInspector?: () => void;
+  onOpenVaultHealthCheck?: () => void;
   unsyncedCount?: number;
   onUploadUnsynced?: () => void;
 }
@@ -80,9 +87,13 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenGoogleDrive,
   onOpenCekikjInspector,
   onOpenKnowledgeUpload,
+  onOpenOkfSync,
   onSeedDemo,
   isSeeding = false,
   totalCount,
+  userResourcesCount,
+  systemResourcesCount,
+  rawFilesCount = 0,
   isZenMode = false,
   onToggleZenMode,
   quotaExceeded = false,
@@ -96,6 +107,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenRecoveryModal,
   onOpenQuotaTelemetry,
   onOpenPersistenceStatus,
+  onOpenDiscrepancyInspector,
+  onOpenVaultHealthCheck,
   unsyncedCount = 0,
   onUploadUnsynced,
 }) => {
@@ -339,6 +352,19 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         )}
 
+        {/* Vault Health Check Deep Comparison Trigger */}
+        {onOpenVaultHealthCheck && (
+          <button
+            onClick={onOpenVaultHealthCheck}
+            className="hidden xl:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#C5A059]/40 bg-[#161208] hover:bg-[#20180B] text-[#E5C170] hover:text-white text-xs font-mono transition-all shadow-xs cursor-pointer"
+            title="Vault Health Check: Confronto profondo memoria locale vs query raw Firestore"
+            aria-label="Vault Health Check"
+          >
+            <Activity className="w-3.5 h-3.5 text-[#C5A059]" />
+            <span>Health Check</span>
+          </button>
+        )}
+
         {/* Integrated Status & Persistence Capsule */}
         {onManualSync && (
           <StatusCapsule
@@ -347,6 +373,9 @@ export const Header: React.FC<HeaderProps> = ({
             lastSyncTime={lastSyncTime}
             onManualSync={onManualSync}
             resourceCount={totalCount}
+            userResourcesCount={userResourcesCount}
+            systemResourcesCount={systemResourcesCount}
+            rawFilesCount={rawFilesCount}
             onExportBackup={onExportBackup}
             hasPendingConflicts={hasPendingConflicts}
             conflictCount={conflictCount}
@@ -354,6 +383,8 @@ export const Header: React.FC<HeaderProps> = ({
             onOpenRecoveryModal={onOpenRecoveryModal}
             onOpenQuotaTelemetry={onOpenQuotaTelemetry}
             onOpenPersistenceStatus={onOpenPersistenceStatus}
+            onOpenDiscrepancyInspector={onOpenDiscrepancyInspector}
+            onOpenVaultHealthCheck={onOpenVaultHealthCheck}
             unsyncedCount={unsyncedCount}
             onUploadUnsynced={onUploadUnsynced}
           />
@@ -504,6 +535,28 @@ export const Header: React.FC<HeaderProps> = ({
                   </button>
                 )}
 
+                {/* Audit Integrità & Ciclo di Vita */}
+                {onOpenDiscrepancyInspector && (
+                  <button
+                    onClick={() => {
+                      setIsMoreMenuOpen(false);
+                      onOpenDiscrepancyInspector();
+                    }}
+                    className="w-full flex items-center justify-between px-3 py-1.5 text-[#CCC] hover:text-white hover:bg-[#181818] transition-colors text-left group cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2.5 truncate">
+                      <ShieldCheck className="w-3.5 h-3.5 text-[#C5A059] shrink-0" />
+                      <div className="flex flex-col truncate">
+                        <span className="font-medium truncate">Audit Ciclo di Vita</span>
+                        <span className="text-[9.5px] text-[#888]">Trace Discrepanze & Inserimenti</span>
+                      </div>
+                    </div>
+                    <span className="text-[9px] font-mono text-[#C5A059] bg-[#161616] px-1.5 py-0.2 rounded border border-[#222]">
+                      Audit
+                    </span>
+                  </button>
+                )}
+
                 {/* Stato Persistenza Multi-Livello */}
                 {onOpenPersistenceStatus && (
                   <button
@@ -553,6 +606,28 @@ export const Header: React.FC<HeaderProps> = ({
                   </button>
                 )}
 
+                {/* Vault Health Check (Memoria vs Firestore Raw) */}
+                {onOpenVaultHealthCheck && (
+                  <button
+                    onClick={() => {
+                      setIsMoreMenuOpen(false);
+                      onOpenVaultHealthCheck();
+                    }}
+                    className="w-full flex items-center justify-between px-3 py-1.5 text-[#CCC] hover:text-white hover:bg-[#181818] transition-colors text-left group cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2.5 truncate">
+                      <Activity className="w-3.5 h-3.5 text-[#C5A059] shrink-0" />
+                      <div className="flex flex-col truncate">
+                        <span className="font-medium text-white truncate">Vault Health Check</span>
+                        <span className="text-[9.5px] text-[#888]">Memoria vs Firestore Raw</span>
+                      </div>
+                    </div>
+                    <span className="text-[9px] font-mono text-[#E5C170] bg-[#241C0E] px-1.5 py-0.2 rounded border border-[#C5A059]/30">
+                      Deep
+                    </span>
+                  </button>
+                )}
+
                 {/* Console Log & Tracing */}
                 {onOpenDiagnostic && (
                   <button
@@ -572,22 +647,26 @@ export const Header: React.FC<HeaderProps> = ({
                   </button>
                 )}
 
-                {/* Sincronizza Demo OKF */}
-                {onSeedDemo && (
+                {/* Sincronizza OKF (GitHub / Specifiche di Sistema) */}
+                {(onOpenOkfSync || onSeedDemo) && (
                   <button
                     onClick={() => {
                       setIsMoreMenuOpen(false);
-                      onSeedDemo();
+                      if (onOpenOkfSync) {
+                        onOpenOkfSync();
+                      } else if (onSeedDemo) {
+                        onSeedDemo();
+                      }
                     }}
                     disabled={isSeeding}
                     className="w-full flex items-center justify-between px-3 py-1.5 text-[#AAA] hover:text-[#E5C170] hover:bg-[#16130B] transition-colors text-left group cursor-pointer disabled:opacity-50"
                   >
                     <div className="flex items-center gap-2.5 truncate">
-                      <RefreshCw className={`w-3.5 h-3.5 text-[#C5A059] shrink-0 ${isSeeding ? "animate-spin" : ""}`} />
-                      <span className="font-medium truncate">Sincronizza Demo OKF</span>
+                      <GitBranch className={`w-3.5 h-3.5 text-[#C5A059] shrink-0 ${isSeeding ? "animate-spin" : ""}`} />
+                      <span className="font-medium truncate">Sincronizza OKF (GitHub / Sistema)</span>
                     </div>
                     <span className="text-[9px] font-mono text-[#666] group-hover:text-[#C5A059] bg-[#161616] px-1.5 py-0.2 rounded border border-[#222]">
-                      v0.2
+                      Git/OKF
                     </span>
                   </button>
                 )}
@@ -599,11 +678,15 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Primary Action Button: Add Resource */}
         <button
           onClick={onOpenAddModal}
-          className="flex items-center gap-1.5 bg-[#C5A059] hover:bg-[#D5B069] text-black font-semibold text-xs py-1.5 px-3 sm:px-3.5 rounded-lg transition-all shadow-sm active:scale-95 shrink-0 cursor-pointer"
-          title="Aggiungi o Ingerisci nuova Risorsa"
+          className="flex items-center gap-1.5 bg-[#C5A059] hover:bg-[#D5B069] text-black font-semibold text-xs py-1.5 px-3 sm:px-3.5 rounded-lg transition-all shadow-md shadow-[#C5A059]/15 active:scale-95 shrink-0 cursor-pointer"
+          title="Aggiungi o Ingerisci nuova Risorsa nel Vault (Scorciatoia: Alt+N)"
+          aria-label="Aggiungi nuova risorsa"
         >
           <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
           <span className="hidden sm:inline font-medium">Nuova</span>
+          <span className="hidden md:inline-block text-[9px] font-mono font-normal opacity-70 bg-black/20 px-1 py-0.2 rounded ml-0.5">
+            Alt+N
+          </span>
         </button>
       </div>
     </header>

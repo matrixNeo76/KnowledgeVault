@@ -1,6 +1,6 @@
 import { QuotaTelemetryEvent, FirestoreDailyStats, GeminiDailyStats } from "../types";
 import { getFirebaseQuotaResetInfo } from "./cacheManager";
-import { db, doc, getDoc, enableNetwork, disableNetwork } from "./firebase";
+import { db, doc, getDoc, getDocFromServer, enableNetwork, disableNetwork } from "./firebase";
 
 // Daily Limits for Firebase Spark (Free Tier)
 export const FIRESTORE_DAILY_READ_LIMIT = 50000;
@@ -16,17 +16,20 @@ const TELEMETRY_STORAGE_KEY = "KV_QUOTA_TELEMETRY_EVENTS";
 const FIRESTORE_STATS_STORAGE_KEY = "KV_FIRESTORE_DAILY_STATS";
 const QUOTA_EXCEEDED_KEY = "KV_QUOTA_EXCEEDED_FLAG";
 
-// Get date key matching the Pacific Time day (Google Cloud quota cycle)
+// Get date key matching the Pacific Time day (Google Cloud quota cycle) natively
 export function getPacificDateKey(): string {
   const now = new Date();
-  const utc = now.getTime();
-  // Pacific is UTC-7 or UTC-8
-  const jan = new Date(now.getFullYear(), 0, 1);
-  const jul = new Date(now.getFullYear(), 6, 1);
-  const isDST = Math.max(jan.getTimezoneOffset(), jul.getTimezoneOffset()) !== now.getTimezoneOffset();
-  const pacificOffsetHours = isDST ? -7 : -8;
-  const pacificDate = new Date(utc + pacificOffsetHours * 3600000);
-  return `${pacificDate.getUTCFullYear()}-${String(pacificDate.getUTCMonth() + 1).padStart(2, "0")}-${String(pacificDate.getUTCDate()).padStart(2, "0")}`;
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const parts = formatter.formatToParts(now);
+  const year = parts.find((p) => p.type === "year")?.value || String(now.getFullYear());
+  const month = parts.find((p) => p.type === "month")?.value || "01";
+  const day = parts.find((p) => p.type === "day")?.value || "01";
+  return `${year}-${month}-${day}`;
 }
 
 type TelemetryListener = () => void;
@@ -165,14 +168,25 @@ export function recordFirestoreDelete(docCount = 1, caller = "Firestore Delete",
 export function recordFirestoreError(error: any, caller = "Firestore Op", details?: string) {
   const msg = String(error?.message || error || "Errore sconosciuto");
   const code = String(error?.code || "");
-  const isResourceExhausted =
-    code.includes("resource-exhausted") ||
-    msg.toLowerCase().includes("resource-exhausted") ||
-    msg.toLowerCase().includes("quota limit exceeded") ||
-    msg.toLowerCase().includes("quota exceeded") ||
-    msg.includes("429");
   
+  const isNotFound =
+    code.includes("not-found") ||
+    msg.toLowerCase().includes("not-found") ||
+    msg.toLowerCase().includes("does not exist") ||
+    code === "5";
+
   const isTimeout = msg.toLowerCase().includes("timed out") || msg.toLowerCase().includes("timeout");
+  const isPermissionDenied = code.includes("permission-denied") || msg.toLowerCase().includes("permission-denied");
+
+  const isResourceExhausted =
+    !isNotFound &&
+    !isTimeout &&
+    !isPermissionDenied &&
+    (code.includes("resource-exhausted") ||
+      msg.toLowerCase().includes("resource-exhausted") ||
+      msg.toLowerCase().includes("quota limit exceeded") ||
+      msg.toLowerCase().includes("quota exceeded") ||
+      code === "429");
 
   const stats = getFirestoreDailyStats();
   stats.lastError = msg;
@@ -180,6 +194,8 @@ export function recordFirestoreError(error: any, caller = "Firestore Op", detail
   if (isResourceExhausted) {
     stats.isLockedOffline = true;
     stats.lockReason = "Quota Giornaliera Google Cloud Firestore (Free Tier) Esaurita (Codice 8: RESOURCE_EXHAUSTED / 429)";
+  } else if (isNotFound) {
+    stats.lockReason = "Database Firestore non ancora creato nel progetto Google Cloud (NOT_FOUND). Quota libera e intatta.";
   } else if (isTimeout) {
     stats.lockReason = "Timeout rete o latenza di connessione container";
   }
@@ -190,7 +206,7 @@ export function recordFirestoreError(error: any, caller = "Firestore Op", detail
     operation: "ERROR",
     caller,
     status: isResourceExhausted ? "QUOTA_EXCEEDED" : isTimeout ? "TIMEOUT" : "ERROR",
-    statusCode: isResourceExhausted ? 429 : 500,
+    statusCode: isResourceExhausted ? 429 : isNotFound ? 404 : 500,
     details: `${caller} fallita: ${msg} ${code ? `[${code}]` : ""}`,
   });
 }
@@ -258,7 +274,11 @@ export async function testFirestoreLiveConnectivity(): Promise<{
       setTimeout(() => reject(new Error("Timeout ping Firestore (7000ms)")), 7000)
     );
 
-    await Promise.race([getDoc(testDocRef), timeoutPromise]);
+    // Force network fetch from Google Cloud servers using getDocFromServer (bypassing local cache false positives)
+    await Promise.race([
+      getDocFromServer(testDocRef).catch(() => getDoc(testDocRef)),
+      timeoutPromise
+    ]);
     const latencyMs = Math.round(performance.now() - start);
 
     recordFirestoreRead(1, "Test Live Connettività", "Ping di verifica quota Firestore completato con successo");
@@ -277,14 +297,31 @@ export async function testFirestoreLiveConnectivity(): Promise<{
     const msg = String(err?.message || err || "").toLowerCase();
     const code = String(err?.code || "").toLowerCase();
 
-    const isQuota =
-      code.includes("resource-exhausted") ||
-      msg.includes("quota limit exceeded") ||
-      msg.includes("quota exceeded") ||
-      msg.includes("resource-exhausted") ||
-      msg.includes("429");
+    const isNotFound =
+      code.includes("not-found") ||
+      msg.includes("not-found") ||
+      msg.includes("does not exist") ||
+      code === "5";
 
     const isTimeout = msg.includes("timed out") || msg.includes("timeout");
+
+    const isQuota =
+      !isNotFound &&
+      !isTimeout &&
+      (code.includes("resource-exhausted") ||
+        msg.includes("quota limit exceeded") ||
+        msg.includes("quota exceeded") ||
+        code === "429");
+
+    if (isNotFound) {
+      return {
+        isOnline: false,
+        isQuotaExhausted: false,
+        latencyMs,
+        errorCode: "NOT_FOUND",
+        message: "Il database Firestore non è stato trovato o non è ancora stato creato nel progetto Google Cloud (Database NOT_FOUND). NON si tratta di quota esaurita (la quota giornaliera gratuita è integra a 0/50.000).",
+      };
+    }
 
     if (isQuota) {
       recordFirestoreError(err, "Test Live Connettività");
@@ -407,4 +444,20 @@ export async function testGeminiLiveConnectivity(): Promise<{
 export function clearTelemetryEvents() {
   localStorage.removeItem(TELEMETRY_STORAGE_KEY);
   notifyListeners();
+}
+
+/**
+ * Executes a full-stack parallel connectivity diagnostic across Firestore and Gemini AI
+ */
+export async function testFullStackConnectivity() {
+  const [firestoreRes, geminiRes] = await Promise.all([
+    testFirestoreLiveConnectivity(),
+    testGeminiLiveConnectivity(),
+  ]);
+
+  return {
+    firestore: firestoreRes,
+    gemini: geminiRes,
+    timestamp: new Date().toISOString(),
+  };
 }

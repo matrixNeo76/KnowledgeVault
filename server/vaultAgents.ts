@@ -1,7 +1,13 @@
 import fs from "fs";
 import path from "path";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, createPartFromFunctionResponse } from "@google/genai";
 import { ResourceItem, ResourceType } from "../src/types";
+import { getGenAI, trackCall } from "./gemini/client";
+import { getOrCreateContextCache } from "./services/contextCacheService";
+import {
+  vaultFunctionDeclarations,
+  dispatchVaultTool,
+} from "./services/vaultTools";
 
 // ============================================================================
 // Types & Interfaces per l'Architettura Multi-Agente del Vault
@@ -437,7 +443,8 @@ export async function executeAgenticVaultQuery(
   let extractedCitedIds: string[] = [];
 
   // Step 3: LLM Generation con Gemini 3.7 Flash e Fallback Bounded
-  if (genAI && candidateResources.length > 0) {
+  const activeGenAI = genAI || getGenAI();
+  if (activeGenAI && candidateResources.length > 0) {
     const modelsToTry = [
       "gemini-3.7-flash",
       "gemini-flash-latest",
@@ -466,18 +473,24 @@ URL: ${r.url || ""}`;
     }).join("\n\n");
 
     const systemPrompt = `Sei il Vault Intelligence Engine del Knowledge Vault personale dell'utente (formato OKF v0.2, conformità Epistemica Cekikj).
-Il tuo compito è rispondere all'interrogazione dell'utente basandoti ESCLUSIVAMENTE sulle risorse del Vault fornite nel contesto sottostante.
+Il tuo compito è rispondere all'interrogazione dell'utente basandoti ESCLUSIVAMENTE sulle risorse del Vault fornite nel contesto sottostante o scoperte tramite gli strumenti.
+
+Hai a disposizione i seguenti strumenti tipizzati (Tool Calling):
+- search_vault: per cercare ulteriori risorse nel Vault per parole chiave, tag e tipo.
+- traverse_graph_relations: per esplorare connessioni ontologiche e archi del grafo D3 (fino a 2 hop).
+- verify_grounding_evidence: per verificare formalmente se un'asserzione/claim è supportata dal testo o metadati di un documento specifico del Vault.
 
 REGOLE RIGOROSE DI GROUNDING & ZERO-GUESSING (CEKIKJ ARCHITECTURE):
-1. Cita SEMPRE le risorse pertinenti utilizzando il formato esatto: [ID: Titolo della Risorsa].
-2. Non inventare risorse o fatti esterni. Se il Vault contiene informazioni parziali, segnala con trasparenza cosa è presente e cosa manca.
-3. Se nessuna risorsa nel contesto tratta dell'argomento richiesto, dichiara apertamente l'assenza con la frase: "Nel Vault attuale non sono presenti risorse su questo argomento specifico." e suggerisci argomenti correlati presenti.
-4. Struttura la risposta in modo chiaro:
+1. Usa gli strumenti se hai bisogno di cercare dettagli precisi, scoprire relazioni nel grafo o verificare asserzioni.
+2. Cita SEMPRE le risorse pertinenti utilizzando il formato esatto: [ID: Titolo della Risorsa].
+3. Non inventare risorse o fatti esterni. Se il Vault contiene informazioni parziali, segnala con trasparenza cosa è presente e cosa manca.
+4. Se nessuna risorsa nel contesto o nel Vault tratta dell'argomento richiesto, dichiara apertamente l'assenza con la frase: "Nel Vault attuale non sono presenti risorse su questo argomento specifico." e suggerisci argomenti correlati presenti.
+5. Struttura la risposta in modo chiaro:
    - **Sintesi Esecutiva**: risposta diretta e concisa alla domanda dell'utente.
    - **Risorse del Vault Pertinenti**: elenco con spiegazione del motivo di pertinenza e citazione [ID: Titolo].
    - **Correlazioni e Grafo**: come queste risorse si collegano tra loro per dominio, tecnologia o entità condivise.
    - **Applicazione Pratica / Codice** (se pertinente per repository GitHub o server MCP).
-5. Mantieni un tono sobrio, tecnico, autorevole e privo di cliché o convenevoli generici.`;
+6. Mantieni un tono sobrio, tecnico, autorevole e privo di cliché o convenevoli generici.`;
 
     const historyBlock = Array.isArray(request.history) && request.history.length > 0
       ? `CRONOLOGIA DELLA CONVERSAZIONE PRECEDENTE NEL THREAD:\n${request.history
@@ -493,36 +506,104 @@ Modalità richiesta: ${request.mode || "quick_synthesis"}
 Categoria attiva nel filtro: ${request.activeCategory || "Tutte"}
 Tag attivo nel filtro: ${request.activeTag || "Nessuno"}
 
-RISORSE DEL VAULT SELEZIONATE DAGLI AGENTI COME CONTESTO DI RIFERIMENTO:
+RISORSE DEL VAULT SELEZIONATE DAGLI AGENTI COME CONTESTO INIZIALE:
 ${compactContext}
 
 Fornisci la sintesi epistemica verificata seguendo le istruzioni di sistema. Rispondi alla domanda attuale tenendo conto del contesto pregresso se presente, citando sempre le risorse pertinenti.`;
 
     for (const modelName of modelsToTry) {
+      const callStart = Date.now();
       try {
-        // Hard bounds: Timeout rigido a 14 secondi per rispettare i requisiti Cekikj
+        // Hard bounds: Timeout rigido a 18 secondi per rispettare i requisiti Cekikj
         const timeoutPromise = new Promise<never>((_, reject) => {
-          setTimeout(() => reject(new Error("Timeout superato (>14s)")), 14000);
+          setTimeout(() => reject(new Error("Timeout superato (>18s)")), 18000);
         });
 
-        const callPromise = genAI.models.generateContent({
-          model: modelName,
-          contents: [{ role: "user", parts: [{ text: userPromptText }] }],
-          config: {
-            systemInstruction: { parts: [{ text: systemPrompt }] },
-            temperature: 0.2,
-          },
-        });
+        const configPayload: any = {
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          tools: [{ functionDeclarations: vaultFunctionDeclarations }],
+          temperature: 0.2,
+        };
 
-        const response: any = await Promise.race([callPromise, timeoutPromise]);
-        const text = response.text || "";
+        // If gemini-3.7-flash, calibrate thinking budget according to mode
+        if (modelName.includes("3.7")) {
+          configPayload.thinkingConfig = {
+            thinkingBudget: request.mode === "deep_implementation" ? 2048 : 0,
+          };
+        }
 
-        if (text.trim().length > 0) {
-          answerText = text.trim();
-          modelUsed = modelName;
+        // Dynamic Context Caching Check (32,768 token threshold)
+        if (modelName === "gemini-3.7-flash" || modelName === "gemini-flash-latest") {
+          try {
+            const cacheResult = await getOrCreateContextCache(compactContext, modelName);
+            if (cacheResult.isCached && cacheResult.cachedContentName) {
+              console.log(`[VAULT_AGENTS] Invocato Context Cache ${cacheResult.cachedContentName} per query agents`);
+              configPayload.cachedContent = cacheResult.cachedContentName;
+            }
+          } catch (cacheErr: any) {
+            console.warn("[VAULT_AGENTS] Context cache check non-fatal error:", cacheErr?.message);
+          }
+        }
+
+        const conversationContents: any[] = [
+          { role: "user", parts: [{ text: userPromptText }] },
+        ];
+
+        let round = 0;
+        const MAX_TOOL_ROUNDS = 6; // Hard bounds Cekikj (max 6 tool-call rounds)
+
+        while (round < MAX_TOOL_ROUNDS) {
+          round++;
+          const callPromise = activeGenAI.models.generateContent({
+            model: modelName,
+            contents: conversationContents,
+            config: configPayload,
+          });
+
+          const response: any = await Promise.race([callPromise, timeoutPromise]);
+          const functionCalls = response.functionCalls;
+
+          if (functionCalls && functionCalls.length > 0) {
+            console.log(`[VAULT_AGENTS] Modello ${modelName} ha richiesto ${functionCalls.length} tool call(s) (Round ${round})`);
+
+            const candidateContent = response.candidates?.[0]?.content;
+            if (candidateContent) {
+              conversationContents.push(candidateContent);
+            }
+
+            const responseParts: any[] = [];
+            for (const fc of functionCalls) {
+              console.log(`[VAULT_AGENTS] Dispatching tool: ${fc.name}`);
+              const { output, trace } = dispatchVaultTool(fc.name, fc.args, allResources);
+              traces.push(trace);
+
+              if (fc.name === "search_vault" && Array.isArray(output.results)) {
+                output.results.forEach((r: any) => candidateIdsSet.add(r.id));
+              } else if (fc.name === "traverse_graph_relations" && Array.isArray(output.connectedNodes)) {
+                output.connectedNodes.forEach((n: any) => candidateIdsSet.add(n.id));
+              }
+
+              responseParts.push(createPartFromFunctionResponse(fc.id || "", fc.name, output));
+            }
+
+            conversationContents.push({ role: "user", parts: responseParts });
+          } else {
+            const text = response.text || "";
+            if (text.trim().length > 0) {
+              answerText = text.trim();
+              modelUsed = modelName;
+              trackCall(modelName, Date.now() - callStart, true);
+              break;
+            }
+            break;
+          }
+        }
+
+        if (answerText) {
           break;
         }
       } catch (err: any) {
+        trackCall(modelName, Date.now() - callStart, false, err?.message);
         console.warn(`[VAULT_AGENTS] Fallimento con modello ${modelName}:`, err?.message || err);
       }
     }
@@ -552,13 +633,18 @@ Fornisci la sintesi epistemica verificata seguendo le istruzioni di sistema. Ris
     extractedCitedIds.push(match[1]);
   }
 
-  // Se nessun ID nel formato esatto, usa gli ID dei candidati primari effettivamente discussi
-  if (extractedCitedIds.length === 0 && candidateResources.length > 0) {
+  // Se nessun ID nel formato esatto, usa gli ID dei candidati primari solo se il modello non ha dichiarato assenza di informazioni
+  const declaredAbsence =
+    answerText.toLowerCase().includes("non sono presenti risorse") ||
+    answerText.toLowerCase().includes("non contiene informazioni sufficienti") ||
+    answerText.toLowerCase().includes("nessuna risorsa trovata");
+
+  if (extractedCitedIds.length === 0 && candidateResources.length > 0 && !declaredAbsence) {
     extractedCitedIds = candidateResources.slice(0, 4).map((r) => r.id);
   }
 
   // Step 4: Grounding Verifier Audit
-  const groundingResult = runGroundingVerifier(extractedCitedIds, allResources);
+  const groundingResult = runGroundingVerifier(declaredAbsence ? [] : extractedCitedIds, allResources);
   traces.push(groundingResult.trace);
 
   // Costruisci i metadati per i badge interattivi cliccabili nella UI

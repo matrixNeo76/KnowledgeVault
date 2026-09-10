@@ -1,194 +1,11 @@
 {
   "vaultVersion": "0.2",
-  "savedAt": "2026-09-06T10:41:28.019Z",
-  "timestamp": 1788691288020,
-  "userId": "f6g6k8idv7NyW3auBpRPKC5lwyq1",
-  "totalResources": 111,
+  "savedAt": "2026-09-10T08:28:24.413Z",
+  "timestamp": 1789028904414,
+  "userId": "local-user",
+  "totalResources": 108,
   "totalRawFiles": 0,
   "resources": [
-    {
-      "id": "local-1788685633751-obmj",
-      "userId": "f6g6k8idv7NyW3auBpRPKC5lwyq1",
-      "type": "rss",
-      "title": "Feed RSS - techcrunch.com",
-      "url": "https://techcrunch.com",
-      "rawInput": "https://techcrunch.com",
-      "summary": "Flusso di aggiornamento e syndication RSS/Atom da https://techcrunch.com.",
-      "tags": [
-        "rss",
-        "feed",
-        "syndication",
-        "updates"
-      ],
-      "isFavorite": false,
-      "metadata": {
-        "feedUrl": "https://techcrunch.com",
-        "feedFormat": "rss",
-        "docType": "tool_description",
-        "okfVersion": "0.2",
-        "domain": "Software Architecture",
-        "entities": [
-          {
-            "name": "Feed RSS - techcrunch.com",
-            "type": "concept",
-            "description": "Flusso di aggiornamento e syndication RSS/Atom da https://techcrunch.com."
-          },
-          {
-            "name": "Software Architecture",
-            "type": "domain",
-            "description": "Dominio di appartenenza"
-          },
-          {
-            "name": "Rss",
-            "type": "technology",
-            "description": "Tag: rss"
-          },
-          {
-            "name": "Feed",
-            "type": "technology",
-            "description": "Tag: feed"
-          },
-          {
-            "name": "Syndication",
-            "type": "technology",
-            "description": "Tag: syndication"
-          }
-        ],
-        "relations": [
-          {
-            "targetTitle": "Knowledge Vault",
-            "relationType": "references",
-            "weight": 0.85,
-            "description": "Archiviazione nel Vault"
-          }
-        ],
-        "markdownContent": "---\nokf_version: \"0.2\"\ntitle: \"Feed RSS - techcrunch.com\"\ntype: \"tool_description\"\ndomain: \"Software Architecture\"\ntags: [\"rss\",\"feed\",\"syndication\",\"updates\"]\ncreated_at: \"2026-09-06T09:07:10.249Z\"\n---\n\n# Feed RSS - techcrunch.com\n\n> **TOOL_DESCRIPTION · OKF v0.2**\n> Ambito: Software Architecture\n\nFlusso di aggiornamento e syndication RSS/Atom da https://techcrunch.com.\n\n\n\n**Riferimento Web:** [https://techcrunch.com](https://techcrunch.com)\n"
-      },
-      "createdAt": "2026-09-06T09:07:13.751Z",
-      "updatedAt": "2026-09-06T09:07:13.751Z"
-    },
-    {
-      "id": "FarZ9UKGppvapcGoOOeA",
-      "userId": "f6g6k8idv7NyW3auBpRPKC5lwyq1",
-      "type": "rss",
-      "title": "Feed RSS - technologyreview.com",
-      "url": "https://technologyreview.com",
-      "rawInput": "https://technologyreview.com",
-      "summary": "Flusso di aggiornamento e syndication RSS/Atom da https://technologyreview.com.",
-      "tags": [
-        "rss",
-        "feed",
-        "syndication",
-        "updates"
-      ],
-      "isFavorite": false,
-      "metadata": {
-        "feedUrl": "https://technologyreview.com",
-        "feedFormat": "rss",
-        "docType": "tool_description",
-        "okfVersion": "0.2",
-        "domain": "Software Architecture",
-        "entities": [
-          {
-            "name": "Feed RSS - technologyreview.com",
-            "type": "concept",
-            "description": "Flusso di aggiornamento e syndication RSS/Atom da https://technologyreview.com."
-          },
-          {
-            "name": "Software Architecture",
-            "type": "domain",
-            "description": "Dominio di appartenenza"
-          },
-          {
-            "name": "Rss",
-            "type": "technology",
-            "description": "Tag: rss"
-          },
-          {
-            "name": "Feed",
-            "type": "technology",
-            "description": "Tag: feed"
-          },
-          {
-            "name": "Syndication",
-            "type": "technology",
-            "description": "Tag: syndication"
-          }
-        ],
-        "relations": [
-          {
-            "targetTitle": "Knowledge Vault",
-            "relationType": "references",
-            "weight": 0.85,
-            "description": "Archiviazione nel Vault"
-          }
-        ],
-        "markdownContent": "---\nokf_version: \"0.2\"\ntitle: \"Feed RSS - technologyreview.com\"\ntype: \"tool_description\"\ndomain: \"Software Architecture\"\ntags: [\"rss\",\"feed\",\"syndication\",\"updates\"]\ncreated_at: \"2026-09-06T09:06:23.619Z\"\n---\n\n# Feed RSS - technologyreview.com\n\n> **TOOL_DESCRIPTION · OKF v0.2**\n> Ambito: Software Architecture\n\nFlusso di aggiornamento e syndication RSS/Atom da https://technologyreview.com.\n\n\n\n**Riferimento Web:** [https://technologyreview.com](https://technologyreview.com)\n"
-      },
-      "createdAt": "2026-09-06T09:07:10.497Z",
-      "updatedAt": null
-    },
-    {
-      "id": "1j58eZDm9wSfPr9LifeI",
-      "userId": "f6g6k8idv7NyW3auBpRPKC5lwyq1",
-      "type": "rss",
-      "title": "Feed RSS - techcrunch.com",
-      "url": "https://techcrunch.com",
-      "rawInput": "https://techcrunch.com",
-      "summary": "Flusso di aggiornamento e syndication RSS/Atom da https://techcrunch.com.",
-      "tags": [
-        "rss",
-        "feed",
-        "syndication",
-        "updates"
-      ],
-      "isFavorite": false,
-      "metadata": {
-        "feedUrl": "https://techcrunch.com",
-        "feedFormat": "rss",
-        "docType": "tool_description",
-        "okfVersion": "0.2",
-        "domain": "Software Architecture",
-        "entities": [
-          {
-            "name": "Feed RSS - techcrunch.com",
-            "type": "concept",
-            "description": "Flusso di aggiornamento e syndication RSS/Atom da https://techcrunch.com."
-          },
-          {
-            "name": "Software Architecture",
-            "type": "domain",
-            "description": "Dominio di appartenenza"
-          },
-          {
-            "name": "Rss",
-            "type": "technology",
-            "description": "Tag: rss"
-          },
-          {
-            "name": "Feed",
-            "type": "technology",
-            "description": "Tag: feed"
-          },
-          {
-            "name": "Syndication",
-            "type": "technology",
-            "description": "Tag: syndication"
-          }
-        ],
-        "relations": [
-          {
-            "targetTitle": "Knowledge Vault",
-            "relationType": "references",
-            "weight": 0.85,
-            "description": "Archiviazione nel Vault"
-          }
-        ],
-        "markdownContent": "---\nokf_version: \"0.2\"\ntitle: \"Feed RSS - techcrunch.com\"\ntype: \"tool_description\"\ndomain: \"Software Architecture\"\ntags: [\"rss\",\"feed\",\"syndication\",\"updates\"]\ncreated_at: \"2026-09-06T09:07:10.249Z\"\n---\n\n# Feed RSS - techcrunch.com\n\n> **TOOL_DESCRIPTION · OKF v0.2**\n> Ambito: Software Architecture\n\nFlusso di aggiornamento e syndication RSS/Atom da https://techcrunch.com.\n\n\n\n**Riferimento Web:** [https://techcrunch.com](https://techcrunch.com)\n"
-      },
-      "createdAt": "2026-09-06T09:07:10.497Z",
-      "updatedAt": null
-    },
     {
       "id": "PeeiAK5YaR07kl1FZ4Cs",
       "userId": "f6g6k8idv7NyW3auBpRPKC5lwyq1",
@@ -247,8 +64,8 @@
         ],
         "markdownContent": "---\nokf_version: \"0.2\"\ntitle: \"deepmind.google\"\ntype: \"guide\"\ndomain: \"deepmind.google\"\ntags: [\"link\",\"web\",\"tool\",\"deepmind\"]\ncreated_at: \"2026-09-04T10:56:30.166Z\"\n---\n\n# deepmind.google\n\n> **GUIDE · OKF v0.2**\n> Ambito: deepmind.google\n\nCollegamento web a https://deepmind.google\n\n\n\n**Riferimento Web:** [https://deepmind.google](https://deepmind.google)\n"
       },
-      "createdAt": "2026-09-06T08:58:39.691Z",
-      "updatedAt": "2026-09-06T09:04:20.122Z"
+      "createdAt": "2026-09-10T08:28:23.763Z",
+      "updatedAt": null
     },
     {
       "id": "TA4JutFesgToeW91gIO4",

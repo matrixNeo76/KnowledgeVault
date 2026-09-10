@@ -47,6 +47,8 @@ interface ResourceCardProps {
   onPrintPreview?: (resource: ResourceItem) => void;
   onExportGoogleDoc?: (resource: ResourceItem) => void;
   onDownloadPdf?: (resource: ResourceItem) => void;
+  onSelectTag?: (tag: string) => void;
+  selectedTag?: string | null;
 }
 
 export const ResourceCard: React.FC<ResourceCardProps> = ({
@@ -57,6 +59,8 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
   onPrintPreview,
   onExportGoogleDoc,
   onDownloadPdf,
+  onSelectTag,
+  selectedTag,
 }) => {
   const [copied, setCopied] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
@@ -110,28 +114,34 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
 
   // Fetch Open Graph data dynamically if not already present in resource metadata
   useEffect(() => {
-    if (resource.type === "article" && resource.url) {
-      // If resource already has OG description and favicon, don't fetch
-      if (resource.metadata?.ogDescription && resource.metadata?.favicon) {
+    if (
+      (resource.type === "article" || resource.type === "link") && 
+      resource.url && 
+      (resource.url.startsWith("http://") || resource.url.startsWith("https://"))
+    ) {
+      // If resource already has description/summary and favicon or domain, avoid extra network calls
+      if ((resource.metadata?.ogDescription || resource.summary) && (resource.metadata?.favicon || resource.metadata?.domain)) {
         return;
       }
 
       let isMounted = true;
       setIsLoadingOg(true);
-      fetchOpenGraphData(resource.url).then((data) => {
-        if (isMounted && data) {
-          setOgData(data);
-          setIsLoadingOg(false);
-        }
-      }).catch(() => {
-        if (isMounted) setIsLoadingOg(false);
-      });
+      fetchOpenGraphData(resource.url)
+        .then((data) => {
+          if (isMounted && data) {
+            setOgData(data);
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (isMounted) setIsLoadingOg(false);
+        });
 
       return () => {
         isMounted = false;
       };
     }
-  }, [resource.type, resource.url, resource.metadata?.ogDescription, resource.metadata?.favicon]);
+  }, [resource.type, resource.url, resource.metadata?.ogDescription, resource.metadata?.favicon, resource.metadata?.domain, resource.summary]);
 
   // Derived Open Graph values
   let domain = resource.metadata?.domain || ogData?.domain;
@@ -243,9 +253,15 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
     } else if (resource.type === "mcp_server") {
       textToCopy = resource.metadata?.configSnippet || resource.metadata?.command || resource.url || "";
     } else if (resource.type === "github_repo") {
-      textToCopy = resource.metadata?.installCommand || `git clone ${resource.url}` || resource.url || "";
+      textToCopy = resource.metadata?.installCommand || (resource.url ? `git clone ${resource.url}.git` : "") || resource.url || "";
     } else if (resource.type === "ai_skill") {
       textToCopy = resource.metadata?.systemPrompt || resource.summary || "";
+    } else if (resource.type === "troubleshooting") {
+      const steps = resource.metadata?.solutionSteps && resource.metadata.solutionSteps.length > 0 
+        ? `\n\nProcedura Risolutiva:\n${resource.metadata.solutionSteps.map((s, i) => `${i + 1}. ${s}`).join("\n")}` 
+        : "";
+      const cause = resource.metadata?.rootCause ? `Causa: ${resource.metadata.rootCause}\n` : "";
+      textToCopy = `${resource.title}\n${cause}${resource.summary}${steps}`.trim();
     } else {
       textToCopy = resource.url || resource.summary || "";
     }
@@ -273,6 +289,8 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
         return "Copia Git Clone";
       case "ai_skill":
         return "Copia Prompt";
+      case "troubleshooting":
+        return "Copia Fix";
       default:
         return "Copia Link";
     }

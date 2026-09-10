@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Activity,
   Database,
@@ -16,13 +16,14 @@ import {
   Download,
   Trash2,
   Search,
-  Filter,
   ArrowRight,
-  ExternalLink,
   Unlock,
   Radio,
   BarChart3,
-  Server
+  Server,
+  PlayCircle,
+  Globe,
+  Gauge
 } from "lucide-react";
 import {
   getFirestoreDailyStats,
@@ -31,6 +32,7 @@ import {
   clearTelemetryEvents,
   testFirestoreLiveConnectivity,
   testGeminiLiveConnectivity,
+  testFullStackConnectivity,
   resetLocalQuotaLock,
   fetchGeminiTelemetry,
   FIRESTORE_DAILY_READ_LIMIT,
@@ -41,7 +43,7 @@ import {
   GEMINI_TPM_LIMIT,
 } from "../lib/quotaTelemetry";
 import { getFirebaseQuotaResetInfo } from "../lib/cacheManager";
-import { FirestoreDailyStats, GeminiDailyStats, QuotaTelemetryEvent, DiagnosticLog } from "../types";
+import { FirestoreDailyStats, GeminiDailyStats, QuotaTelemetryEvent } from "../types";
 import { LogActionResolver } from "./LogActionResolver";
 
 interface QuotaTelemetryPageProps {
@@ -60,6 +62,7 @@ export const QuotaTelemetryPage: React.FC<QuotaTelemetryPageProps> = ({
   const [geminiStats, setGeminiStats] = useState<GeminiDailyStats | null>(null);
   const [events, setEvents] = useState<QuotaTelemetryEvent[]>(getStoredEvents());
   const [quotaCountdown, setQuotaCountdown] = useState(getFirebaseQuotaResetInfo());
+  const [isLoadingStats, setIsLoadingStats] = useState(false);
 
   // Test Ping States
   const [isTestingFirestore, setIsTestingFirestore] = useState(false);
@@ -80,14 +83,29 @@ export const QuotaTelemetryPage: React.FC<QuotaTelemetryPageProps> = ({
     isRateLimited?: boolean;
   } | null>(null);
 
+  const [isTestingFullStack, setIsTestingFullStack] = useState(false);
   const [isResettingLock, setIsResettingLock] = useState(false);
   const [resetMessage, setResetMessage] = useState<string | null>(null);
+  const [simulationActive, setSimulationActive] = useState(false);
 
   // Filters for Audit Log
   const [serviceFilter, setServiceFilter] = useState<"ALL" | "FIRESTORE" | "GEMINI">("ALL");
   const [statusFilter, setStatusFilter] = useState<"ALL" | "ERROR" | "SUCCESS">("ALL");
   const [searchLogQuery, setSearchLogQuery] = useState("");
   const [isExplainerOpen, setIsExplainerOpen] = useState(true);
+
+  // Function to refresh Gemini stats
+  const refreshBackendStats = useCallback(async () => {
+    setIsLoadingStats(true);
+    try {
+      const data = await fetchGeminiTelemetry();
+      if (data) setGeminiStats(data);
+    } catch (e) {
+      console.warn("Telemetry backend fetch warning:", e);
+    } finally {
+      setIsLoadingStats(false);
+    }
+  }, []);
 
   // Subscribe to live telemetry updates
   useEffect(() => {
@@ -100,20 +118,22 @@ export const QuotaTelemetryPage: React.FC<QuotaTelemetryPageProps> = ({
       setQuotaCountdown(getFirebaseQuotaResetInfo());
     }, 1000);
 
-    // Initial load of backend Gemini stats & periodic refresh every 15s
-    const loadGemini = async () => {
-      const data = await fetchGeminiTelemetry();
-      if (data) setGeminiStats(data);
+    refreshBackendStats();
+    const geminiTimer = setInterval(refreshBackendStats, 15000);
+
+    const handleFocus = () => {
+      refreshBackendStats();
+      setFirestoreStats(getFirestoreDailyStats());
     };
-    loadGemini();
-    const geminiTimer = setInterval(loadGemini, 15000);
+    window.addEventListener("focus", handleFocus);
 
     return () => {
       unsub();
       clearInterval(timer);
       clearInterval(geminiTimer);
+      window.removeEventListener("focus", handleFocus);
     };
-  }, []);
+  }, [refreshBackendStats]);
 
   // Handler: Live Ping Test for Firestore
   const handleTestFirestore = async () => {
@@ -144,8 +164,7 @@ export const QuotaTelemetryPage: React.FC<QuotaTelemetryPageProps> = ({
     try {
       const res = await testGeminiLiveConnectivity();
       setGeminiTestResult(res);
-      const updated = await fetchGeminiTelemetry();
-      if (updated) setGeminiStats(updated);
+      refreshBackendStats();
     } catch (err: any) {
       setGeminiTestResult({
         success: false,
@@ -154,6 +173,26 @@ export const QuotaTelemetryPage: React.FC<QuotaTelemetryPageProps> = ({
       });
     } finally {
       setIsTestingGemini(false);
+    }
+  };
+
+  // Handler: Global Full-Stack Test (Firestore + Gemini in parallel)
+  const handleTestFullStack = async () => {
+    setIsTestingFullStack(true);
+    setFirestoreTestResult(null);
+    setGeminiTestResult(null);
+    try {
+      const results = await testFullStackConnectivity();
+      setFirestoreTestResult(results.firestore);
+      setGeminiTestResult(results.gemini);
+      if (results.firestore.isOnline && !results.firestore.isQuotaExhausted) {
+        onRefreshOnlineStatus();
+      }
+      refreshBackendStats();
+    } catch (err: any) {
+      console.error("Full-stack test error:", err);
+    } finally {
+      setIsTestingFullStack(false);
     }
   };
 
@@ -175,9 +214,17 @@ export const QuotaTelemetryPage: React.FC<QuotaTelemetryPageProps> = ({
   const handleExportLogs = () => {
     const report = {
       exportedAt: new Date().toISOString(),
-      quotaCountdown: quotaCountdown.formattedCountdown,
+      quotaCountdown: {
+        countdown: quotaCountdown.formattedCountdown,
+        pacificTime: quotaCountdown.pacificTimeString,
+        nextResetDate: quotaCountdown.resetDate.toISOString(),
+      },
       firestoreStats,
       geminiStats,
+      diagnosticPingResults: {
+        firestore: firestoreTestResult,
+        gemini: geminiTestResult,
+      },
       events,
     };
     const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
@@ -220,15 +267,15 @@ export const QuotaTelemetryPage: React.FC<QuotaTelemetryPageProps> = ({
     : 0;
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 bg-[#0A0A0A] text-[#E0E0E0] overflow-y-auto">
+    <div className="flex-1 flex flex-col min-h-0 bg-[#0A0A0A] text-[#E0E0E0] overflow-y-auto font-sans">
       {/* Top Breadcrumb & Actions Bar */}
       <div className="border-b border-[#1E1E1E] bg-[#0E0E0E] px-4 sm:px-8 py-3.5 flex flex-wrap items-center justify-between gap-3 sticky top-0 z-20 backdrop-blur-md bg-opacity-95">
         <div className="flex items-center gap-3">
           <button
             onClick={onBackToVault}
-            className="flex items-center gap-1.5 text-xs text-[#888] hover:text-[#C5A059] px-2 py-1 rounded bg-[#141414] hover:bg-[#1A1A1A] border border-[#222] transition-colors"
+            className="flex items-center gap-1.5 text-xs text-[#888] hover:text-[#C5A059] px-2.5 py-1.5 rounded-lg bg-[#141414] hover:bg-[#1A1A1A] border border-[#222] transition-colors cursor-pointer"
           >
-            <span>← Torna al Vault</span>
+            <span>&larr; Torna al Vault</span>
           </button>
           <div className="h-4 w-[1px] bg-[#222]" />
           <div className="flex items-center gap-2">
@@ -249,18 +296,37 @@ export const QuotaTelemetryPage: React.FC<QuotaTelemetryPageProps> = ({
         {/* Action Buttons: Ping Tests & Reset Lock */}
         <div className="flex items-center gap-2 flex-wrap">
           <button
+            onClick={handleTestFullStack}
+            disabled={isTestingFullStack}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-[#C5A059] hover:bg-[#D5B069] text-black font-semibold transition-all shadow-sm cursor-pointer disabled:opacity-50"
+            title="Esegue un test parallelo simultaneo su Firestore e Gemini AI"
+          >
+            <Radio className={`w-3.5 h-3.5 ${isTestingFullStack ? "animate-pulse" : ""}`} />
+            <span>{isTestingFullStack ? "Diagnosi in corso..." : "Diagnosi Completa"}</span>
+          </button>
+
+          <button
             onClick={handleResetLock}
             disabled={isResettingLock}
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-700/40 text-emerald-300 font-medium transition-colors cursor-pointer"
             title="Azzera il flag di blocco memorizzato in locale e riattiva immediatamente la rete Firestore"
           >
             <Unlock className="w-3.5 h-3.5 text-emerald-400" />
-            <span>{isResettingLock ? "Sblocco in corso..." : "Azzera Blocco Locale & Riattiva"}</span>
+            <span>{isResettingLock ? "Sblocco in corso..." : "Azzera Blocco Locale"}</span>
+          </button>
+
+          <button
+            onClick={refreshBackendStats}
+            disabled={isLoadingStats}
+            className="p-1.5 rounded-lg bg-[#141414] hover:bg-[#1E1E1E] border border-[#262626] text-[#BBB] hover:text-white transition-colors cursor-pointer"
+            title="Ricarica telemetria dal backend Express"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoadingStats ? "animate-spin text-[#C5A059]" : ""}`} />
           </button>
 
           <button
             onClick={handleExportLogs}
-            className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg bg-[#141414] hover:bg-[#1E1E1E] border border-[#262626] text-[#BBB] hover:text-white transition-colors"
+            className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg bg-[#141414] hover:bg-[#1E1E1E] border border-[#262626] text-[#BBB] hover:text-white transition-colors cursor-pointer"
             title="Esporta l'intero log e i contatori diagnostici in formato JSON"
           >
             <Download className="w-3.5 h-3.5 text-[#888]" />
@@ -278,7 +344,7 @@ export const QuotaTelemetryPage: React.FC<QuotaTelemetryPageProps> = ({
               <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
               <span>{resetMessage}</span>
             </div>
-            <button onClick={() => setResetMessage(null)} className="text-emerald-400 hover:underline text-[11px]">
+            <button onClick={() => setResetMessage(null)} className="text-emerald-400 hover:underline text-[11px] cursor-pointer">
               Chiudi
             </button>
           </div>
@@ -370,8 +436,8 @@ export const QuotaTelemetryPage: React.FC<QuotaTelemetryPageProps> = ({
               </div>
             </div>
             <div className="mt-3 pt-3 border-t border-[#1C1C1C] text-[11px] text-[#777] flex items-center justify-between">
-              <span>Orario Reset: <strong>00:00 US Pacific</strong></span>
-              <span className="font-mono text-[#AAA]">~09:00 Roma</span>
+              <span>Ora Pacifico: <strong>{quotaCountdown.pacificTimeString}</strong></span>
+              <span className="font-mono text-[#AAA]">Reset alle 00:00 PT</span>
             </div>
           </div>
         </div>
@@ -412,7 +478,7 @@ export const QuotaTelemetryPage: React.FC<QuotaTelemetryPageProps> = ({
                     2. La Trappola dei "Falsi Positivi" da Timeout di Rete
                   </div>
                   <p className="text-[#AAA] text-[11px]">
-                    Spesso la quota reale di Google <strong>NON è esaurita</strong>: nei container di sviluppo possono verificarsi brevi ritardi di rete (timeout &gt; 3.5s). In precedenza, il sistema scambiava qualsiasi timeout per quota esaurita e salvava una variabile permanente nel browser (<code className="text-[#E5C170]">KV_QUOTA_EXCEEDED_FLAG</code>), bloccando l'app in offline continuo! Cliccando su <strong>"Azzera Blocco Locale & Riattiva"</strong> o eseguendo il <strong>"Test Live"</strong> sottostante puoi verificare se Firestore risponde e sbloccarlo all'istante.
+                    Spesso la quota reale di Google <strong>NON è esaurita</strong>: nei container di sviluppo possono verificarsi brevi ritardi di rete (timeout &gt; 3.5s). In precedenza, il sistema scambiava qualsiasi timeout per quota esaurita e salvava una variabile permanente nel browser (<code className="text-[#E5C170]">KV_QUOTA_EXCEEDED_FLAG</code>), bloccando l'app in offline continuo! Cliccando su <strong>"Azzera Blocco Locale"</strong> o eseguendo il <strong>"Ping Live"</strong> sottostante puoi verificare se Firestore risponde e sbloccarlo all'istante.
                   </p>
                 </div>
               </div>
@@ -425,8 +491,8 @@ export const QuotaTelemetryPage: React.FC<QuotaTelemetryPageProps> = ({
                   </div>
                   <p className="text-[#AAA] text-[11px]">
                     È fondamentale distinguere i due motori:
-                    <br />• <strong>Gemini AI</strong>: blocca le richieste quando si superano le <strong>15 chiamate al minuto</strong> (errore 429). Il blocco di Gemini dura <strong>solo 60 secondi</strong>, non 24 ore!
-                    <br />• <strong>Firestore</strong>: gestisce il database documentale (limite di 50.000 letture su 24 ore). Quando Gemini è sovraccarico, il database Firestore funziona comunque regolarmente, e viceversa.
+                    <br />&bull; <strong>Gemini AI</strong>: blocca le richieste quando si superano le <strong>15 chiamate al minuto</strong> (errore 429). Il blocco di Gemini dura <strong>solo 60 secondi</strong>, non 24 ore!
+                    <br />&bull; <strong>Firestore</strong>: gestisce il database documentale (limite di 50.000 letture su 24 ore). Quando Gemini è sovraccarico, il database Firestore funziona comunque regolarmente, e viceversa.
                   </p>
                 </div>
 
@@ -456,26 +522,71 @@ export const QuotaTelemetryPage: React.FC<QuotaTelemetryPageProps> = ({
                 Esegui una chiamata ping in tempo reale per scoprire se i server Google rispondono o se la quota è realmente bloccata.
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <button
                 onClick={handleTestFirestore}
-                disabled={isTestingFirestore}
-                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-[#181818] hover:bg-[#222] border border-[#333] text-white font-medium transition-colors cursor-pointer"
+                disabled={isTestingFirestore || isTestingFullStack}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-[#181818] hover:bg-[#222] border border-[#333] text-white font-medium transition-colors cursor-pointer disabled:opacity-50"
               >
                 <RefreshCw className={`w-3.5 h-3.5 text-[#C5A059] ${isTestingFirestore ? "animate-spin" : ""}`} />
-                <span>{isTestingFirestore ? "Test Firestore in corso..." : "Ping Live Firestore"}</span>
+                <span>{isTestingFirestore ? "Test Firestore..." : "Ping Live Firestore"}</span>
               </button>
 
               <button
                 onClick={handleTestGemini}
-                disabled={isTestingGemini}
-                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-[#181818] hover:bg-[#222] border border-[#333] text-white font-medium transition-colors cursor-pointer"
+                disabled={isTestingGemini || isTestingFullStack}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-[#181818] hover:bg-[#222] border border-[#333] text-white font-medium transition-colors cursor-pointer disabled:opacity-50"
               >
                 <RefreshCw className={`w-3.5 h-3.5 text-[#C5A059] ${isTestingGemini ? "animate-spin" : ""}`} />
-                <span>{isTestingGemini ? "Test Gemini in corso..." : "Ping Live Gemini"}</span>
+                <span>{isTestingGemini ? "Test Gemini..." : "Ping Live Gemini"}</span>
+              </button>
+
+              <button
+                onClick={() => setSimulationActive(!simulationActive)}
+                className={`flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-colors cursor-pointer ${
+                  simulationActive 
+                    ? "bg-[#2A1B0B] border-[#C5A059] text-[#F0C060]" 
+                    : "bg-[#161616] border-[#2A2A2A] text-[#888] hover:text-white"
+                }`}
+                title="Attiva la simulazione visiva della protezione offline multi-livello"
+              >
+                <Gauge className="w-3.5 h-3.5" />
+                <span>{simulationActive ? "Chiudi Simulatore" : "Simulatore di Resilienza"}</span>
               </button>
             </div>
           </div>
+
+          {/* Active Resilience Simulator Banner */}
+          {simulationActive && (
+            <div className="mb-4 p-3.5 rounded-xl bg-[#171209] border border-[#C5A059]/40 space-y-2 text-xs animate-in fade-in">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-white flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                  Simulatore di Resilienza & Fallback Architetturale
+                </span>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#241B0D] text-[#C5A059] border border-[#3E2D15]">
+                  Test OKF v0.2
+                </span>
+              </div>
+              <p className="text-[#AAA] text-[11px] leading-relaxed">
+                In caso di esaurimento totale di Firestore (50k/50k) o Gemini (15 RPM), l&apos;applicazione adotta la seguente catena di continuità garantita:
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+                <div className="p-2 rounded bg-[#100C06] border border-[#241A0B]">
+                  <div className="font-mono text-[10px] text-emerald-400">1. Persistenza Locale</div>
+                  <div className="text-[11px] text-white">IndexedDB salva ogni modifica istantaneamente senza latenza.</div>
+                </div>
+                <div className="p-2 rounded bg-[#100C06] border border-[#241A0B]">
+                  <div className="font-mono text-[10px] text-blue-400">2. Backup Server</div>
+                  <div className="text-[11px] text-white">Scrittura atomica su disco container (file JSON permanente).</div>
+                </div>
+                <div className="p-2 rounded bg-[#100C06] border border-[#241A0B]">
+                  <div className="font-mono text-[10px] text-amber-400">3. Parser Euristico</div>
+                  <div className="text-[11px] text-white">Analisi a regole locale (0ms latenza) se Gemini è saturo.</div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Test Results Display */}
           {(firestoreTestResult || geminiTestResult) && (
@@ -516,7 +627,7 @@ export const QuotaTelemetryPage: React.FC<QuotaTelemetryPageProps> = ({
                       ) : (
                         <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
                       )}
-                      Risultato Ping Gemini
+                      Risultato Ping Gemini AI
                     </span>
                     <span className="font-mono text-[10px] opacity-80">{geminiTestResult.latencyMs}ms</span>
                   </div>
@@ -669,7 +780,7 @@ export const QuotaTelemetryPage: React.FC<QuotaTelemetryPageProps> = ({
             {/* Token Velocity */}
             <div className="p-2.5 rounded-lg bg-[#0C0C0C] border border-[#1E1E1E] flex items-center justify-between text-xs">
               <div>
-                <div className="text-[#777] text-[11px]">Token Generati nell'ultimo minuto:</div>
+                <div className="text-[#777] text-[11px]">Token Generati nell&apos;ultimo minuto:</div>
                 <div className="font-mono font-bold text-white text-sm">
                   {(geminiStats?.tokensLastMinute || 0).toLocaleString()} <span className="text-[10px] font-normal text-[#666]">/ 1.000.000 TPM</span>
                 </div>
@@ -722,7 +833,7 @@ export const QuotaTelemetryPage: React.FC<QuotaTelemetryPageProps> = ({
                   <button
                     key={filter}
                     onClick={() => setServiceFilter(filter)}
-                    className={`px-2.5 py-1 rounded-md font-mono text-[11px] transition-colors ${
+                    className={`px-2.5 py-1 rounded-md font-mono text-[11px] transition-colors cursor-pointer ${
                       serviceFilter === filter
                         ? "bg-[#C5A059] text-black font-semibold"
                         : "text-[#888] hover:text-white"
@@ -747,7 +858,7 @@ export const QuotaTelemetryPage: React.FC<QuotaTelemetryPageProps> = ({
               {/* Clear History */}
               <button
                 onClick={clearTelemetryEvents}
-                className="p-1.5 rounded-lg bg-[#181818] hover:bg-rose-950/40 border border-[#262626] hover:border-rose-800/40 text-[#777] hover:text-rose-400 transition-colors"
+                className="p-1.5 rounded-lg bg-[#181818] hover:bg-rose-950/40 border border-[#262626] hover:border-rose-800/40 text-[#777] hover:text-rose-400 transition-colors cursor-pointer"
                 title="Azzera la cronologia eventi"
               >
                 <Trash2 className="w-3.5 h-3.5" />

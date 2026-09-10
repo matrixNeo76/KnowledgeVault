@@ -11,6 +11,7 @@ import {
 // ============================================================================
 
 class DualLayerKnowledgeStore {
+  private static readonly STORAGE_KEY = 'cekikj_contradictions_v2';
   private evidenceChunks: Map<string, EvidenceChunk> = new Map();
   private entities: Map<string, StructuredKnowledgeEntity> = new Map();
   private relationships: Map<string, TypedRelationship> = new Map();
@@ -19,6 +20,36 @@ class DualLayerKnowledgeStore {
 
   constructor() {
     this.initSeedData();
+    this.loadFromStorage();
+  }
+
+  public saveToStorage() {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    try {
+      const records = Array.from(this.contradictions.values());
+      window.localStorage.setItem(DualLayerKnowledgeStore.STORAGE_KEY, JSON.stringify(records));
+    } catch (e) {
+      console.warn('[CekikjStore] Impossibile salvare le contraddizioni in localStorage:', e);
+    }
+  }
+
+  public loadFromStorage() {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    try {
+      const raw = window.localStorage.getItem(DualLayerKnowledgeStore.STORAGE_KEY);
+      if (raw) {
+        const parsed: ContradictionRecord[] = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          parsed.forEach(record => {
+            if (record && record.id) {
+              this.contradictions.set(record.id, record);
+            }
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('[CekikjStore] Impossibile caricare le contraddizioni da localStorage:', e);
+    }
   }
 
   private initSeedData() {
@@ -460,6 +491,173 @@ class DualLayerKnowledgeStore {
 
   public registerContradiction(record: ContradictionRecord) {
     this.contradictions.set(record.id, record);
+    this.saveToStorage();
+  }
+
+  public registerNewContradiction(params: {
+    conceptName: string;
+    domain?: string;
+    sourceA: { title: string; statement: string; owner?: string; id?: string; validFrom?: string };
+    sourceB: { title: string; statement: string; owner?: string; id?: string; validFrom?: string };
+    verificationMethod?: 'heuristic' | 'gemini_semantic' | 'manual';
+    confidenceScore?: number;
+    logicalConflictReason?: string;
+  }): ContradictionRecord {
+    const slug = params.conceptName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const id = `contradiction-custom-${Date.now()}`;
+    const conceptId = `concept-${slug}`;
+
+    const newRecord: ContradictionRecord = {
+      id,
+      conceptId,
+      conceptName: params.conceptName.trim(),
+      status: 'open',
+      registeredAt: new Date().toISOString(),
+      verificationMethod: params.verificationMethod || 'manual',
+      confidenceScore: params.confidenceScore,
+      logicalConflictReason: params.logicalConflictReason,
+      conflictingSources: [
+        {
+          sourceId: params.sourceA.id || `src-${Date.now()}-a`,
+          sourceTitle: params.sourceA.title.trim(),
+          statement: params.sourceA.statement.trim(),
+          owner: params.sourceA.owner?.trim() || 'Vault Architect',
+          effectiveDate: params.sourceA.validFrom || new Date().toISOString().split('T')[0],
+          validFrom: params.sourceA.validFrom || new Date().toISOString().split('T')[0],
+          validTo: '2099-12-31'
+        },
+        {
+          sourceId: params.sourceB.id || `src-${Date.now()}-b`,
+          sourceTitle: params.sourceB.title.trim(),
+          statement: params.sourceB.statement.trim(),
+          owner: params.sourceB.owner?.trim() || 'Vault Contributor',
+          effectiveDate: params.sourceB.validFrom || new Date().toISOString().split('T')[0],
+          validFrom: params.sourceB.validFrom || new Date().toISOString().split('T')[0],
+          validTo: '2099-12-31'
+        }
+      ]
+    };
+
+    this.contradictions.set(id, newRecord);
+
+    // Register into entities if not existing
+    if (!this.entities.has(conceptId)) {
+      this.entities.set(conceptId, {
+        id: conceptId,
+        canonicalName: params.conceptName.trim(),
+        aliases: [params.conceptName.trim()],
+        domain: params.domain || 'Vault Knowledge',
+        description: `Contraddizione registrata su: ${params.conceptName}`,
+        entityType: 'concept',
+        timeline: [
+          {
+            timestamp: new Date().toISOString(),
+            state: 'CONTRADICTION_REGISTERED',
+            validFrom: '2026-01-01',
+            validTo: '2099-12-31',
+            description: 'Contraddizione epistemica aperta nel registro Cekikj'
+          }
+        ]
+      });
+    }
+
+    this.saveToStorage();
+    return newRecord;
+  }
+
+  public deleteContradiction(id: string): boolean {
+    const deleted = this.contradictions.delete(id);
+    if (deleted) {
+      this.saveToStorage();
+    }
+    return deleted;
+  }
+
+  public scanResourceContradictions(resources: ResourceItem[]): Array<{
+    conceptName: string;
+    domain: string;
+    sourceA: { title: string; statement: string; owner?: string; id?: string };
+    sourceB: { title: string; statement: string; owner?: string; id?: string };
+    similarityReason: string;
+  }> {
+    if (!Array.isArray(resources) || resources.length < 2) return [];
+
+    const candidates: Array<{
+      conceptName: string;
+      domain: string;
+      sourceA: { title: string; statement: string; owner?: string; id?: string };
+      sourceB: { title: string; statement: string; owner?: string; id?: string };
+      similarityReason: string;
+    }> = [];
+
+    // Opposing semantic markers commonly found in technical specs
+    const polarities = [
+      { termA: 'client-side', termB: 'server-side', label: 'Esecuzione Client vs Server' },
+      { termA: 'offline', termB: 'realtime', label: 'Persistenza Offline vs Realtime Online' },
+      { termA: 'v0.1', termB: 'v0.2', label: 'Versione Specifica OKF Legacy vs Attuale' },
+      { termA: 'obbligatorio', termB: 'opzionale', label: 'Requisito Obbligatorio vs Opzionale' },
+      { termA: 'deprecat', termB: 'raccomandat', label: 'Stato Deprecato vs Raccomandato' },
+      { termA: 'gemini-1.5', termB: 'gemini-3.7', label: 'Famiglia Modello LLM Incompatibile' },
+      { termA: 'indexeddb', termB: 'in-memory', label: 'Storage Cache Durevole vs Volatile' },
+      { termA: 'vietat', termB: 'consentit', label: 'Permessi di Sicurezza Contrastanti' }
+    ];
+
+    for (let i = 0; i < resources.length; i++) {
+      for (let j = i + 1; j < resources.length; j++) {
+        const resA = resources[i];
+        const resB = resources[j];
+        if (!resA || !resB) continue;
+
+        const textA = `${resA.title} ${resA.summary || ''} ${resA.metadata?.markdownContent || ''}`.toLowerCase();
+        const textB = `${resB.title} ${resB.summary || ''} ${resB.metadata?.markdownContent || ''}`.toLowerCase();
+
+        // Check for shared entities or shared domain or shared tags
+        const tagsA = new Set((resA.tags || []).map(t => t.toLowerCase()));
+        const tagsB = new Set((resB.tags || []).map(t => t.toLowerCase()));
+        const sharedTags = Array.from(tagsA).filter(t => tagsB.has(t));
+
+        for (const pol of polarities) {
+          const aHasA = textA.includes(pol.termA);
+          const aHasB = textA.includes(pol.termB);
+          const bHasA = textB.includes(pol.termA);
+          const bHasB = textB.includes(pol.termB);
+
+          // Contrast condition: one has termA without termB, other has termB without termA
+          if ((aHasA && !aHasB && bHasB && !bHasA) || (aHasB && !aHasA && bHasA && !bHasB)) {
+            // Avoid duplicate with existing contradictions
+            const exists = Array.from(this.contradictions.values()).some(c =>
+              c.conflictingSources.some(s => s.sourceTitle === resA.title) &&
+              c.conflictingSources.some(s => s.sourceTitle === resB.title)
+            );
+
+            if (!exists) {
+              const statementA = (resA.summary || resA.title).slice(0, 160);
+              const statementB = (resB.summary || resB.title).slice(0, 160);
+              candidates.push({
+                conceptName: `${pol.label} (${sharedTags[0] || resA.metadata?.domain || 'Specifica'})`,
+                domain: resA.metadata?.domain || resB.metadata?.domain || 'Architettura Vault',
+                sourceA: {
+                  id: resA.id,
+                  title: resA.title,
+                  statement: `Dichiara politica basata su '${pol.termA}': ${statementA}`,
+                  owner: (resA as any).author || 'Autore Risorsa A'
+                },
+                sourceB: {
+                  id: resB.id,
+                  title: resB.title,
+                  statement: `Dichiara politica opposta basata su '${pol.termB}': ${statementB}`,
+                  owner: (resB as any).author || 'Autore Risorsa B'
+                },
+                similarityReason: `Conflitto semantico rilevato tra '${pol.termA}' e '${pol.termB}'`
+              });
+              break; // Limit to 1 candidate per pair
+            }
+          }
+        }
+      }
+    }
+
+    return candidates.slice(0, 5); // Return top 5 candidates
   }
 
   public resolveContradiction(
@@ -481,6 +679,7 @@ class DualLayerKnowledgeStore {
       resolvedBy
     };
     this.contradictions.set(id, updated);
+    this.saveToStorage();
     return updated;
   }
 
@@ -496,6 +695,7 @@ class DualLayerKnowledgeStore {
       resolvedBy: undefined
     };
     this.contradictions.set(id, updated);
+    this.saveToStorage();
     return updated;
   }
 }

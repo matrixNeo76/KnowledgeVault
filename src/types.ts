@@ -89,6 +89,8 @@ export interface ResourceMetadata {
   audioTranscript?: string;
   mediaType?: 'audio' | 'video' | 'image' | 'pdf' | 'document' | string;
   audioDurationSec?: number;
+  sourceFileName?: string;
+  sourceFileId?: string;
 
   // Google Drive & Google Docs specific
   gdocUrl?: string;
@@ -262,9 +264,41 @@ export interface DiagnosticLog {
   id: string;
   timestamp: string;
   level: 'info' | 'success' | 'warn' | 'error';
-  category: 'CAPTURE' | 'GEMINI_AI' | 'FIRESTORE' | 'AUTH' | 'OKF_PARSER' | 'SYSTEM' | 'BACKUP' | 'CACHE';
+  category: 'CAPTURE' | 'GEMINI_AI' | 'FIRESTORE' | 'AUTH' | 'OKF_PARSER' | 'SYSTEM' | 'BACKUP' | 'CACHE' | 'LIFECYCLE';
   message: string;
   details?: any;
+}
+
+export type LifecycleStage = 
+  | 'CAPTURE_INITIATED'
+  | 'AI_ANALYSIS_SUCCESS'
+  | 'AI_ANALYSIS_FALLBACK'
+  | 'DATA_TRANSFORMATION'
+  | 'OKF_SCHEMA_VALIDATION'
+  | 'LOCAL_CREATION'
+  | 'RAW_FILE_STAGED'
+  | 'RAW_FILE_DELETED'
+  | 'RAW_FILE_CONVERSION'
+  | 'FIRESTORE_WRITE_START'
+  | 'FIRESTORE_WRITE_SUCCESS'
+  | 'FIRESTORE_WRITE_FAIL'
+  | 'REALTIME_SNAPSHOT_RECEIVED'
+  | 'CONFLICT_RECONCILIATION'
+  | 'RESOURCE_COLLAPSED_DEDUPED'
+  | 'RESOURCE_DROPPED_TOMBSTONE'
+  | 'RESOURCE_DELETED'
+  | 'FILTER_DISCREPANCY_CHECK';
+
+export interface ResourceLifecycleEvent {
+  id: string;
+  timestamp: string;
+  stage: LifecycleStage;
+  resourceId?: string;
+  resourceTitle?: string;
+  resourceType?: string;
+  status: 'info' | 'success' | 'warn' | 'error';
+  message: string;
+  details?: Record<string, any>;
 }
 
 export type DiagnosticActionId = 
@@ -372,6 +406,9 @@ export interface ContradictionRecord {
   resolvedAt?: string;
   resolvedBy?: string;
   registeredAt: string;
+  verificationMethod?: 'heuristic' | 'gemini_semantic' | 'manual';
+  confidenceScore?: number;
+  logicalConflictReason?: string;
 }
 
 export interface TypedToolTrace {
@@ -463,5 +500,62 @@ export interface CekikjEngineResult {
   gateEvaluation: ContradictionGateEvaluation;
   groundingReport: GroundingReport;
   timestamp: string;
+}
+
+export interface VaultHealthComparison {
+  localCount: number;
+  firestoreCount: number;
+  delta: number; // local - firestore
+  status: 'synced' | 'local_excess' | 'firestore_excess';
+}
+
+export interface TypeComparisonItem {
+  type: ResourceType;
+  label: string;
+  localCount: number;
+  firestoreCount: number;
+  delta: number;
+  match: boolean;
+}
+
+export interface OrphanResourceItem {
+  id: string;
+  title: string;
+  type: ResourceType;
+  location: 'local_only' | 'firestore_only';
+  reason?: string;
+  updatedAt?: string | number;
+}
+
+export interface VaultHealthCheckReport {
+  id: string;
+  timestamp: string;
+  executionDurationMs: number;
+  userId?: string;
+  overallComparison: VaultHealthComparison;
+  userOwnedComparison: VaultHealthComparison;
+  systemSampleComparison: {
+    localCount: number;
+    description: string;
+  };
+  typeBreakdown: TypeComparisonItem[];
+  orphanResources: OrphanResourceItem[];
+  okfIntegrity: {
+    localOkfCount: number;
+    firestoreOkfCount: number;
+    webLinksAsOkfCount: number;
+    status: 'pass' | 'warning' | 'fail';
+    notes: string;
+  };
+  firestoreQueryDetails: {
+    collection: string;
+    filterApplied: string;
+    serverCountResult?: number;
+    rawDocsFetched: number;
+    hasQuotaError: boolean;
+    errorCode?: string;
+    errorMessage?: string;
+  };
+  healthStatus: 'HEALTHY' | 'DESYNCHRONIZED' | 'OFFLINE_CACHE' | 'ERROR';
 }
 

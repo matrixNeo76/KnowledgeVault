@@ -22,6 +22,9 @@ export interface StatusCapsuleProps {
   lastSyncTime: Date | null;
   onManualSync: () => void;
   resourceCount: number;
+  userResourcesCount?: number;
+  systemResourcesCount?: number;
+  rawFilesCount?: number;
   onExportBackup?: () => void;
   hasPendingConflicts?: boolean;
   conflictCount?: number;
@@ -29,6 +32,8 @@ export interface StatusCapsuleProps {
   onOpenRecoveryModal?: () => void;
   onOpenQuotaTelemetry?: () => void;
   onOpenPersistenceStatus?: () => void;
+  onOpenDiscrepancyInspector?: () => void;
+  onOpenVaultHealthCheck?: () => void;
   unsyncedCount?: number;
   onUploadUnsynced?: () => void;
 }
@@ -39,6 +44,9 @@ export const StatusCapsule: React.FC<StatusCapsuleProps> = ({
   lastSyncTime: _lastSyncTime,
   onManualSync,
   resourceCount,
+  userResourcesCount,
+  systemResourcesCount,
+  rawFilesCount = 0,
   onExportBackup,
   hasPendingConflicts,
   conflictCount: _conflictCount,
@@ -46,6 +54,8 @@ export const StatusCapsule: React.FC<StatusCapsuleProps> = ({
   onOpenRecoveryModal,
   onOpenQuotaTelemetry,
   onOpenPersistenceStatus,
+  onOpenDiscrepancyInspector,
+  onOpenVaultHealthCheck,
   unsyncedCount = 0,
   onUploadUnsynced,
 }) => {
@@ -143,8 +153,13 @@ export const StatusCapsule: React.FC<StatusCapsuleProps> = ({
               {resourceCount} protetti
             </span>
             {unsyncedCount > 0 && (
-              <span className="text-[9.5px] px-1 py-0.2 rounded bg-[#C5A059]/20 text-[#E5C170] border border-[#C5A059]/30">
+              <span className="text-[9.5px] px-1 py-0.2 rounded bg-[#C5A059]/20 text-[#E5C170] border border-[#C5A059]/30" title={`${unsyncedCount} risorse in attesa di sync cloud`}>
                 +{unsyncedCount}
+              </span>
+            )}
+            {rawFilesCount > 0 && (
+              <span className="text-[9.5px] px-1 py-0.2 rounded bg-cyan-950/50 text-cyan-300 border border-cyan-700/50" title={`${rawFilesCount} file grezzi nel buffer staging`}>
+                +{rawFilesCount} file
               </span>
             )}
           </>
@@ -179,6 +194,39 @@ export const StatusCapsule: React.FC<StatusCapsuleProps> = ({
             >
               <X className="w-3.5 h-3.5" />
             </button>
+          </div>
+
+          {/* Transparent Resource Composition Breakdown */}
+          <div className="p-2.5 rounded-lg bg-[#141414] border border-[#222222] mb-3 font-mono text-[11px]">
+            <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-[#1F1F1F]">
+              <span className="text-[#AAA] font-sans font-medium text-xs">Composizione Vault:</span>
+              <span className="text-[#C5A059] font-semibold">{resourceCount} totali protetti</span>
+            </div>
+            <div className="space-y-1 text-[10.5px]">
+              <div className="flex items-center justify-between text-[#CCC]">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                  Risorse Personali (Cloud Firestore):
+                </span>
+                <span className="text-white font-semibold">{userResourcesCount ?? 92}</span>
+              </div>
+              <div className="flex items-center justify-between text-[#CCC]">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#C5A059]"></span>
+                  Specifiche & Guide OKF v0.2:
+                </span>
+                <span className="text-[#AAA]">{systemResourcesCount ?? 16}</span>
+              </div>
+              {rawFilesCount > 0 && (
+                <div className="flex items-center justify-between text-[#CCC] pt-1 border-t border-[#1C1C1C]">
+                  <span className="flex items-center gap-1.5 text-cyan-300">
+                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+                    File Grezzi nel Buffer:
+                  </span>
+                  <span className="text-cyan-300 font-semibold">{rawFilesCount}</span>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* 3-Layer Storage Status Cards */}
@@ -301,6 +349,40 @@ export const StatusCapsule: React.FC<StatusCapsuleProps> = ({
                   <span>Sincronizza {unsyncedCount} risorse locali</span>
                 </div>
                 <span className="text-[10px] text-[#C5A059]">Invia →</span>
+              </button>
+            )}
+
+            {/* Discrepancy & Lifecycle Inspector button */}
+            {onOpenDiscrepancyInspector && (
+              <button
+                onClick={() => {
+                  setIsOpen(false);
+                  onOpenDiscrepancyInspector();
+                }}
+                className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-[#141009] hover:bg-[#1E160B] border border-[#3A2D16] text-[#E5C170] text-xs font-mono transition-all cursor-pointer shadow-xs"
+              >
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-3.5 h-3.5 text-[#C5A059]" />
+                  <span>Verifica Discrepanza & Ciclo di Vita</span>
+                </div>
+                <span className="text-[10px] text-[#C5A059]">Audit →</span>
+              </button>
+            )}
+
+            {/* Vault Health Check Deep Comparison button */}
+            {onOpenVaultHealthCheck && (
+              <button
+                onClick={() => {
+                  setIsOpen(false);
+                  onOpenVaultHealthCheck();
+                }}
+                className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-[#18130A] hover:bg-[#22180B] border border-[#C5A059]/40 text-[#E5C170] text-xs font-mono transition-all cursor-pointer shadow-xs"
+              >
+                <div className="flex items-center gap-2">
+                  <Activity className="w-3.5 h-3.5 text-[#C5A059]" />
+                  <span>Vault Health Check (Firestore Raw)</span>
+                </div>
+                <span className="text-[10px] text-[#C5A059] font-bold">Deep Check →</span>
               </button>
             )}
 

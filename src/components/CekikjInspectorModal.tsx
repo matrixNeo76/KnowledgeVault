@@ -23,23 +23,34 @@ import {
   Scale,
   Unlock,
   Lock,
-  FileCheck
+  FileCheck,
+  Plus,
+  ScanSearch,
+  Download
 } from "lucide-react";
 import { executeBoundedCekikjLoop } from "../lib/cekikj/boundedEngine";
 import { dualLayerStore } from "../lib/cekikj/dualLayerStore";
 import { runCekikjValidationSuite, ValidationSuiteReport } from "../lib/cekikj/testRunner";
-import { CekikjEngineResult, ContradictionRecord } from "../types";
+import { CekikjEngineResult, ContradictionRecord, ResourceItem } from "../types";
+import { CekikjDecisionDag } from "./cekikj/CekikjDecisionDag";
+import { CekikjSplitViewConflict } from "./cekikj/CekikjSplitViewConflict";
+import { CekikjClaimInspector } from "./cekikj/CekikjClaimInspector";
+import { CekikjNewContradictionModal } from "./cekikj/CekikjNewContradictionModal";
+import { CekikjResourceScannerModal } from "./cekikj/CekikjResourceScannerModal";
+import { downloadCekikjAuditFile } from "../lib/cekikj/auditExporter";
 
 interface CekikjInspectorModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onNotification?: (type: "success" | "error" | "info", msg: string) => void;
+  onNotification?: (typeOrMsg: "success" | "error" | "info" | string, maybeMsg?: string) => void;
+  resources?: ResourceItem[];
 }
 
 export const CekikjInspectorModal: React.FC<CekikjInspectorModalProps> = ({
   isOpen,
   onClose,
-  onNotification
+  onNotification,
+  resources = []
 }) => {
   const [activeTab, setActiveTab] = useState<"runner" | "registry" | "tests" | "guide" | "spec">("runner");
   const [queryInput, setQueryInput] = useState("Qual è la regola per la memorizzazione e sicurezza delle API Key?");
@@ -49,13 +60,22 @@ export const CekikjInspectorModal: React.FC<CekikjInspectorModalProps> = ({
 
   // Registry mitigation state
   const [registryRevision, setRegistryRevision] = useState(0);
-  const [arbitratingId, setArbitratingId] = useState<string | null>(null);
-  const [chosenSource, setChosenSource] = useState<string>("");
-  const [arbitrationNotes, setArbitrationNotes] = useState<string>("");
+  const [isNewContradictionOpen, setIsNewContradictionOpen] = useState(false);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
 
   // Test suite state
   const [testReport, setTestReport] = useState<ValidationSuiteReport | null>(null);
   const [isRunningTests, setIsRunningTests] = useState(false);
+
+  // Unified notify helper supporting both (msg) and (type, msg)
+  const notify = (type: "success" | "error" | "info", msg: string) => {
+    if (!onNotification) return;
+    try {
+      (onNotification as any)(type, msg);
+    } catch {
+      (onNotification as any)(msg);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -73,50 +93,35 @@ export const CekikjInspectorModal: React.FC<CekikjInspectorModalProps> = ({
       const res = await executeBoundedCekikjLoop(q);
       setLastResult(res);
       if (res.status === 'REFUSAL_CONTRADICTION') {
-        onNotification?.("info", "Contradiction Gate: sintesi bloccata su conflitto documentato.");
+        notify("info", "Contradiction Gate: sintesi bloccata su conflitto documentato.");
       } else if (res.status === 'INSUFFICIENT_KNOWLEDGE') {
-        onNotification?.("info", "Zero-Guessing: dati insufficienti per comporre una risposta.");
+        notify("info", "Zero-Guessing: dati insufficienti per comporre una risposta.");
       } else {
-        onNotification?.("success", `Esecuzione completata in ${res.trace.totalDurationMs}ms (${res.trace.roundsCount}/8 round).`);
+        notify("success", `Esecuzione completata in ${res.trace.totalDurationMs}ms (${res.trace.roundsCount}/8 round).`);
       }
     } catch (err: any) {
-      onNotification?.("error", `Errore durante il ciclo epistemico: ${err.message}`);
+      notify("error", `Errore durante il ciclo epistemico: ${err.message}`);
     } finally {
       setIsRunning(false);
     }
   };
 
-  const handleStartArbitration = (conflict: ContradictionRecord) => {
-    setArbitratingId(conflict.id);
-    const defaultSource = conflict.conflictingSources[0]?.sourceTitle || "";
-    setChosenSource(defaultSource);
-
-    if (conflict.id === 'conflict-api-key-policy') {
-      setArbitrationNotes("Adottata formalmente la policy Server-Side Strict di Cloud Run RFC-004. L'esposizione di chiavi via VITE_ nel bundle client è vietata e deprecata a partire dalla v0.2.");
-    } else if (conflict.id === 'conflict-okf-domain') {
-      setArbitrationNotes("Standard OKF v0.2 confermato come canonico: le entità canoniche e le relazioni tipizzate sono obbligatorie nel frontmatter YAML per alimentare il grafo topologico D3.");
-    } else if (conflict.id === 'conflict-cache-policy') {
-      setArbitrationNotes("Adottata architettura Stale-While-Revalidate con cache IndexedDB locale per offline e rivalidazione automatica al ritorno della rete.");
-    } else {
-      setArbitrationNotes(`Conflitto arbitrato: confermata la precedenza alla fonte '${defaultSource}' come riferimento canonico.`);
-    }
-  };
-
-  const handleConfirmArbitration = (conflictId: string) => {
-    if (!arbitrationNotes.trim()) {
-      onNotification?.("error", "Inserisci una motivazione per la risoluzione del conflitto.");
-      return;
-    }
-    dualLayerStore.resolveContradiction(conflictId, arbitrationNotes, "Architetto del Vault (Utente)", chosenSource);
-    setArbitratingId(null);
+  const handleResolveConflict = (conflictId: string, notes: string, resolvedBy?: string, chosenSource?: string) => {
+    dualLayerStore.resolveContradiction(conflictId, notes, resolvedBy || "Architetto del Vault (Utente)", chosenSource);
     setRegistryRevision(prev => prev + 1);
-    onNotification?.("success", "Contraddizione mitigata e risolta! Il Contradiction Gate è ora sbloccato per questo argomento.");
+    notify("success", "Contraddizione mitigata e risolta! Il Contradiction Gate è ora sbloccato per questo argomento.");
   };
 
   const handleReopenConflict = (conflictId: string) => {
     dualLayerStore.reopenContradiction(conflictId);
     setRegistryRevision(prev => prev + 1);
-    onNotification?.("info", "Conflitto riaperto. Il Contradiction Gate tornerà a bloccare le sintesi arbitrarie su questo tema.");
+    notify("info", "Conflitto riaperto. Il Contradiction Gate tornerà a bloccare le sintesi arbitrarie su questo tema.");
+  };
+
+  const handleDeleteConflict = (conflictId: string) => {
+    dualLayerStore.deleteContradiction(conflictId);
+    setRegistryRevision(prev => prev + 1);
+    notify("info", "Contraddizione rimossa definitivamente dal registro.");
   };
 
   const handleTestConflictQuery = (conceptName: string) => {
@@ -348,11 +353,14 @@ export const CekikjInspectorModal: React.FC<CekikjInspectorModalProps> = ({
                 </div>
               </div>
 
+              {/* Epistemic Decision DAG Pipeline */}
+              <CekikjDecisionDag isRunning={isRunning} result={lastResult} />
+
               {/* Execution Results */}
               {lastResult && (
                 <div className="space-y-4">
                   {/* Status Banner */}
-                  <div className={`p-4 rounded-xl border flex items-start justify-between gap-4 ${
+                  <div className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-start justify-between gap-4 ${
                     lastResult.status === 'REFUSAL_CONTRADICTION'
                       ? 'bg-[#26120D] border-[#DC2626]/50 text-red-200'
                       : lastResult.status === 'INSUFFICIENT_KNOWLEDGE'
@@ -390,14 +398,29 @@ export const CekikjInspectorModal: React.FC<CekikjInspectorModalProps> = ({
                       </div>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={copyAnswer}
-                      className="px-3 py-1.5 rounded bg-black/40 hover:bg-black/60 border border-current text-xs flex items-center gap-1.5 transition-colors shrink-0 cursor-pointer"
-                    >
-                      {copiedText ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                      <span>{copiedText ? "Copiato" : "Copia Output"}</span>
-                    </button>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          downloadCekikjAuditFile(lastResult, allContradictions);
+                          notify("success", "Dossier di Audit Epistemico (.md) scaricato con successo!");
+                        }}
+                        className="px-3 py-1.5 rounded bg-indigo-950/80 hover:bg-indigo-900 border border-indigo-500/40 text-indigo-200 text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                        title="Esporta dossier completo di audit in Markdown"
+                      >
+                        <Download className="w-3.5 h-3.5 text-indigo-400" />
+                        <span>Scarica Audit (.md)</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={copyAnswer}
+                        className="px-3 py-1.5 rounded bg-black/40 hover:bg-black/60 border border-current text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                      >
+                        {copiedText ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{copiedText ? "Copiato" : "Copia Output"}</span>
+                      </button>
+                    </div>
                   </div>
 
                   {/* Hard Bounds Metrics Strip */}
@@ -445,6 +468,9 @@ export const CekikjInspectorModal: React.FC<CekikjInspectorModalProps> = ({
                     </pre>
                   </div>
 
+                  {/* Atomic Claims Inspector (Zero-Guessing Assertions) */}
+                  <CekikjClaimInspector result={lastResult} />
+
                   {/* Tool Call Trace Timeline */}
                   <div className="p-4 rounded-xl bg-[#141414] border border-[#222] space-y-3">
                     <div className="text-xs font-mono uppercase text-neutral-400 flex items-center justify-between">
@@ -486,23 +512,43 @@ export const CekikjInspectorModal: React.FC<CekikjInspectorModalProps> = ({
 
           {activeTab === "registry" && (
             <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[#141414] p-4 rounded-xl border border-[#222]">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-[#141414] p-4 rounded-xl border border-[#222]">
                 <div>
                   <h3 className="text-sm font-semibold text-neutral-100 flex items-center gap-2">
                     <Scale className="w-4 h-4 text-[#C5A059]" />
-                    <span>Registro Ufficiale delle Contraddizioni & Mitigazione</span>
+                    <span>Registro Ufficiale delle Contraddizioni & Mitigazione (Split-View)</span>
                   </h3>
                   <p className="text-xs text-neutral-400 mt-0.5">
-                    Quando due documenti esprimono regole opposte, il Gate blocca l'AI finché non mitighi il conflitto decidendo la fonte canonica.
+                    Quando due documenti esprimono policy o direttive opposte, il Gate blocca l'AI finché non mitighi il conflitto decidendo la fonte canonica.
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
+
+                <div className="flex flex-wrap items-center gap-2 pt-1 lg:pt-0">
                   <span className="text-xs font-mono px-2.5 py-1 rounded bg-[#DC2626]/20 text-[#FCA5A5] border border-[#DC2626]/30">
-                    {openConflictsCount} Conflitti Aperti
+                    {openConflictsCount} Aperti
                   </span>
                   <span className="text-xs font-mono px-2.5 py-1 rounded bg-[#10B981]/20 text-[#A7F3D0] border border-[#10B981]/30">
                     {resolvedConflictsCount} Risolti
                   </span>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsScannerOpen(true)}
+                    className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-mono border border-slate-700 flex items-center gap-1.5 transition-colors cursor-pointer"
+                    title="Scansiona le risorse del Vault per conflitti semantici"
+                  >
+                    <ScanSearch className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Scansiona Vault</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsNewContradictionOpen(true)}
+                    className="px-3 py-1 rounded bg-[#C5A059] hover:bg-[#D4AF37] text-black text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>+ Nuova Contraddizione</span>
+                  </button>
                 </div>
               </div>
 
@@ -511,220 +557,55 @@ export const CekikjInspectorModal: React.FC<CekikjInspectorModalProps> = ({
                 <CheckCircle2 className="w-4 h-4 text-[#10B981] shrink-0 mt-0.5" />
                 <div className="text-xs space-y-1">
                   <div className="font-semibold text-emerald-300">
-                    Come Funziona la Mitigazione in Pratica
+                    Come Funziona la Mitigazione e Arbitraggio Split-View
                   </div>
                   <p className="text-neutral-300 leading-relaxed">
-                    Per ogni conflitto aperto, clicca su <strong>"Arbitra / Mitiga Conflitto"</strong>. 
-                    Seleziona quale delle due fonti adotti come verità canonica nel Vault e inserisci la decisione di policy. 
-                    Non appena lo stato diventa <strong>RESOLVED</strong>, il Contradiction Gate si sblocca e l'assistente risponderà con certezza seguendo la norma approvata!
+                    Usa il confronto affiancato <strong>(Split-View)</strong> per comparare le due asserzioni contrapposte, i rispettivi proprietari e la decorrenza bitemporale.
+                    Clicca su <strong>"Adotta come Canone"</strong> per risolvere in 1 clic la policy, oppure digita una nota personalizzata. Non appena lo stato diventa <strong>RESOLVED</strong>, il Contradiction Gate si sblocca!
                   </p>
                 </div>
               </div>
 
-              {/* Contradiction Cards */}
+              {/* Contradiction Cards with Split View */}
               <div className="space-y-4">
-                {allContradictions.map((conflict) => {
-                  const isOpenState = conflict.status === 'open';
-                  const isArbitrating = arbitratingId === conflict.id;
-
-                  return (
-                    <div 
-                      key={conflict.id} 
-                      className={`p-4 rounded-xl border transition-all ${
-                        isOpenState 
-                          ? 'bg-[#141210] border-[#DC2626]/30 hover:border-[#DC2626]/50' 
-                          : 'bg-[#0E1411] border-[#10B981]/30'
-                      } space-y-3.5`}
-                    >
-                      {/* Top Header of Card */}
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#222] pb-3">
-                        <div>
-                          <div className="flex items-center gap-2.5">
-                            {isOpenState ? (
-                              <Lock className="w-4 h-4 text-[#EF4444]" />
-                            ) : (
-                              <Unlock className="w-4 h-4 text-[#10B981]" />
-                            )}
-                            <span className="font-semibold text-neutral-100 text-sm">{conflict.conceptName}</span>
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-mono uppercase ${
-                              isOpenState 
-                                ? 'bg-[#EF4444]/20 text-[#F87171] border border-[#EF4444]/30' 
-                                : 'bg-[#10B981]/20 text-[#34D399] border border-[#10B981]/30'
-                            }`}>
-                              {isOpenState ? 'OPEN (GATE ATTIVO)' : 'RESOLVED (GATE SBLOCCATO)'}
-                            </span>
-                          </div>
-                          <div className="text-xs font-mono text-neutral-400 mt-1">
-                            ID: {conflict.conceptId} • Registrato il {conflict.registeredAt.split('T')[0]}
-                          </div>
-                        </div>
-
-                        {/* Quick action buttons */}
-                        <div className="flex items-center gap-2 pt-2 sm:pt-0">
-                          <button
-                            type="button"
-                            onClick={() => handleTestConflictQuery(conflict.conceptName)}
-                            className="px-2.5 py-1.5 rounded-lg bg-[#1F1F1F] hover:bg-[#2A2A2A] text-neutral-200 text-xs font-mono border border-[#333] transition-colors flex items-center gap-1.5 cursor-pointer"
-                            title="Testa come risponde l'AI a questa query"
-                          >
-                            <Play className="w-3 h-3 fill-current text-[#C5A059]" />
-                            <span>Testa nel Runner</span>
-                          </button>
-
-                          {isOpenState ? (
-                            <button
-                              type="button"
-                              onClick={() => handleStartArbitration(conflict)}
-                              className="px-3 py-1.5 rounded-lg bg-[#C5A059] hover:bg-[#D4AF37] text-black text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer"
-                            >
-                              <Scale className="w-3.5 h-3.5" />
-                              <span>Arbitra / Mitiga</span>
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => handleReopenConflict(conflict.id)}
-                              className="px-2.5 py-1.5 rounded-lg bg-[#2A1815] hover:bg-[#3B1E19] text-[#FCA5A5] text-xs font-mono border border-[#DC2626]/30 transition-colors cursor-pointer"
-                            >
-                              Riapri Conflitto
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* If Resolved: show resolution summary */}
-                      {!isOpenState && conflict.resolutionNotes && (
-                        <div className="p-3 rounded-lg bg-[#102018] border border-[#10B981]/40 space-y-1">
-                          <div className="flex items-center justify-between text-xs">
-                            <span className="font-semibold text-emerald-300 flex items-center gap-1.5">
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              <span>Mitigazione Convalidata da: {conflict.resolvedBy || "Architetto del Vault"}</span>
-                            </span>
-                            <span className="text-[10px] font-mono text-neutral-400">
-                              {conflict.resolvedAt?.split('T')[0]}
-                            </span>
-                          </div>
-                          <p className="text-xs text-neutral-200 pl-5 leading-relaxed">
-                            {conflict.resolutionNotes}
-                          </p>
-                        </div>
-                      )}
-
-                      {/* Conflicting Sources Side-by-Side */}
-                      <div className="space-y-1.5">
-                        <div className="text-[11px] font-mono uppercase text-neutral-400">
-                          {isOpenState ? "Fonti in Conflitto Documentate:" : "Storico delle Fonti Contrapposte:"}
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {conflict.conflictingSources.map((source, i) => (
-                            <div key={i} className="p-3 rounded-lg bg-[#0A0A0A] border border-[#222] space-y-2">
-                              <div className="flex items-center justify-between text-xs">
-                                <span className="font-semibold text-[#C5A059] truncate max-w-[200px]">
-                                  {source.sourceTitle}
-                                </span>
-                                <span className="text-[10px] font-mono text-neutral-400">
-                                  Valido: {source.validFrom || source.effectiveDate}
-                                </span>
-                              </div>
-
-                              <p className="text-xs text-neutral-300 italic border-l-2 border-[#C5A059]/60 pl-2">
-                                "{source.statement}"
-                              </p>
-
-                              <div className="flex items-center justify-between text-[11px] font-mono text-neutral-400 pt-1">
-                                <span>Owner: {source.owner}</span>
-                                {source.url && (
-                                  <a
-                                    href={source.url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="text-[#38BDF8] hover:underline flex items-center gap-1"
-                                  >
-                                    <span>Doc</span>
-                                    <ExternalLink className="w-2.5 h-2.5" />
-                                  </a>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Inline Arbitration Form when active */}
-                      {isArbitrating && (
-                        <div className="p-4 rounded-xl bg-[#161208] border border-[#C5A059]/60 space-y-3.5 pt-3">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-semibold text-[#E5C17B] flex items-center gap-1.5">
-                              <Scale className="w-4 h-4 text-[#C5A059]" />
-                              <span>Modulo di Arbitraggio Umano (Decisione di Policy)</span>
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => setArbitratingId(null)}
-                              className="text-neutral-400 hover:text-white text-xs"
-                            >
-                              Annulla
-                            </button>
-                          </div>
-
-                          <div className="space-y-1.5">
-                            <label className="text-xs text-neutral-300 font-medium">
-                              1. Seleziona quale fonte deve prevalere come Verità Canonica:
-                            </label>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                              {conflict.conflictingSources.map((s, idx) => (
-                                <button
-                                  key={idx}
-                                  type="button"
-                                  onClick={() => setChosenSource(s.sourceTitle)}
-                                  className={`p-2 rounded-lg border text-left text-xs transition-all ${
-                                    chosenSource === s.sourceTitle
-                                      ? 'bg-[#C5A059]/20 border-[#C5A059] text-white font-semibold'
-                                      : 'bg-[#0A0A0A] border-[#333] text-neutral-300 hover:border-[#555]'
-                                  }`}
-                                >
-                                  <div className="font-semibold text-[#C5A059] truncate">{s.sourceTitle}</div>
-                                  <div className="text-[10px] text-neutral-400">Owner: {s.owner}</div>
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-
-                          <div className="space-y-1.5">
-                            <label className="text-xs text-neutral-300 font-medium">
-                              2. Nota di Arbitraggio e Decisione di Policy:
-                            </label>
-                            <textarea
-                              value={arbitrationNotes}
-                              onChange={(e) => setArbitrationNotes(e.target.value)}
-                              rows={3}
-                              className="w-full p-2.5 bg-[#0A0A0A] border border-[#333] rounded-lg text-xs text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-[#C5A059]"
-                              placeholder="Specifica le motivazioni, la data di entrata in vigore e l'eventuale deprecazione della vecchia fonte..."
-                            />
-                          </div>
-
-                          <div className="flex items-center justify-end gap-2 pt-1">
-                            <button
-                              type="button"
-                              onClick={() => setArbitratingId(null)}
-                              className="px-3 py-1.5 rounded-lg bg-[#222] hover:bg-[#2A2A2A] text-neutral-300 text-xs font-mono"
-                            >
-                              Annulla
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleConfirmArbitration(conflict.id)}
-                              className="px-4 py-1.5 rounded-lg bg-[#C5A059] hover:bg-[#D4AF37] text-black text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow"
-                            >
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              <span>Salva Risoluzione & Sblocca Gate</span>
-                            </button>
-                          </div>
-                        </div>
-                      )}
+                {allContradictions.length === 0 ? (
+                  <div className="p-8 text-center bg-[#111] rounded-xl border border-[#222] space-y-3">
+                    <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto" />
+                    <div className="text-sm font-semibold text-neutral-200">
+                      Nessuna contraddizione nel registro
                     </div>
-                  );
-                })}
+                    <p className="text-xs text-neutral-400 max-w-md mx-auto">
+                      Tutte le policy sono allineate o non sono stati rilevati conflitti documentali. Puoi registrare manualmente un conflitto o scansionare il Vault.
+                    </p>
+                    <div className="flex justify-center gap-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsScannerOpen(true)}
+                        className="px-3 py-1.5 rounded bg-slate-800 text-xs font-mono text-slate-200 hover:bg-slate-700"
+                      >
+                        Scansiona Risorse
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsNewContradictionOpen(true)}
+                        className="px-3 py-1.5 rounded bg-[#C5A059] text-xs font-semibold text-black hover:bg-[#D4AF37]"
+                      >
+                        + Aggiungi Conflitto
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  allContradictions.map((conflict) => (
+                    <CekikjSplitViewConflict
+                      key={conflict.id}
+                      conflict={conflict}
+                      onResolve={handleResolveConflict}
+                      onReopen={handleReopenConflict}
+                      onDelete={handleDeleteConflict}
+                      onTestInRunner={handleTestConflictQuery}
+                    />
+                  ))
+                )}
               </div>
             </div>
           )}
@@ -993,6 +874,27 @@ export const CekikjInspectorModal: React.FC<CekikjInspectorModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Manual New Contradiction Registration Modal */}
+      <CekikjNewContradictionModal
+        isOpen={isNewContradictionOpen}
+        onClose={() => setIsNewContradictionOpen(false)}
+        onCreated={(newRecord) => {
+          setRegistryRevision(p => p + 1);
+          notify("success", `Contraddizione "${newRecord.conceptName}" registrata nel Vault!`);
+        }}
+      />
+
+      {/* Vault Resources Heuristic Conflict Scanner Modal */}
+      <CekikjResourceScannerModal
+        isOpen={isScannerOpen}
+        onClose={() => setIsScannerOpen(false)}
+        resources={resources}
+        onAddedContradiction={(newRecord) => {
+          setRegistryRevision(p => p + 1);
+          notify("success", `Rilevata e registrata nel Vault: "${newRecord.conceptName}"`);
+        }}
+      />
     </div>
   );
 };

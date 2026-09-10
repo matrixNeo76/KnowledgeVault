@@ -91,35 +91,39 @@ export function getFirebaseQuotaResetInfo(): {
   remainingMinutes: number;
   remainingSeconds: number;
   formattedCountdown: string;
+  pacificTimeString: string;
 } {
   const now = new Date();
 
-  // Determine current UTC time
-  const nowUtc = now.getTime();
+  // Extract year, month, day, hour, minute, second in America/Los_Angeles timezone natively
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "numeric",
+    second: "numeric",
+    hour12: false,
+  });
 
-  // US Pacific Time is UTC-8 (PST) or UTC-7 (PDT)
-  const jan = new Date(now.getFullYear(), 0, 1);
-  const jul = new Date(now.getFullYear(), 6, 1);
-  const isDST = Math.max(jan.getTimezoneOffset(), jul.getTimezoneOffset()) !== now.getTimezoneOffset();
-  const pacificOffsetHours = isDST ? -7 : -8;
+  const parts = formatter.formatToParts(now);
+  const getPart = (type: string) => parseInt(parts.find((p) => p.type === type)?.value || "0", 10);
 
-  // Current date/time in Pacific Time
-  const pacificNow = new Date(nowUtc + pacificOffsetHours * 3600000);
+  const hour = getPart("hour") % 24;
+  const minute = getPart("minute");
+  const second = getPart("second");
 
-  // Next midnight in Pacific Time
-  const nextPacificMidnight = new Date(pacificNow);
-  nextPacificMidnight.setUTCDate(pacificNow.getUTCDate() + 1);
-  nextPacificMidnight.setUTCHours(0, 0, 0, 0);
+  // Total seconds elapsed in current Pacific day
+  const secondsSinceMidnight = hour * 3600 + minute * 60 + second;
+  const totalSecondsInDay = 86400;
+  const remainingTotalSeconds = Math.max(0, totalSecondsInDay - secondsSinceMidnight);
 
-  // Convert that midnight back to local UTC timestamp
-  const nextResetUtcTimestamp = nextPacificMidnight.getTime() - pacificOffsetHours * 3600000;
-  const nextResetDate = new Date(nextResetUtcTimestamp);
+  const remainingHours = Math.floor(remainingTotalSeconds / 3600);
+  const remainingMinutes = Math.floor((remainingTotalSeconds % 3600) / 60);
+  const remainingSeconds = remainingTotalSeconds % 60;
 
-  const diffMs = Math.max(0, nextResetDate.getTime() - now.getTime());
-  const remainingHours = Math.floor(diffMs / 3600000);
-  const remainingMinutes = Math.floor((diffMs % 3600000) / 60000);
-  const remainingSeconds = Math.floor((diffMs % 60000) / 1000);
-
+  const nextResetDate = new Date(now.getTime() + remainingTotalSeconds * 1000);
   const formattedResetTime = nextResetDate.toLocaleTimeString(navigator.language || "it-IT", {
     hour: "2-digit",
     minute: "2-digit",
@@ -129,6 +133,8 @@ export function getFirebaseQuotaResetInfo(): {
     .toString()
     .padStart(2, "0")}s`;
 
+  const pacificTimeString = `${hour.toString().padStart(2, "0")}:${minute.toString().padStart(2, "0")}:${second.toString().padStart(2, "0")} PT`;
+
   return {
     resetDate: nextResetDate,
     formattedResetTime,
@@ -136,6 +142,7 @@ export function getFirebaseQuotaResetInfo(): {
     remainingMinutes,
     remainingSeconds,
     formattedCountdown,
+    pacificTimeString,
   };
 }
 
@@ -215,7 +222,8 @@ export function loadCachedRawFiles(uid?: string): RawFileItem[] | null {
 export async function saveToServerFilesystem(
   resources: ResourceItem[],
   rawFiles?: RawFileItem[],
-  userId?: string
+  userId?: string,
+  deletedResourceIds?: string[]
 ): Promise<{ success: boolean; count?: number; savedAt?: string; formattedSize?: string }> {
   try {
     const response = await fetch("/api/vault/backup", {
@@ -225,6 +233,7 @@ export async function saveToServerFilesystem(
         resources,
         rawFiles: rawFiles || [],
         userId: userId || "local-vault-user",
+        deletedResourceIds: deletedResourceIds || [],
       }),
     });
 
@@ -287,7 +296,8 @@ export async function loadFromServerFilesystem(): Promise<{
 export async function saveMultiLayerResources(
   resources: ResourceItem[],
   rawFiles?: RawFileItem[],
-  userId?: string
+  userId?: string,
+  deletedResourceIds?: string[]
 ): Promise<{
   localSuccess: boolean;
   indexedDbSuccess: boolean;
@@ -321,7 +331,7 @@ export async function saveMultiLayerResources(
 
   // 3. Server Filesystem
   try {
-    const srvResult = await saveToServerFilesystem(resources, rawFiles, userId);
+    const srvResult = await saveToServerFilesystem(resources, rawFiles, userId, deletedResourceIds);
     if (srvResult.success) {
       serverSuccess = true;
       serverInfo = {

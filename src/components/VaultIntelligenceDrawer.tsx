@@ -109,6 +109,7 @@ interface VaultIntelligenceDrawerProps {
   onOpenResource: (resource: ResourceItem) => void;
   onShowInGraph: (nodeIds?: string[]) => void;
   onSaveAsNote?: (payload: SaveNotePayload) => Promise<boolean | ResourceItem>;
+  onOpenCekikjModal?: () => void;
 }
 
 export const VaultIntelligenceDrawer: React.FC<VaultIntelligenceDrawerProps> = ({
@@ -122,6 +123,7 @@ export const VaultIntelligenceDrawer: React.FC<VaultIntelligenceDrawerProps> = (
   onOpenResource,
   onShowInGraph,
   onSaveAsNote,
+  onOpenCekikjModal,
 }) => {
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<"quick_synthesis" | "topological_analysis" | "deep_implementation">("quick_synthesis");
@@ -872,6 +874,18 @@ export const VaultIntelligenceDrawer: React.FC<VaultIntelligenceDrawerProps> = (
                         <GitGraph className="w-3.5 h-3.5 text-[#C5A059]" />
                         <span>Vista Grafo</span>
                       </button>
+
+                      {/* 5. PULSANTE ISPETTORE EPISTEMICO CEKIKJ */}
+                      {onOpenCekikjModal && (
+                        <button
+                          onClick={onOpenCekikjModal}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#18130B] hover:bg-[#241B10] border border-[#2B2012] hover:border-[#C5A059]/50 text-[#C5A059] hover:text-[#E5C170] text-[11px] font-mono transition-all cursor-pointer"
+                          title="Apri la console Zero-Guessing e l'ispezione DAG Cekikj"
+                        >
+                          <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Console Epistemica</span>
+                        </button>
+                      )}
                     </div>
                   </div>
 

@@ -32,7 +32,8 @@ import {
   LayoutGrid,
   List,
   Network,
-  ChevronDown
+  ChevronDown,
+  GitBranch
 } from "lucide-react";
 import { ResourceType, NavCategory, ViewMode } from "../types";
 import { User } from "firebase/auth";
@@ -61,6 +62,7 @@ interface SidebarProps {
   onSignOut: () => void;
   isOpenMobile: boolean;
   onCloseMobile: () => void;
+  onOpenOkfSync?: () => void;
   onSeedDemo: () => void;
   isSeeding: boolean;
   onOpenKnowledgeUpload: () => void;
@@ -68,6 +70,7 @@ interface SidebarProps {
   onOpenGoogleDrive?: () => void;
   onOpenRecovery?: () => void;
   onOpenPersistenceStatus?: () => void;
+  onOpenVaultHealthCheck?: () => void;
   onOpenCekikjInspector?: () => void;
   unsyncedCount?: number;
   onUploadUnsynced?: () => void;
@@ -91,6 +94,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSignOut,
   isOpenMobile,
   onCloseMobile,
+  onOpenOkfSync,
   onSeedDemo,
   isSeeding,
   onOpenKnowledgeUpload,
@@ -98,6 +102,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenGoogleDrive,
   onOpenRecovery,
   onOpenPersistenceStatus,
+  onOpenVaultHealthCheck,
   onOpenCekikjInspector,
   unsyncedCount = 0,
   onUploadUnsynced,
@@ -658,16 +663,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
                 {isToolsOpen && (
                   <div className="space-y-1 mt-1 pl-0.5">
-                    {/* Sync Demo OKF */}
+                    {/* Sincronizza OKF (GitHub / Specifiche di Sistema) */}
                     <div className="flex items-center justify-between px-2 py-1 text-[10px] text-[#666]">
-                      <span className="font-mono">Sync Demo OKF</span>
+                      <span className="font-mono">Sincronizza OKF</span>
                       <button
-                        onClick={() => onSeedDemo()}
+                        onClick={() => {
+                          if (onOpenOkfSync) onOpenOkfSync();
+                          else onSeedDemo();
+                        }}
                         disabled={isSeeding}
-                        title="Sincronizza / ricarica suite documentale OKF di base"
+                        title="Sincronizza file OKF da GitHub o installa specifiche di sistema"
                         className="text-[#666] hover:text-[#C5A059] p-0.5 rounded transition-colors disabled:opacity-40 cursor-pointer"
                       >
-                        <RefreshCw className={`w-3 h-3 ${isSeeding ? "animate-spin text-[#C5A059]" : ""}`} />
+                        <GitBranch className={`w-3 h-3 ${isSeeding ? "animate-spin text-[#C5A059]" : ""}`} />
                       </button>
                     </div>
 
@@ -865,7 +873,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <div className="flex items-center gap-1.5 text-[9px] text-[#777] mt-0.5 font-mono">
                     <ShieldCheck className="w-2.5 h-2.5 text-emerald-400 shrink-0" />
                     <span className="text-[#AAA] truncate">
-                      {counts.all} protetti • {user?.isAnonymous ? "Ospite" : "Google"}
+                      {counts.all} protetti {counts.raw_files > 0 ? `(+${counts.raw_files} file)` : ""} • {user?.isAnonymous ? "Ospite" : "Google"}
                     </span>
                   </div>
                 </div>
@@ -873,6 +881,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
 
             <div className="flex items-center gap-1 shrink-0">
+              {/* Vault Health Check Button */}
+              {onOpenVaultHealthCheck && (
+                <button
+                  onClick={onOpenVaultHealthCheck}
+                  title="Vault Health Check: Confronto Memoria vs Firestore Raw"
+                  className="p-1.5 text-[#888] hover:text-[#E5C170] hover:bg-[#141414] rounded-md transition-colors"
+                >
+                  <Activity className="w-3.5 h-3.5 text-[#C5A059]" />
+                </button>
+              )}
+
               {/* Button to open Persistence Status */}
               {onOpenPersistenceStatus && (
                 <button
