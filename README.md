@@ -342,8 +342,8 @@ npm run start
 
 Il Knowledge Vault sta evolvendo verso un **Persistent Knowledge Layer Zero-Guessing**, allineandosi ai 5 pilastri della trilogia di Miodrag Cekikj (*Towards Data Science / AI Advances*).
 
-- 📘 **Specifica OKF v0.2 di Riferimento**: [`/src/docs/SPEC_CEKIKJ_KNOWLEDGE_LAYER_OKF.md`](./src/docs/SPEC_CEKIKJ_KNOWLEDGE_LAYER_OKF.md)
-- 📋 **Piano Esecutivo e Checklist Dettagliata**: [`/PIANO_IMPLEMENTAZIONE_CEKIKJ.md`](./PIANO_IMPLEMENTAZIONE_CEKIKJ.md)
+- 📘 **Specifica OKF v0.2 di Riferimento**: [`docs/archive/SPEC_CEKIKJ_KNOWLEDGE_LAYER_OKF.md`](docs/archive/SPEC_CEKIKJ_KNOWLEDGE_LAYER_OKF.md)
+- 📋 **Piano Esecutivo e Checklist Dettagliata**: [`docs/archive/PIANO_IMPLEMENTAZIONE_CEKIKJ.md`](docs/archive/PIANO_IMPLEMENTAZIONE_CEKIKJ.md)
 
 ### Sintesi delle 8 Fasi Operative:
 1. **M1 (Contratti & Tipi)**: Definizione di `EvidenceChunk`, `ContradictionRecord`, `TypedToolEnvelope` (`insufficient: boolean`).

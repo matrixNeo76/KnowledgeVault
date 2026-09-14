@@ -125,7 +125,7 @@ Il componente `src/components/KnowledgeGraph.tsx` costituisce l'interfaccia di n
 
 ## 4. Architettura Epistemica Cekikj (Zero-Guessing Knowledge Layer)
 
-Integrata nel cuore del Vault secondo le specifiche definite in `src/docs/SPEC_CEKIKJ_KNOWLEDGE_LAYER_OKF.md`:
+Integrata nel cuore del Vault secondo le specifiche definite in `docs/archive/SPEC_CEKIKJ_KNOWLEDGE_LAYER_OKF.md`:
 
 ```
 +-------------------------------------------------------------------------------+

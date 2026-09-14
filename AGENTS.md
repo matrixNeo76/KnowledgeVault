@@ -65,7 +65,7 @@ Quando un agente ingerisce una risorsa:
 
 ## 3. Roadmap di Conformità Epistemica: Architettura Cekikj
 
-Gli agenti operativi nel Vault devono allinearsi al piano esecutivo descritto in `/PIANO_IMPLEMENTAZIONE_CEKIKJ.md`:
+Gli agenti operativi nel Vault devono allinearsi ai principi epistemici Cekikj (archiviati in `docs/archive/PIANO_IMPLEMENTAZIONE_CEKIKJ.md` e integrati in `docs/SYSTEM_ARCHITECTURE_OKF.md`):
 1. **Zero-Guessing & Typed Tools**: Rifiutare sintesi arbitrarie quando i dati sono insufficienti (`insufficient: true`).
 2. **Hard Bounds**: Rispettare i limiti operativi (max 8 round di tool-call, max 2 hop nel grafo, timeout rigido).
 3. **Contradiction Gate**: Interrompere la sintesi generativa e sollevare un'eccezione esplicita quando un concetto tocca contraddizioni aperte nel registro (`status: "open"`).
