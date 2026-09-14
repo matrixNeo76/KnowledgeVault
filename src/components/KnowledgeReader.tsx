@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { 
   X, 
   BrainCircuit, 
@@ -28,12 +28,14 @@ import {
 import Markdown from "react-markdown";
 import { ResourceItem } from "../types";
 import { generateAndDownloadResourcePdf } from "../lib/pdfExport";
+import { identifyRelatedResources } from "../lib/relatedResourcesEngine";
 
 interface KnowledgeReaderProps {
   resource: ResourceItem | null;
   allResources: ResourceItem[];
   onClose: () => void;
   onNavigateToResource: (resource: ResourceItem) => void;
+  onViewInGraph?: (resource: ResourceItem) => void;
   onUpdate?: (id: string, updatedData: Partial<ResourceItem>) => Promise<boolean>;
   onPrintPreview?: (resource: ResourceItem) => void;
   onExportGoogleDoc?: (resource: ResourceItem) => void;
@@ -44,6 +46,7 @@ export const KnowledgeReader: React.FC<KnowledgeReaderProps> = ({
   allResources,
   onClose,
   onNavigateToResource,
+  onViewInGraph,
   onUpdate,
   onPrintPreview,
   onExportGoogleDoc,
@@ -184,33 +187,11 @@ export const KnowledgeReader: React.FC<KnowledgeReaderProps> = ({
     };
   });
 
-  // Discover other resources sharing entities or tags
-  const correlatedResources = allResources
-    .filter((r) => r.id !== resource.id)
-    .map((other) => {
-      const getEnts = (res: ResourceItem) =>
-        (res.metadata?.entities || []).map((e) =>
-          typeof e === "string" ? e.toLowerCase().trim() : e.name?.toLowerCase().trim() || ""
-        );
-      const myEnts = getEnts(resource);
-      const otherEnts = getEnts(other);
-      const sharedEnts = myEnts.filter((e) => e && otherEnts.includes(e));
-
-      const myTags = (resource.tags || []).map((t) => t.toLowerCase().trim());
-      const otherTags = (other.tags || []).map((t) => t.toLowerCase().trim());
-      const sharedTags = myTags.filter((t) => t && otherTags.includes(t));
-
-      const score = sharedEnts.length * 2 + sharedTags.length;
-      return {
-        resource: other,
-        score,
-        sharedEnts,
-        sharedTags,
-      };
-    })
-    .filter((item) => item.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 4);
+  // Discover other resources sharing entities, tags, or content overlap via semantic affinity engine
+  const correlatedResources = useMemo(() => {
+    if (!resource) return [];
+    return identifyRelatedResources(resource, allResources, { limit: 4, minScore: 18 });
+  }, [resource, allResources]);
 
   // Extract clean markdown without frontmatter for reader display
   const contentBody = rawMarkdown.replace(/^---[\s\S]*?---\n*/, "") || resource.summary;
@@ -250,6 +231,16 @@ export const KnowledgeReader: React.FC<KnowledgeReaderProps> = ({
                 {resource.metadata?.docType && (
                   <span className="text-[9px] sm:text-[10px] font-mono text-[#777] bg-[#121212] px-1.5 py-0.5 rounded uppercase shrink-0">
                     {resource.metadata.docType}
+                  </span>
+                )}
+                {(resource.metadata?.status === "draft" || resource.metadata?.isDraft) && (
+                  <span className="text-[9px] sm:text-[10px] font-mono text-amber-300 bg-amber-950/70 border border-amber-500/40 px-1.5 sm:px-2 py-0.5 rounded shrink-0">
+                    Bozza (Draft)
+                  </span>
+                )}
+                {(resource.metadata?.uncategorized || resource.metadata?.isUncategorized || resource.metadata?.domain === "Uncategorized") && (
+                  <span className="text-[9px] sm:text-[10px] font-mono text-[#AAA] bg-[#1E1E1E] border border-[#333] px-1.5 sm:px-2 py-0.5 rounded shrink-0">
+                    Uncategorized
                   </span>
                 )}
                 <span className="text-[9px] sm:text-[10px] font-mono text-[#777] bg-[#121212] px-1.5 py-0.5 rounded shrink-0">
@@ -362,9 +353,10 @@ export const KnowledgeReader: React.FC<KnowledgeReaderProps> = ({
             <button
               onClick={onClose}
               aria-label="Chiudi finestra"
-              className="w-9 h-9 sm:w-8 sm:h-8 flex items-center justify-center rounded-lg bg-[#1C1C1C] hover:bg-[#2A2A2A] text-[#EEE] hover:text-white border border-[#333] transition-colors shrink-0 cursor-pointer"
+              className="w-10 h-10 sm:w-8 sm:h-8 flex items-center justify-center rounded-xl sm:rounded-lg bg-[#222] sm:bg-[#1C1C1C] hover:bg-[#2E2E2E] active:bg-[#383838] text-white border border-[#444] sm:border-[#333] transition-all active:scale-95 shrink-0 cursor-pointer shadow-md"
+              title="Chiudi finestra (Esc)"
             >
-              <X className="w-5 h-5" />
+              <X className="w-5 h-5 stroke-[2.5] sm:stroke-[2]" />
             </button>
           </div>
         </div>
@@ -421,20 +413,33 @@ export const KnowledgeReader: React.FC<KnowledgeReaderProps> = ({
           {activeTab === "document" && (
             <div className="space-y-6">
               {/* Draft / Shallow Content Warning & AI Upgrade Banner */}
-              {isShallowDraft && (
+              {(isShallowDraft || resource.metadata?.status === "draft" || resource.metadata?.isDraft) && (
                 <div className="bg-[#1C160B] border border-[#C5A059]/50 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs shadow-md">
                   <div className="flex items-start gap-3">
                     <div className="p-2 rounded-lg bg-[#C5A059]/20 text-[#E5C170] shrink-0 mt-0.5 sm:mt-0">
                       <Sparkles className="w-5 h-5 text-[#C5A059]" />
                     </div>
                     <div>
-                      <h4 className="font-semibold text-[#E5C170] text-sm flex items-center gap-1.5">
-                        <span>Bozza essenziale rilevata</span>
-                        <span className="text-[10px] font-mono font-normal text-[#C5A059] bg-[#C5A059]/15 px-1.5 py-0.5 rounded">OKF Draft</span>
+                      <h4 className="font-semibold text-[#E5C170] text-sm flex items-center gap-1.5 flex-wrap">
+                        <span>{resource.metadata?.status === "draft" ? "Documento in stato Bozza (Draft)" : "Bozza essenziale rilevata"}</span>
+                        <span className="text-[10px] font-mono font-normal text-[#C5A059] bg-[#C5A059]/15 px-1.5 py-0.5 rounded">
+                          {resource.metadata?.uncategorized ? "Uncategorized Draft" : "OKF Draft"}
+                        </span>
                       </h4>
                       <p className="text-[#BBB] text-xs mt-0.5 leading-relaxed">
-                        Questo documento presenta solo una struttura preliminare. Usa Gemini per estrarre la specifica tecnica completa, l'analisi delle vulnerabilità/sistemi, i comandi operativi e il grafo topologico.
+                        {resource.metadata?.draftReason || 
+                          "Questo documento è stato salvato come bozza dal Validatore Schema per preservare tutti i dati. Usa Gemini per generare la specifica tecnica completa, l'ontologia e il grafo topologico."}
                       </p>
+                      {resource.metadata?.okfValidationWarnings && resource.metadata.okfValidationWarnings.length > 0 && (
+                        <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[10px] text-[#888] font-mono">Campi da completare:</span>
+                          {resource.metadata.okfValidationWarnings.map((warn, wIdx) => (
+                            <span key={wIdx} className="text-[9.5px] font-mono bg-black/40 text-amber-300/80 border border-amber-500/20 px-1.5 py-0.2 rounded">
+                              {warn}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                   <button
@@ -668,38 +673,74 @@ export const KnowledgeReader: React.FC<KnowledgeReaderProps> = ({
                 )}
               </div>
 
-              {/* Correlated Resources in the Vault */}
+              {/* Correlated Resources in the Vault (Semantic Affinity Engine) */}
               {correlatedResources.length > 0 && (
                 <div className="space-y-3 pt-4 border-t border-[#1C1C1C]">
                   <div className="text-xs text-[#888] font-mono flex items-center justify-between">
-                    <span>Documenti correlati nel Vault (Entità e Tag condivisi):</span>
-                    <span className="text-[10px] text-[#38BDF8]">{correlatedResources.length} correlati</span>
+                    <span className="flex items-center gap-1.5 text-teal-400">
+                      <Sparkles className="w-3.5 h-3.5 text-teal-400" />
+                      <span>Documenti correlati nel Vault (Tag & Contenuto condiviso):</span>
+                    </span>
+                    <span className="text-[10px] text-teal-400 font-semibold">{correlatedResources.length} correlati</span>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {correlatedResources.map((item, idx) => (
                       <div
                         key={`reader-corr-${idx}-${item.resource.id || item.resource.title}`}
-                        onClick={() => onNavigateToResource(item.resource)}
-                        className="p-4 rounded-xl bg-[#111] hover:bg-[#161616] border border-[#222] hover:border-[#38BDF8] cursor-pointer transition-all"
+                        className="p-4 rounded-xl bg-[#0F1414] hover:bg-[#121919] border border-teal-900/40 hover:border-teal-500/60 transition-all flex flex-col justify-between"
                       >
-                        <div className="flex items-center justify-between text-[10px] font-mono mb-2">
-                          <span className="text-[#38BDF8] bg-[#141E26] px-2 py-0.5 rounded border border-[#38BDF8]/30">
-                            {item.sharedEnts.length > 0 ? `Entità: ${item.sharedEnts[0]}` : `#${item.sharedTags[0]}`}
-                          </span>
-                          <span className="text-[#666]">
-                            Affinità: {item.score}
-                          </span>
+                        <div>
+                          <div className="flex items-center justify-between text-[10px] font-mono mb-2">
+                            <div className="flex flex-wrap items-center gap-1">
+                              {item.sharedTags.slice(0, 2).map((tg) => (
+                                <span key={tg} className="text-amber-300 bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-800/40">
+                                  #{tg}
+                                </span>
+                              ))}
+                              {item.overlappingTerms.slice(0, 2).map((term) => (
+                                <span key={term} className="text-teal-300 bg-teal-950/60 px-1.5 py-0.5 rounded border border-teal-800/40">
+                                  {term}
+                                </span>
+                              ))}
+                            </div>
+                            <span className="text-teal-300 font-semibold bg-teal-950/90 px-2 py-0.5 rounded border border-teal-700/60">
+                              {item.score}% affinità
+                            </span>
+                          </div>
+
+                          <h4 
+                            onClick={() => onNavigateToResource(item.resource)}
+                            className="text-sm font-serif text-white hover:text-teal-300 font-medium flex items-center justify-between cursor-pointer"
+                          >
+                            <span className="truncate mr-2">{item.resource.title}</span>
+                            <ArrowRight className="w-3.5 h-3.5 text-teal-400 flex-shrink-0" />
+                          </h4>
+
+                          <p className="text-[11px] text-[#888] line-clamp-2 mt-1.5 leading-relaxed">
+                            {item.explanation || item.resource.summary}
+                          </p>
                         </div>
 
-                        <h4 className="text-sm font-serif text-white font-medium flex items-center justify-between">
-                          <span className="truncate mr-2">{item.resource.title}</span>
-                          <ArrowRight className="w-3.5 h-3.5 text-[#38BDF8] flex-shrink-0" />
-                        </h4>
-
-                        <p className="text-[11px] text-[#777] line-clamp-2 mt-1.5">
-                          {item.resource.summary}
-                        </p>
+                        <div className="flex items-center justify-between pt-2 mt-3 border-t border-teal-950/70 text-[10px] font-mono">
+                          <button
+                            type="button"
+                            onClick={() => onNavigateToResource(item.resource)}
+                            className="text-teal-400 hover:text-teal-200 underline cursor-pointer"
+                          >
+                            Apri Documento
+                          </button>
+                          {onViewInGraph && (
+                            <button
+                              type="button"
+                              onClick={() => onViewInGraph(item.resource)}
+                              className="text-teal-400 hover:text-teal-200 underline cursor-pointer flex items-center gap-1"
+                            >
+                              <Network className="w-3 h-3 text-teal-400" />
+                              <span>Nel Grafo</span>
+                            </button>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>

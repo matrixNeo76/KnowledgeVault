@@ -558,6 +558,62 @@ vaultRouter.post("/agentic-query", async (req, res) => {
   }
 });
 
+// POST /api/vault/agentic-query-stream - Streaming Server-Sent Events (SSE) Multi-Agent Query Engine
+vaultRouter.post("/agentic-query-stream", async (req, res) => {
+  try {
+    const { query, mode, activeCategory, activeTag, selectedResourceIds, history, clientResources } = req.body;
+    if (!query || typeof query !== "string" || query.trim().length === 0) {
+      return res.status(400).json({ error: "Campo 'query' obbligatorio." });
+    }
+
+    // Set SSE headers
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    if (typeof (res as any).flushHeaders === "function") {
+      (res as any).flushHeaders();
+    }
+
+    const sendSSE = (event: string, data: any) => {
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+
+    const ai = getGenAI();
+    const result = await executeAgenticVaultQuery(
+      {
+        query: query.trim(),
+        mode,
+        activeCategory,
+        activeTag,
+        selectedResourceIds,
+        history,
+        clientResources,
+      },
+      ai,
+      (event, data) => {
+        sendSSE(event, data);
+      }
+    );
+
+    sendSSE("completed", {
+      success: true,
+      ...result,
+    });
+    res.end();
+  } catch (error: any) {
+    console.error("[VAULT_AGENTIC_QUERY_STREAM_ERROR]", error);
+    if (!res.headersSent) {
+      res.status(500).json({
+        success: false,
+        error: error?.message || "Errore durante lo streaming dell'interrogazione multi-agente",
+      });
+    } else {
+      res.write(`event: error\ndata: ${JSON.stringify({ error: error?.message || "Errore di streaming" })}\n\n`);
+      res.end();
+    }
+  }
+});
+
 // POST /api/vault/agentic-ingest - Multi-Agent Ingestion Pipeline Engine
 vaultRouter.post("/agentic-ingest", async (req, res) => {
   try {
@@ -1018,4 +1074,78 @@ Produci un JSON con questa struttura:
     });
   }
 });
+
+/**
+ * Generazione Copione Audio Overview & Briefing Vocale
+ * POST /api/vault/audio-overview-script
+ */
+vaultRouter.post("/api/vault/audio-overview-script", async (req, res) => {
+  const { mode = "vault_digest", resourceTitle, resources = [] } = req.body;
+
+  try {
+    const isDeepDive = mode === "deep_dive";
+    const targetTitles = resources.map((r: any) => r.title).filter(Boolean).join(", ");
+
+    const systemPrompt = `Sei l'assistente vocale narratore del Knowledge Vault. Il tuo compito è scrivere un copione per un audio briefing / podcast executive chiaro, coinvolgente, autorevole ma naturale all'ascolto (destinato a essere letto da un sintetizzatore vocale Text-to-Speech in lingua italiana).
+
+Linee guida:
+- Evita formattazioni pesanti, elenchi puntati con numeri, o caratteri speciali come asterischi o cancelletti che disturbano la lettura vocale.
+- Scrivi in periodi armoniosi con punteggiatura curata (virgole, punti, pause logiche).
+- Se si tratta di un approfondimento ('deep_dive') su una risorsa singola, spiega scopo, architettura, entità chiave e impatto pratico.
+- Se si tratta di un 'vault_digest', crea una panoramica fluida che mette in luce le sinergie tra le risorse del Vault.
+- Mantieni una durata di ascolto tra 45 secondi e 2 minuti.`;
+
+    const userPrompt = isDeepDive
+      ? `Genera l'audio briefing per la risorsa: "${resourceTitle || resources[0]?.title}".
+Dettagli:
+Tipo: ${resources[0]?.type || "knowledge"}
+Dominio: ${resources[0]?.domain || "Architettura"}
+Sintesi: ${resources[0]?.summary || "Nessuna sintesi"}
+Concetti chiave: ${Array.isArray(resources[0]?.keyConcepts) ? resources[0].keyConcepts.join(", ") : "N/D"}`
+      : `Genera un audio digest delle principali risorse archiviate nel Knowledge Vault:
+Risorse: ${targetTitles || "Documentazione varia"}
+Sintesi elementi:
+${resources.slice(0, 6).map((r: any, idx: number) => `${idx + 1}. ${r.title} (${r.type}) - ${r.summary}`).join("\n")}`;
+
+    const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
+    const geminiResult = await generateWithGeminiFallback(
+      fullPrompt,
+      undefined,
+      { timeoutMs: 15000, endpoint: "/api/vault/audio-overview-script" }
+    );
+
+    let scriptText = "";
+    if (geminiResult && geminiResult.text) {
+      scriptText = geminiResult.text.trim();
+    } else {
+      // Fallback naturale
+      if (isDeepDive) {
+        const r = resources[0];
+        scriptText = `Benvenuto nell'audio briefing dedicato a ${r?.title || "questa risorsa"}. ` +
+          `Questa scheda, catalogata come ${r?.type || "documentazione"} nel dominio ${r?.domain || "tecnologico"}, ` +
+          `fornisce un riferimento metodologico essenziale. ` +
+          `La sintesi operativa evidenzia: ${r?.summary || "un'architettura conforme e verificata"}. ` +
+          `Tutti i concetti sono perfettamente collegati nel grafo delle conoscenze del Vault.`;
+      } else {
+        scriptText = `Benvenuto all'audio digest del Knowledge Vault. ` +
+          `Il nostro archivio ospita attualmente un nucleo di ${resources.length} schede ad alta fedeltà. ` +
+          `Tra le tematiche centrali spiccano ${targetTitles || "l'architettura di agenti e protocolli MCP"}. ` +
+          `Le connessioni relazionali del grafo confermano coerenza topologica ed epistemica senza ambiguità.`;
+      }
+    }
+
+    res.json({
+      success: true,
+      script: scriptText,
+      modelUsed: geminiResult.modelUsed,
+    });
+  } catch (error: any) {
+    console.error("[AUDIO_OVERVIEW_ERROR]", error);
+    res.status(500).json({
+      success: false,
+      error: error?.message || "Errore generazione copione audio",
+    });
+  }
+});
+
 

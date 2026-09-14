@@ -17,7 +17,7 @@ export function localFallbackAnalyzeResource(
   let type: ResourceType = explicitType || 'knowledge';
   let title = 'Nuova Risorsa';
   let summary = '';
-  const tags: string[] = [];
+  let tags: string[] = [];
   let url = '';
   const metadata: Record<string, any> = {};
 
@@ -288,7 +288,11 @@ export function localFallbackAnalyzeResource(
         title = lines[0].replace(/^#+\s*/, '').slice(0, 100);
         summary = lines.slice(1).join('\n\n').trim().slice(0, 300) || lines[0];
       }
-      tags.push('knowledge', 'dev');
+      if (type === 'link') {
+        tags.push('link', 'web');
+      } else {
+        tags.push('knowledge', 'dev');
+      }
 
       if (url) {
         try {
@@ -311,18 +315,38 @@ export function localFallbackAnalyzeResource(
     type = explicitType;
   }
 
-  // Universal OKF v0.2 Guarantee for all resource types
-  metadata.okfVersion = '0.2';
-  if (!metadata.docType) {
-    metadata.docType = type === 'github_repo' ? 'architecture'
-      : type === 'mcp_server' ? 'tool_description'
-      : type === 'ai_skill' ? 'prompt_skill'
-      : type === 'troubleshooting' ? 'specification'
-      : type === 'paper' ? 'research'
-      : type === 'rss' ? 'tool_description'
-      : type === 'note' ? 'concept'
-      : type === 'article' || type === 'link' ? 'guide'
-      : 'concept';
+  const isWebLink = type === 'link' || Boolean(url && !text.startsWith('---') && !text.includes('okf_version'));
+
+  if (isWebLink) {
+    // I link web non devono essere trasformati in documenti con schema OKF v0.2
+    delete metadata.okfVersion;
+    delete metadata.okf_version;
+    if (metadata.docType && !['guide', 'tool_description'].includes(metadata.docType)) {
+      delete metadata.docType;
+    }
+    // Rimuovi tag OKF impropri
+    tags = tags.filter((t) => !['okf-v0.2', 'okf', 'knowledge'].includes(t.toLowerCase()));
+    if (!tags.includes('link')) tags.push('link');
+    if (!tags.includes('web')) tags.push('web');
+  } else {
+    // Universal OKF v0.2 Guarantee for technical documents
+    metadata.okfVersion = '0.2';
+    if (!metadata.docType) {
+      metadata.docType = type === 'github_repo' ? 'architecture'
+        : type === 'mcp_server' ? 'tool_description'
+        : type === 'ai_skill' ? 'prompt_skill'
+        : type === 'troubleshooting' ? 'specification'
+        : type === 'paper' ? 'research'
+        : type === 'rss' ? 'tool_description'
+        : type === 'note' ? 'concept'
+        : type === 'article' ? 'guide'
+        : 'concept';
+    }
+
+    if (!metadata.markdownContent) {
+      const cleanTags = Array.from(new Set(tags.length > 0 ? tags : [type, 'okf-v0.2']));
+      metadata.markdownContent = `---\nokf_version: "0.2"\ntitle: "${title}"\ntype: "${metadata.docType}"\ndomain: "${metadata.domain || 'Software Architecture'}"\ntags: ${JSON.stringify(cleanTags)}\ncreated_at: "${new Date().toISOString()}"\n---\n\n# ${title}\n\n> **${metadata.docType?.toUpperCase()} · OKF v0.2**\n> Ambito: ${metadata.domain || 'Software Architecture'}\n\n${summary || text}\n\n${url ? `\n\n**Riferimento Web:** [${url}](${url})\n` : ''}`;
+    }
   }
 
   if (!metadata.domain || metadata.domain === 'general') {

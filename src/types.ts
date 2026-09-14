@@ -18,6 +18,18 @@ export interface OKFRelation {
   description?: string;
 }
 
+export type TagCategory = 'technology' | 'concept' | 'framework' | 'domain' | 'methodology' | 'system' | 'problem';
+
+export interface SuggestedTag {
+  tag: string;
+  confidence: number; // percentage (0 - 100)
+  category: TagCategory;
+  relevance: 'high' | 'medium' | 'low';
+  rationale: string;
+  source: 'gemini' | 'nlp_tfidf' | 'okf_entity' | 'vault_cluster';
+  isAlreadyAssigned?: boolean;
+}
+
 export interface ResourceMetadata {
   // GitHub specific
   owner?: string;
@@ -46,12 +58,21 @@ export interface ResourceMetadata {
   readingTimeMin?: string | number;
   readingProgress?: number;
   readingStatus?: 'unread' | 'in_progress' | 'completed';
+  readLater?: boolean;
+  readLaterPriority?: 'high' | 'medium' | 'low';
+  readLaterAddedAt?: string;
+  readLaterNotes?: string;
+  targetReadDate?: string;
   keyTakeaways?: string[];
   ogTitle?: string;
   ogDescription?: string;
   ogImage?: string;
   favicon?: string;
   siteName?: string;
+  isWebLink?: boolean;
+  linkParseFailed?: boolean;
+  linkParseFailureReason?: string;
+  parseStatus?: string;
 
   // AI Evaluation, Insights & Score
   useCases?: string[];
@@ -118,14 +139,23 @@ export interface ResourceMetadata {
   // Note & Scratchpad specific
   noteCategory?: 'scratchpad' | 'memo' | 'prompt_idea' | 'architectural_memo' | string;
   isPinned?: boolean;
+  isFavorite?: boolean;
   colorTag?: string;
 
   // OKF v0.2 Knowledge specific
   okfVersion?: '0.2' | string;
+  okf_version?: '0.2' | string;
   version?: string;
   docVersion?: string;
   maintainer?: string;
   status?: 'draft' | 'stable' | 'active' | 'deprecated' | 'experimental' | 'archived' | string;
+  isDraft?: boolean;
+  draftReason?: string;
+  isUncategorized?: boolean;
+  uncategorized?: boolean;
+  okfValidationPassed?: boolean;
+  okfValidationWarnings?: string[];
+  schemaCompliance?: 'okf_v0.2_compliant' | 'draft_pending_validation' | 'uncategorized';
   license?: string;
   dependencies?: string[];
   prerequisites?: string[];
@@ -180,7 +210,10 @@ export interface RawFileItem {
   updatedAt?: any;
 }
 
-export type NavCategory = ResourceType | 'all' | 'favorites' | 'raw_files' | 'quota_monitor';
+export type NavCategory = ResourceType | 'all' | 'favorites' | 'raw_files' | 'quota_monitor' | 'read_later';
+
+export type ReadLaterPriority = 'high' | 'medium' | 'low';
+export type ReadLaterSortOption = 'priority_recommended' | 'added_desc' | 'added_asc' | 'reading_time_asc' | 'reading_time_desc' | 'progress_desc';
 
 export interface QuotaTelemetryEvent {
   id: string;
@@ -270,6 +303,7 @@ export interface DiagnosticLog {
 }
 
 export type LifecycleStage = 
+  | 'RAW_INPUT_CAPTURED'
   | 'CAPTURE_INITIATED'
   | 'AI_ANALYSIS_SUCCESS'
   | 'AI_ANALYSIS_FALLBACK'
@@ -287,7 +321,10 @@ export type LifecycleStage =
   | 'RESOURCE_COLLAPSED_DEDUPED'
   | 'RESOURCE_DROPPED_TOMBSTONE'
   | 'RESOURCE_DELETED'
-  | 'FILTER_DISCREPANCY_CHECK';
+  | 'FILTER_DISCREPANCY_CHECK'
+  | 'SYNC_DISCREPANCY_DETECTED'
+  | 'STALE_OVERWRITE_PREVENTED'
+  | 'STATE_TRACE_AUDIT';
 
 export interface ResourceLifecycleEvent {
   id: string;
@@ -331,7 +368,9 @@ export interface GraphData {
   links: GraphLink[];
 }
 
-export type CaptureStage = 'idle' | 'sending' | 'analyzing' | 'saving' | 'success';
+export type CaptureStage = 'idle' | 'sending' | 'analyzing' | 'transforming' | 'saving' | 'success';
+
+export type TransformationCategory = 'web_link' | 'github_repo' | 'okf_document' | 'okf_draft';
 
 // ============================================================================
 // CEKIKJ EPISTEMIC ARCHITECTURE TYPES (Zero-Guessing Knowledge Layer)

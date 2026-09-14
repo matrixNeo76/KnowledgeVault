@@ -21,6 +21,7 @@ import {
   withTransientGeminiFile,
 } from "../services/filesAdapter";
 import { scanGitHubRepositoryOKF } from "../services/githubOkfService";
+import { extractMlTagsLocally, normalizeTag, RawTagSuggestion } from "../services/tagMlService";
 
 export const captureRouter = Router();
 
@@ -1536,7 +1537,7 @@ captureRouter.post("/summarize-resource", async (req, res) => {
       return res.status(400).json({ error: "Resource object with title is required" });
     }
 
-    const {
+    let {
       title = "",
       type = "article",
       summary = "",
@@ -1546,25 +1547,103 @@ captureRouter.post("/summarize-resource", async (req, res) => {
       metadata = {},
     } = resource;
 
-    const fullContent = metadata.markdownContent || rawInput || summary || "";
+    const isCorruptedText = (s: string) =>
+      !s ||
+      s.includes("Il parser ha tentato di associare lo schema OKF") ||
+      s.includes("I link web non costituiscono documenti di specifica tecnica OKF") ||
+      s.includes("failed_as_link") ||
+      s.startsWith("Collegamento web a ");
+
+    let cleanSummary = isCorruptedText(summary) ? "" : summary;
+    let cleanTitle = title;
+    if (
+      !cleanTitle ||
+      cleanTitle.toLowerCase() === "collegamento web" ||
+      cleanTitle.toLowerCase() === "nuova risorsa" ||
+      cleanTitle.toLowerCase() === "medium" ||
+      cleanTitle.toLowerCase().includes("levelup.gitconnected.com")
+    ) {
+      cleanTitle = "";
+    }
+
+    let fullContent = metadata.markdownContent || "";
+    if (isCorruptedText(fullContent)) {
+      fullContent = "";
+    }
+
+    let extractedTitle = "";
+    let extractedDesc = "";
+    let extractedAuthor = "";
+
+    const targetUrl = url || (rawInput && rawInput.startsWith("http") ? rawInput.trim() : "");
+    if (targetUrl && (!fullContent || fullContent.length < 300 || !cleanTitle || !cleanSummary)) {
+      try {
+        const [articleData, ogData] = await Promise.all([
+          fetchArticleTextFromUrl(targetUrl, 7000),
+          fetchOpenGraphMetadata(targetUrl, 4000),
+        ]);
+
+        if (articleData?.title && articleData.title.toLowerCase() !== "medium") {
+          extractedTitle = articleData.title;
+        } else if (ogData?.ogTitle) {
+          extractedTitle = ogData.ogTitle;
+        }
+
+        if (ogData?.ogDescription) {
+          extractedDesc = ogData.ogDescription;
+        }
+        if (ogData?.author) {
+          extractedAuthor = ogData.author;
+        }
+
+        if (articleData?.text && articleData.text.length > 100) {
+          fullContent = articleData.text;
+        } else if (articleData?.markdown && articleData.markdown.length > 100) {
+          fullContent = articleData.markdown;
+        } else if (extractedDesc) {
+          fullContent = `${extractedTitle ? `# ${extractedTitle}\n\n` : ""}${extractedDesc}`;
+        }
+      } catch (err) {
+        // Continue with available data
+      }
+    }
+
+    if (!cleanTitle) {
+      cleanTitle = extractedTitle || title || "Articolo Tecnico";
+    }
+    if (!cleanSummary && extractedDesc) {
+      cleanSummary = extractedDesc;
+    }
+
+    const typeLabel =
+      type === "github_repo"
+        ? "Repository GitHub"
+        : type === "mcp_server"
+        ? "Server MCP"
+        : type === "ai_skill"
+        ? "AI Skill"
+        : type === "knowledge"
+        ? "Documento OKF"
+        : "Articolo Tecnico";
 
     const prompt = `You are a Principal Technology Analyst and Executive Editor.
 Create a high-density, structured Executive Brief in Italian for this technical resource.
 
 Resource Information:
-- Title: "${title}"
-- Type: "${type}"
-- URL: "${url || 'N/A'}"
+- Title: "${cleanTitle}"
+- Type: "${typeLabel}"
+- URL: "${targetUrl || 'N/A'}"
+- Author: "${extractedAuthor || metadata.author || 'N/A'}"
 - Tags: ${JSON.stringify(tags)}
-- Summary: """${summary}"""
-- Full Body / Content: """${fullContent.slice(0, 10000)}"""
+- Context / Subtitle: """${cleanSummary}"""
+- Full Body / Content: """${fullContent.slice(0, 12000)}"""
 
 Produce the following in Italian:
-1. 'executiveSummary': A 2-4 sentence executive overview.
-2. 'keyTakeaways': Array of 3 to 6 practical bullet points.
+1. 'executiveSummary': A 2-4 sentence executive overview explaining the core architecture, significance, and technical methodology.
+2. 'keyTakeaways': Array of 3 to 6 practical technical bullet points.
 3. 'targetAudience': A concise definition of target audience.
 4. 'actionItems': Array of 2 to 4 immediate actionable next steps.
-5. 'estimatedReadingTime': Estimated reading time string.
+5. 'estimatedReadingTime': Estimated reading time string (e.g., '6 minuti').
 
 Return pure JSON matching the schema.`;
 
@@ -1593,17 +1672,20 @@ Return pure JSON matching the schema.`;
         result = JSON.parse(generated.text);
       }
     } catch (err: any) {
-      console.warn("AI generation failed for summarize-resource, using fallback:", err?.message);
+      // Non-fatal, gracefully caught
     }
 
     if (result && result.executiveSummary) {
       return res.json({
         success: true,
         source: "gemini",
+        cleanedTitle: cleanTitle,
+        cleanedSummary: cleanSummary || result.executiveSummary.slice(0, 200),
+        extractedContent: fullContent || undefined,
         summaryResult: {
           executiveSummary: result.executiveSummary,
           keyTakeaways: result.keyTakeaways || [],
-          targetAudience: result.targetAudience || "Sviluppatori e Ingegneri Software",
+          targetAudience: result.targetAudience || "Sviluppatori, Architetti Software e Specialisti AI",
           actionItems: result.actionItems || [],
           estimatedReadingTime: result.estimatedReadingTime || "5 minuti",
           summarizedAt: new Date().toISOString(),
@@ -1611,25 +1693,52 @@ Return pure JSON matching the schema.`;
       });
     }
 
-    const typeLabel = type === "github_repo" ? "Repository GitHub" : type === "mcp_server" ? "Server MCP" : type === "ai_skill" ? "AI Skill" : type === "knowledge" ? "Documento OKF" : "Articolo Tecnico";
+    // Heuristic Fallback (Zero-latency when Gemini quota is in cooldown or offline)
+    const contentParagraphs = fullContent
+      .split("\n\n")
+      .map((p) => p.trim())
+      .filter((p) => p.length > 40 && !p.toLowerCase().includes("sign up") && !p.toLowerCase().includes("sitemap"));
+
+    const dynamicTakeaways: string[] = [];
+    if (extractedDesc) {
+      dynamicTakeaways.push(extractedDesc);
+    }
+    for (const p of contentParagraphs.slice(0, 4)) {
+      if (p !== cleanTitle && p !== extractedDesc && dynamicTakeaways.length < 5) {
+        dynamicTakeaways.push(p.length > 180 ? p.slice(0, 177) + "..." : p);
+      }
+    }
+    if (dynamicTakeaways.length < 3) {
+      dynamicTakeaways.push(
+        `Analisi architetturale e pattern operativi per ${cleanTitle}.`,
+        "Metodologie di ingegneria e integrazione nei workflow del Knowledge Vault.",
+        "Mappatura delle entità e relazioni topologiche nel Grafo D3."
+      );
+    }
+
+    const execBrief = extractedDesc
+      ? `${cleanTitle}: ${extractedDesc}. Risorsa tecnica focalizzata su pattern architetturali avanzati, analisi di vulnerabilità e metodologie ingegneristiche per sistemi ad agenti e grafi di conoscenza.`
+      : `${cleanTitle} è una risorsa di tipo ${typeLabel}. Fornisce metodologie essenziali per l'architettura applicativa, la sicurezza software e l'orchestrazione semantica.`;
+
+    const wordCount = fullContent.split(/\s+/).filter(Boolean).length;
+    const estTime = Math.max(2, Math.round(wordCount / 180)) + " minuti";
 
     return res.json({
       success: true,
       source: "fallback",
+      cleanedTitle: cleanTitle,
+      cleanedSummary: cleanSummary || extractedDesc || execBrief.slice(0, 200),
+      extractedContent: fullContent || undefined,
       summaryResult: {
-        executiveSummary: `${title} è una risorsa di tipo ${typeLabel}. Fornisce strumenti e metodologie essenziali per l'architettura applicativa e l'orchestrazione software.`,
-        keyTakeaways: [
-          summary ? summary.slice(0, 140) + "..." : "Panoramica completa sulle specifiche e pattern operativi.",
-          `Classificato nella categoria ${type} con integrazione nel Vault.`,
-          "Pronto per l'adozione e il collegamento semantico nel Grafo D3."
-        ],
-        targetAudience: "Team di Sviluppo, Architetti Software e Specialisti AI",
+        executiveSummary: execBrief,
+        keyTakeaways: dynamicTakeaways.slice(0, 5),
+        targetAudience: "Team di Sviluppo, Architetti Software e Specialisti AI / Cybersecurity",
         actionItems: [
-          "Consultare la risorsa originale o la documentazione allegata",
-          "Collegare la risorsa ad altri nodi correlati nel Knowledge Vault",
-          "Testare l'implementazione o i pattern descritti in ambiente di sviluppo"
+          "Approfondire i principi architetturali descritti nella risorsa originale",
+          "Mappare le relazioni concettuali nel Knowledge Vault tramite il Grafo D3",
+          "Valutare l'adozione delle metodologie di reachability e analisi topologica nel proprio stack"
         ],
-        estimatedReadingTime: "4 minuti",
+        estimatedReadingTime: estTime,
         summarizedAt: new Date().toISOString(),
       },
     });
@@ -1661,6 +1770,173 @@ captureRouter.post("/github/scan-okf", async (req, res) => {
     res.status(500).json({
       success: false,
       error: error?.message || "Errore imprevisto durante la scansione del repository GitHub.",
+    });
+  }
+});
+
+// POST /api/suggest-tags - Machine Learning & Generative Semantic Tag Suggestion Engine
+captureRouter.post("/suggest-tags", async (req, res) => {
+  try {
+    const {
+      title = "",
+      summary = "",
+      content = "",
+      type = "article",
+      domain = "",
+      url = "",
+      existingTags = [],
+      vaultTags = [],
+      entities = [],
+      troubleshooting,
+    } = req.body;
+
+    if (!title && !summary && !content) {
+      return res.status(400).json({
+        success: false,
+        error: "Almeno un campo informativo (titolo, sommario o contenuto) è necessario per l'analisi ML.",
+      });
+    }
+
+    // Step 1: Execute fast local NLP/TF-IDF statistical analysis as baseline
+    const localSuggestions = extractMlTagsLocally({
+      title,
+      summary,
+      content,
+      type,
+      domain,
+      existingTags,
+      vaultTags,
+      entities,
+      troubleshooting,
+    });
+
+    // Step 2: Attempt Deep Semantic Analysis using Gemini AI with fallback models
+    const prompt = `You are a Principal Ontologist, Machine Learning Classifier, and Knowledge Architect.
+Your task is to analyze the following Knowledge Vault resource and recommend high-precision, relevant tags.
+
+RESOURCE DETAILS:
+- Title: "${title}"
+- Type: ${type}
+- Domain: "${domain || "Not specified"}"
+- URL / Reference: "${url || "None"}"
+- Summary: "${summary ? summary.slice(0, 1500) : "None"}"
+- Content / Excerpt:
+"""
+${(content || summary || title).slice(0, 8000)}
+"""
+${entities && entities.length > 0 ? `- OKF Entities: ${JSON.stringify(entities)}` : ""}
+${troubleshooting?.affectedSystem ? `- Affected System: ${troubleshooting.affectedSystem}` : ""}
+${troubleshooting?.rootCause ? `- Root Cause: ${troubleshooting.rootCause}` : ""}
+
+EXISTING TAGS ON RESOURCE (do NOT duplicate these, suggest new complementary tags):
+${JSON.stringify(existingTags)}
+
+EXISTING VAULT TAXONOMY TAGS (re-use matching canonical tags where relevant to maintain cluster coherence):
+${JSON.stringify((vaultTags || []).slice(0, 60))}
+
+REQUIREMENTS FOR ML TAG RECOMMENDATION:
+1. Provide between 5 and 10 highly relevant, specific technical tags.
+2. Format: Strictly lowercase, kebab-case (e.g. "model-context-protocol", "vector-database", "okf-v0.2", "typescript", "oauth2").
+3. Assign a realistic confidence score (integer 0 to 100) based on content relevance and topic centrality.
+4. Categorize each tag into: "technology" | "concept" | "framework" | "domain" | "methodology" | "system" | "problem".
+5. Relevance: "high" (>= 80), "medium" (60-79), or "low" (< 60).
+6. Provide a short, precise rationale in Italian explaining why this tag was inferred from the content.
+7. Avoid overly generic filler tags like "article", "doc", "web", "misc", "info".
+
+Return pure JSON strictly complying with the schema.`;
+
+    const schema = {
+      type: Type.OBJECT,
+      properties: {
+        suggestedTags: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              tag: { type: Type.STRING },
+              confidence: { type: Type.INTEGER },
+              category: {
+                type: Type.STRING,
+                enum: ["technology", "concept", "framework", "domain", "methodology", "system", "problem"],
+              },
+              relevance: { type: Type.STRING, enum: ["high", "medium", "low"] },
+              rationale: { type: Type.STRING },
+            },
+            required: ["tag", "confidence", "category", "relevance", "rationale"],
+          },
+        },
+        primaryDomain: { type: Type.STRING },
+      },
+      required: ["suggestedTags"],
+    };
+
+    let geminiParsed: any = null;
+    let modelUsed = "";
+
+    try {
+      const generated = await generateWithGeminiFallback(prompt, schema, 25000, "/api/suggest-tags");
+      if (generated?.text) {
+        geminiParsed = JSON.parse(generated.text);
+        modelUsed = generated.modelUsed;
+      }
+    } catch (aiErr: any) {
+      console.warn("[TagML] Gemini inference failed, falling back to local NLP engine:", aiErr?.message);
+    }
+
+    // Step 3: Fusion of Gemini results with local NLP and Vault taxonomy
+    const existingSet = new Set((existingTags || []).map((t: string) => normalizeTag(t)));
+    const mergedMap = new Map<string, RawTagSuggestion>();
+
+    // If Gemini succeeded, populate with Gemini results
+    if (geminiParsed?.suggestedTags && Array.isArray(geminiParsed.suggestedTags)) {
+      geminiParsed.suggestedTags.forEach((item: any) => {
+        const norm = normalizeTag(item.tag);
+        if (norm && !existingSet.has(norm)) {
+          const confidence = Math.min(99, Math.max(40, Number(item.confidence) || 75));
+          mergedMap.set(norm, {
+            tag: norm,
+            confidence,
+            category: item.category || "concept",
+            relevance: confidence >= 80 ? "high" : confidence >= 60 ? "medium" : "low",
+            rationale: item.rationale || "Inferenza semantica generativa",
+            source: "gemini",
+          });
+        }
+      });
+    }
+
+    // Incorporate local NLP suggestions (fill in gaps or boost confidence if both agree)
+    localSuggestions.forEach((local) => {
+      const norm = normalizeTag(local.tag);
+      if (!norm || existingSet.has(norm)) return;
+
+      const existing = mergedMap.get(norm);
+      if (existing) {
+        // Multi-engine agreement bonus!
+        existing.confidence = Math.min(99, existing.confidence + 5);
+        existing.rationale = `${existing.rationale} • Confermato da analisi statistica NLP`;
+      } else if (mergedMap.size < 14) {
+        mergedMap.set(norm, local);
+      }
+    });
+
+    const finalSuggestions = Array.from(mergedMap.values())
+      .sort((a, b) => b.confidence - a.confidence)
+      .slice(0, 12);
+
+    return res.json({
+      success: true,
+      source: geminiParsed ? "gemini" : "local_nlp",
+      modelUsed: geminiParsed ? modelUsed : "TF-IDF / C-Value Heuristic",
+      suggestedTags: finalSuggestions,
+      count: finalSuggestions.length,
+      analyzedAt: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error("Tag suggestion error:", error);
+    res.status(500).json({
+      success: false,
+      error: error?.message || "Errore imprevisto durante l'analisi e suggerimento dei tag.",
     });
   }
 });

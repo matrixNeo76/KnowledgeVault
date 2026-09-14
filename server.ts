@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import { telemetryRouter } from "./server/routes/telemetryRoutes";
 import { vaultRouter } from "./server/routes/vaultRoutes";
 import { captureRouter } from "./server/routes/captureRoutes";
+import { mcpRouter } from "./server/routes/mcpRoutes";
 
 dotenv.config();
 
@@ -18,6 +19,7 @@ app.use(express.urlencoded({ limit: "60mb", extended: true }));
 app.use("/api", telemetryRouter);
 app.use("/api/vault", vaultRouter);
 app.use("/api", captureRouter);
+app.use("/api/mcp", mcpRouter);
 
 // Vite middleware & Static Production Server Setup
 async function startServer() {

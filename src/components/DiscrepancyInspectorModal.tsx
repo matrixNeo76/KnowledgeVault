@@ -17,7 +17,11 @@ import {
   ArrowRight,
   Sparkles,
   Info,
-  Activity
+  Activity,
+  Radio,
+  Cloud,
+  RefreshCw,
+  AlertTriangle
 } from "lucide-react";
 import { ResourceItem, RawFileItem, NavCategory, ResourceLifecycleEvent } from "../types";
 import { 
@@ -27,6 +31,13 @@ import {
   clearLifecycleEvents,
   recordLifecycleEvent
 } from "../lib/resourceLifecycleTracker";
+import {
+  subscribeToSyncAudit,
+  clearSyncTraceHistory,
+  SyncTraceAuditResult,
+  StaleOverwriteWarning,
+  DiscrepancyReport
+} from "../lib/vaultSyncAudit";
 
 export interface DiscrepancyInspectorModalProps {
   isOpen: boolean;
@@ -62,14 +73,23 @@ export const DiscrepancyInspectorModal: React.FC<DiscrepancyInspectorModalProps>
   onOpenVaultHealthCheck,
 }) => {
   const [events, setEvents] = useState<ResourceLifecycleEvent[]>([]);
+  const [syncTraces, setSyncTraces] = useState<SyncTraceAuditResult[]>([]);
+  const [activeTab, setActiveTab] = useState<"lifecycle" | "synctrace">("lifecycle");
   const [filterStage, setFilterStage] = useState<string>("all");
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
-    return subscribeToLifecycleEvents((allEvts) => {
+    const unsubEvents = subscribeToLifecycleEvents((allEvts) => {
       setEvents(allEvts);
     });
+    const unsubSync = subscribeToSyncAudit((allTraces) => {
+      setSyncTraces(allTraces);
+    });
+    return () => {
+      unsubEvents();
+      unsubSync();
+    };
   }, [isOpen]);
 
   if (!isOpen) return null;
@@ -98,6 +118,7 @@ export const DiscrepancyInspectorModal: React.FC<DiscrepancyInspectorModalProps>
     if (filterStage === "all") return true;
     if (filterStage === "capture") {
       return (
+        evt.stage === "RAW_INPUT_CAPTURED" ||
         evt.stage === "CAPTURE_INITIATED" ||
         evt.stage === "DATA_TRANSFORMATION" ||
         evt.stage === "AI_ANALYSIS_SUCCESS" ||
@@ -136,6 +157,8 @@ export const DiscrepancyInspectorModal: React.FC<DiscrepancyInspectorModalProps>
 
   const getStageBadge = (stage: ResourceLifecycleEvent["stage"]) => {
     switch (stage) {
+      case "RAW_INPUT_CAPTURED":
+        return <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-violet-950/70 border border-violet-800 text-violet-300">RAW INPUT</span>;
       case "CAPTURE_INITIATED":
         return <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-blue-950/70 border border-blue-800 text-blue-300">CAPTURE INIT</span>;
       case "DATA_TRANSFORMATION":
@@ -309,96 +332,239 @@ export const DiscrepancyInspectorModal: React.FC<DiscrepancyInspectorModalProps>
             )}
           </div>
 
-          {/* Lifecycle & Event Stream Timeline */}
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <Terminal className="w-4 h-4 text-[#C5A059]" />
-                <h3 className="text-xs font-semibold text-white uppercase tracking-wider font-mono">
-                  Registro Ciclo di Vita (Lifecycle Events Trace)
-                </h3>
-                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-[#18130B] border border-[#2D2210] text-[#C5A059]">
-                  {filteredEvents.length} eventi
-                </span>
+          {/* Tab Selection between Lifecycle and Sync Audit */}
+          <div className="flex items-center gap-2 border-b border-[#22180B] pb-2">
+            <button
+              onClick={() => setActiveTab("lifecycle")}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-mono transition-all cursor-pointer ${
+                activeTab === "lifecycle"
+                  ? "bg-[#C5A059]/20 text-[#E5C170] border border-[#C5A059]/40 font-semibold"
+                  : "text-[#888] hover:text-[#CCC] hover:bg-[#15120C]"
+              }`}
+            >
+              <Terminal className="w-3.5 h-3.5" />
+              <span>Ciclo di Vita & Cattura ({events.length})</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab("synctrace")}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-mono transition-all cursor-pointer ${
+                activeTab === "synctrace"
+                  ? "bg-blue-500/20 text-blue-400 border border-blue-500/40 font-semibold"
+                  : "text-[#888] hover:text-[#CCC] hover:bg-[#15120C]"
+              }`}
+            >
+              <Cloud className="w-3.5 h-3.5 text-blue-400" />
+              <span>Audit Sync Firestore & Sovrascritture ({syncTraces.length})</span>
+              {syncTraces.some((t) => t.staleWarnings.length > 0) && (
+                <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+              )}
+            </button>
+          </div>
+
+          {activeTab === "lifecycle" ? (
+            /* Lifecycle & Event Stream Timeline */
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Terminal className="w-4 h-4 text-[#C5A059]" />
+                  <h3 className="text-xs font-semibold text-white uppercase tracking-wider font-mono">
+                    Registro Ciclo di Vita (Lifecycle Events Trace)
+                  </h3>
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-[#18130B] border border-[#2D2210] text-[#C5A059]">
+                    {filteredEvents.length} eventi
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {[
+                    { id: "all", label: "TUTTI" },
+                    { id: "capture", label: "CATTURA & TRASFORMAZIONE" },
+                    { id: "conversion", label: "CONVERSIONI RAW" },
+                    { id: "firestore", label: "FIRESTORE" },
+                    { id: "merge", label: "MERGE / DEDUP" },
+                    { id: "deletion", label: "ELIMINAZIONI" },
+                  ].map((tab) => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setFilterStage(tab.id)}
+                      className={`text-[10px] font-mono px-2 py-1 rounded transition-all cursor-pointer ${
+                        filterStage === tab.id
+                          ? "bg-[#C5A059] text-black font-semibold"
+                          : "bg-[#141009] text-[#888] hover:text-white border border-[#231A0D]"
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+
+                  {events.length > 0 && (
+                    <button
+                      onClick={clearLifecycleEvents}
+                      className="p-1 text-[#666] hover:text-rose-400 text-xs ml-1 cursor-pointer"
+                      title="Svuota eventi ciclo di vita"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
 
-              <div className="flex items-center gap-1.5 flex-wrap">
-                {[
-                  { id: "all", label: "TUTTI" },
-                  { id: "capture", label: "CATTURA & TRASFORMAZIONE" },
-                  { id: "conversion", label: "CONVERSIONI RAW" },
-                  { id: "firestore", label: "FIRESTORE" },
-                  { id: "merge", label: "MERGE / DEDUP" },
-                  { id: "deletion", label: "ELIMINAZIONI" },
-                ].map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setFilterStage(tab.id)}
-                    className={`text-[10px] font-mono px-2 py-1 rounded transition-all cursor-pointer ${
-                      filterStage === tab.id
-                        ? "bg-[#C5A059] text-black font-semibold"
-                        : "bg-[#141009] text-[#888] hover:text-white border border-[#231A0D]"
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-
-                {events.length > 0 && (
-                  <button
-                    onClick={clearLifecycleEvents}
-                    className="p-1 text-[#666] hover:text-rose-400 text-xs ml-1 cursor-pointer"
-                    title="Svuota eventi ciclo di vita"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+              {/* Events Feed */}
+              <div className="bg-[#050403] border border-[#1A140A] rounded-xl p-3 max-h-64 overflow-y-auto font-mono text-xs space-y-2 scrollbar-thin scrollbar-thumb-[#2D2413]">
+                {filteredEvents.length === 0 ? (
+                  <div className="text-center py-6 text-[#555]">
+                    <p>Nessun evento registrato per questo filtro.</p>
+                    <p className="text-[11px] mt-1 text-[#444]">
+                      Gli eventi di creazione, salvataggio Firestore, conversione raw e deduplicazione vengono tracciati automaticamente qui.
+                    </p>
+                  </div>
+                ) : (
+                  filteredEvents.map((evt) => (
+                    <div 
+                      key={evt.id} 
+                      className="p-2 rounded-lg bg-[#0E0B07] border border-[#1F180D] flex items-start justify-between gap-3 text-[11px]"
+                    >
+                      <div className="space-y-0.5 flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-[#666] text-[10px]">{evt.timestamp}</span>
+                          {getStageBadge(evt.stage)}
+                          {evt.resourceTitle && (
+                            <span className="text-[#E5C170] font-semibold truncate max-w-xs">
+                              "{evt.resourceTitle}"
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[#BBB] break-words">
+                          {evt.message}
+                        </p>
+                        {evt.details && Object.keys(evt.details).length > 0 && (
+                          <div className="text-[10px] text-[#777] bg-[#070604] p-1.5 rounded border border-[#19140A] mt-1">
+                            {Object.entries(evt.details).map(([k, v]) => (
+                              <span key={k} className="mr-3 inline-block">
+                                <span className="text-[#999]">{k}:</span> <span className="text-[#C5A059]">{typeof v === "object" ? JSON.stringify(v) : String(v)}</span>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))
                 )}
               </div>
             </div>
-
-            {/* Events Feed */}
-            <div className="bg-[#050403] border border-[#1A140A] rounded-xl p-3 max-h-60 overflow-y-auto font-mono text-xs space-y-2 scrollbar-thin scrollbar-thumb-[#2D2413]">
-              {filteredEvents.length === 0 ? (
-                <div className="text-center py-6 text-[#555]">
-                  <p>Nessun evento registrato per questo filtro.</p>
-                  <p className="text-[11px] mt-1 text-[#444]">
-                    Gli eventi di creazione, salvataggio Firestore, conversione raw e deduplicazione vengono tracciati automaticamente qui.
-                  </p>
+          ) : (
+            /* Sync Audit & Stale Overwrite Trace */
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Cloud className="w-4 h-4 text-blue-400" />
+                  <h3 className="text-xs font-semibold text-white uppercase tracking-wider font-mono">
+                    Tracciamento Catena setResources & Firestore Sync
+                  </h3>
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-blue-950/60 border border-blue-800/60 text-blue-300">
+                    {syncTraces.length} operazioni
+                  </span>
                 </div>
-              ) : (
-                filteredEvents.map((evt) => (
-                  <div 
-                    key={evt.id} 
-                    className="p-2 rounded-lg bg-[#0E0B07] border border-[#1F180D] flex items-start justify-between gap-3 text-[11px]"
+
+                {syncTraces.length > 0 && (
+                  <button
+                    onClick={clearSyncTraceHistory}
+                    className="flex items-center gap-1 px-2 py-1 text-xs text-[#888] hover:text-rose-400 font-mono transition-colors cursor-pointer"
+                    title="Azzera storico audit sync"
                   >
-                    <div className="space-y-0.5 flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[#666] text-[10px]">{evt.timestamp}</span>
-                        {getStageBadge(evt.stage)}
-                        {evt.resourceTitle && (
-                          <span className="text-[#E5C170] font-semibold truncate max-w-xs">
-                            "{evt.resourceTitle}"
-                          </span>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Azzera Log</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Sync Feed */}
+              <div className="bg-[#050403] border border-[#1A140A] rounded-xl p-3 max-h-64 overflow-y-auto font-mono text-xs space-y-2 scrollbar-thin scrollbar-thumb-[#2D2413]">
+                {syncTraces.length === 0 ? (
+                  <div className="text-center py-6 text-[#555]">
+                    <p>Nessuna operazione setResources registrata finora.</p>
+                    <p className="text-[11px] mt-1 text-[#444]">
+                      Ogni aggiornamento dello stato (listener realtime Firestore, snapshot, idratazione, manual add, toggle favorite) viene verificato per prevenire regressioni di timestamp o documenti remoti scartati.
+                    </p>
+                  </div>
+                ) : (
+                  syncTraces.map((trace) => {
+                    const hasWarnings = trace.staleWarnings.length > 0;
+                    const hasDiscrepancy = trace.discrepancyReport?.hasDiscrepancy;
+
+                    return (
+                      <div
+                        key={trace.seq}
+                        className={`p-2.5 rounded-lg border text-[11px] space-y-1.5 ${
+                          hasWarnings
+                            ? "bg-rose-950/20 border-rose-900/50 text-rose-200"
+                            : hasDiscrepancy && !trace.discrepancyReport?.isBenign
+                            ? "bg-amber-950/20 border-amber-900/50 text-amber-200"
+                            : "bg-[#0E0B07] border-[#1F180D] text-[#CCC]"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[#666] text-[10px]">#{trace.seq} {trace.timestamp}</span>
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-950/80 border border-blue-800 text-blue-300">
+                              {trace.operation}
+                            </span>
+                            <span className="text-[10px] font-semibold text-white">
+                              {trace.prevCount} ➔ {trace.nextCount} ({trace.delta >= 0 ? `+${trace.delta}` : trace.delta})
+                            </span>
+                          </div>
+
+                          {trace.remoteCount !== undefined && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-950/60 border border-emerald-800/60 text-emerald-300">
+                              Firestore Remoto: {trace.remoteCount}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Warnings if any */}
+                        {trace.staleWarnings.length > 0 && (
+                          <div className="space-y-1 mt-1 p-2 rounded bg-rose-950/40 border border-rose-800/40">
+                            {trace.staleWarnings.map((w, wIdx) => (
+                              <div key={wIdx} className="flex items-start gap-1.5 text-rose-300 text-[10px]">
+                                <AlertTriangle className="w-3 h-3 text-rose-400 shrink-0 mt-0.5" />
+                                <span><strong>[{w.type}]</strong> {w.message}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Discrepancy Note */}
+                        {trace.discrepancyReport && trace.discrepancyReport.hasDiscrepancy && (
+                          <div className="p-1.5 rounded bg-amber-950/30 border border-amber-800/30 text-amber-300 text-[10px] flex items-center justify-between">
+                            <span>
+                              Discrepanza: Firestore {trace.discrepancyReport.remoteCount} vs Locale {trace.discrepancyReport.localCountAfter} (Diff: {trace.discrepancyReport.diff > 0 ? "+" : ""}{trace.discrepancyReport.diff})
+                            </span>
+                            <span className="text-[9px] opacity-75">{trace.discrepancyReport.explanation}</span>
+                          </div>
+                        )}
+
+                        {/* Diff summary */}
+                        {(trace.addedIds.length > 0 || trace.removedIds.length > 0) && (
+                          <div className="text-[10px] text-[#777] flex items-center gap-3">
+                            {trace.addedIds.length > 0 && (
+                              <span className="text-emerald-400">+{trace.addedIds.length} nuovi</span>
+                            )}
+                            {trace.removedIds.length > 0 && (
+                              <span className="text-rose-400">-{trace.removedIds.length} rimossi</span>
+                            )}
+                            {trace.modifiedIds.length > 0 && (
+                              <span className="text-amber-400">~{trace.modifiedIds.length} aggiornati</span>
+                            )}
+                          </div>
                         )}
                       </div>
-                      <p className="text-[#BBB] break-words">
-                        {evt.message}
-                      </p>
-                      {evt.details && Object.keys(evt.details).length > 0 && (
-                        <div className="text-[10px] text-[#777] bg-[#070604] p-1.5 rounded border border-[#19140A] mt-1">
-                          {Object.entries(evt.details).map(([k, v]) => (
-                            <span key={k} className="mr-3 inline-block">
-                              <span className="text-[#999]">{k}:</span> <span className="text-[#C5A059]">{typeof v === "object" ? JSON.stringify(v) : String(v)}</span>
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))
-              )}
+                    );
+                  })
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Quick Troubleshooting & Actions */}
           <div className="p-3.5 rounded-xl bg-[#110E09] border border-[#22180B] flex flex-wrap items-center justify-between gap-3">

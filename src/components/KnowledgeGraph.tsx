@@ -49,10 +49,13 @@ import {
   Rss,
   StickyNote,
   LayoutGrid,
-  List
+  List,
+  Camera,
+  Download
 } from "lucide-react";
 import { ResourceItem, GraphNode, GraphLink, ResourceType, OKFEntity, ViewMode } from "../types";
 import { parseSearchQuery, evaluateResourceSearch } from "../lib/searchEngine";
+import { calculateResourceAffinity, identifyRelatedResources } from "../lib/relatedResourcesEngine";
 
 interface KnowledgeGraphProps {
   resources: ResourceItem[];
@@ -62,10 +65,12 @@ interface KnowledgeGraphProps {
   viewMode?: ViewMode;
   onViewModeChange?: (mode: ViewMode) => void;
   onOpenIntelligence?: () => void;
+  focusedResourceId?: string | null;
+  onClearFocusedResource?: () => void;
 }
 
 export type GraphScopeMode = "hubs" | "focus" | "domain" | "all";
-export type RelationFilterMode = "explicit" | "entities" | "tags" | "all";
+export type RelationFilterMode = "explicit" | "entities" | "tags" | "overlap" | "all";
 
 // Color mapping per node type (module-level pure helpers)
 export const getNodeColor = (type: ResourceType | "concept" | "entity" | string) => {
@@ -204,6 +209,8 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
   viewMode = "graph",
   onViewModeChange,
   onOpenIntelligence,
+  focusedResourceId,
+  onClearFocusedResource,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -216,6 +223,14 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
   // Core Exploration & Scope State
   const [scopeMode, setScopeMode] = useState<GraphScopeMode>("hubs");
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
+
+  // Sync external focusedResourceId if supplied
+  useEffect(() => {
+    if (focusedResourceId) {
+      setFocusedNodeId(focusedResourceId);
+      setScopeMode("focus");
+    }
+  }, [focusedResourceId]);
   const [connectionDepth, setConnectionDepth] = useState<1 | 2>(1);
   const [selectedDomain, setSelectedDomain] = useState<string>("all");
   const [maxNodesLimit, setMaxNodesLimit] = useState<number>(15);
@@ -263,8 +278,12 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
       "hierarchy",       // Gerarchia Concept -> Architecture -> Guide
       "ecosystem",       // Ecosistema, autore, maintainer
       "tags",            // Tag condivisi
+      "content_overlap", // Affinità Contenuto & Tag (Automatico)
     ])
   );
+
+  // Auto Content & Tag Overlap Sensitivity Threshold (0-100%)
+  const [minAffinityThreshold, setMinAffinityThreshold] = useState<number>(30);
 
   // Connectivity & Min Degree Filter
   const [minDegreeFilter, setMinDegreeFilter] = useState<number>(0);
@@ -307,6 +326,65 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     });
     return Array.from(set).sort();
   }, [resources]);
+
+  // Esportazione del Grafo Topologico in formato SVG ad alta fedeltà o PNG ad alta risoluzione (Retina 2x)
+  const handleExportGraphImage = (format: "png" | "svg") => {
+    if (!svgRef.current) return;
+    const svgEl = svgRef.current;
+    const bbox = svgEl.getBoundingClientRect();
+    const width = bbox.width || 1200;
+    const height = bbox.height || 800;
+
+    const serializer = new XMLSerializer();
+    let svgString = serializer.serializeToString(svgEl);
+
+    if (!svgString.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)) {
+      svgString = svgString.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+    }
+
+    if (format === "svg") {
+      const blob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `knowledge-vault-graph-${Date.now()}.svg`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } else {
+      const scale = 2;
+      const canvas = document.createElement("canvas");
+      canvas.width = width * scale;
+      canvas.height = height * scale;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
+      const img = new Image();
+      const svgBlob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
+      const url = URL.createObjectURL(svgBlob);
+
+      img.onload = () => {
+        ctx.fillStyle = "#0A0A0A";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(url);
+
+        canvas.toBlob((blob) => {
+          if (!blob) return;
+          const pngUrl = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = pngUrl;
+          a.download = `knowledge-vault-graph-${Date.now()}.png`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(pngUrl);
+        }, "image/png");
+      };
+      img.src = url;
+    }
+  };
 
   // Click outside listener for search autocomplete and advanced filter dropdown
   useEffect(() => {
@@ -946,7 +1024,43 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
       }
     }
 
-    // 9. Shared Tags
+    // 9. Automatic Content & Tag Overlap (Semantic Affinity Engine)
+    if (
+      selectedRelationSources.has("content_overlap") &&
+      (relationFilterMode === "overlap" || relationFilterMode === "all")
+    ) {
+      for (let i = 0; i < scopedResources.length; i++) {
+        for (let j = i + 1; j < scopedResources.length; j++) {
+          const docA = scopedResources[i];
+          const docB = scopedResources[j];
+
+          const affinity = calculateResourceAffinity(docA, docB);
+
+          if (
+            affinity.score >= minAffinityThreshold &&
+            (affinity.sharedTags.length > 0 || affinity.contentScore >= 20)
+          ) {
+            const topTerms = affinity.overlappingTerms.slice(0, 2).join(", ");
+            const tagSnippet = affinity.sharedTags.length > 0 ? `#${affinity.sharedTags[0]}` : "";
+            const edgeLabel = tagSnippet && topTerms 
+              ? `${tagSnippet} • ${topTerms}`
+              : tagSnippet || topTerms || `Affinità ${affinity.score}%`;
+
+            addLink(
+              docA.id,
+              docB.id,
+              "content_overlap",
+              `Affinità: ${affinity.score}%`,
+              Math.min(1.0, Math.max(0.65, affinity.score / 100)),
+              "#14B8A6", // Vibrant Turquoise/Teal
+              `Correlazione automatica (${affinity.score}%): ${affinity.explanation}`
+            );
+          }
+        }
+      }
+    }
+
+    // 10. Shared Tags
     if (selectedRelationSources.has("tags") && (relationFilterMode === "tags" || relationFilterMode === "all")) {
       for (let i = 0; i < scopedResources.length; i++) {
         for (let j = i + 1; j < scopedResources.length; j++) {
@@ -1100,6 +1214,7 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     showConceptHubs,
     selectedResourceTypes,
     selectedRelationSources,
+    minAffinityThreshold,
     minDegreeFilter,
     hideOrphanNodes
   ]);
@@ -1194,6 +1309,7 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
       { id: "arrow-pink", color: "#EC4899" },
       { id: "arrow-teal", color: "#06B6D4" },
       { id: "arrow-violet", color: "#8B5CF6" },
+      { id: "arrow-affinity", color: "#14B8A6" },
       { id: "arrow-default", color: "#888888" },
     ];
 
@@ -1281,12 +1397,14 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
       .attr("stroke", (d) => d.color || "#C5A059")
       .attr("stroke-width", (d) => Math.max(1.8, (d.weight || 0.7) * 2.5))
       .attr("stroke-dasharray", (d) => {
+        if (d.relationType === "content_overlap") return "6,3";
         if (d.relationType === "shared_tag") return "5,4";
         if (d.relationType === "same_domain") return "3,3";
         return "none";
       })
       .attr("stroke-opacity", 0.85)
       .attr("marker-end", (d) => {
+        if (d.color === "#14B8A6") return "url(#arrow-affinity)";
         if (d.color === "#C5A059") return "url(#arrow-gold)";
         if (d.color === "#38BDF8") return "url(#arrow-cyan)";
         if (d.color === "#A855F7") return "url(#arrow-purple)";
@@ -2021,6 +2139,32 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
               <span className="hidden lg:inline">Cammino</span>
             </button>
 
+            {/* Auto Content & Tag Overlap Quick Toggle */}
+            <button
+              type="button"
+              onClick={() => {
+                const next = new Set(selectedRelationSources);
+                if (next.has("content_overlap")) {
+                  next.delete("content_overlap");
+                } else {
+                  next.add("content_overlap");
+                }
+                setSelectedRelationSources(next);
+              }}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-mono transition-all cursor-pointer ${
+                selectedRelationSources.has("content_overlap")
+                  ? "bg-teal-950/80 border border-teal-500/60 text-teal-300 font-medium shadow-xs"
+                  : "text-[#888] hover:text-white hover:bg-[#1C1C1C]"
+              }`}
+              title="Attiva/Disattiva archi automatici basati su tag e termini di testo condivisi"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-teal-400" />
+              <span className="hidden md:inline">Affinità Contenuto</span>
+              {selectedRelationSources.has("content_overlap") && (
+                <span className="w-1.5 h-1.5 rounded-full bg-teal-400" />
+              )}
+            </button>
+
             {/* Advanced Parameters & Filters Drawer Toggle */}
             <button
               ref={advancedFilterBtnRef}
@@ -2088,6 +2232,30 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
               >
                 {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
               </button>
+
+              <div className="w-px h-3.5 bg-[#262626] mx-0.5" />
+
+              {/* Esporta Immagine Grafo (PNG / SVG) */}
+              <div className="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={() => handleExportGraphImage("png")}
+                  className="flex items-center gap-1 px-2 py-1 text-[#888] hover:text-[#E5C170] hover:bg-[#1C1C1C] rounded-full text-[10.5px] font-mono transition-colors cursor-pointer"
+                  title="Esporta il grafo attuale in formato PNG ad alta definizione (2x Retina)"
+                >
+                  <Camera className="w-3.5 h-3.5 text-[#C5A059]" />
+                  <span className="hidden sm:inline">PNG</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleExportGraphImage("svg")}
+                  className="flex items-center gap-1 px-2 py-1 text-[#888] hover:text-[#38BDF8] hover:bg-[#1C1C1C] rounded-full text-[10.5px] font-mono transition-colors cursor-pointer"
+                  title="Esporta il grafo in formato vettoriale SVG scalabile per dossier tecnici"
+                >
+                  <Download className="w-3.5 h-3.5 text-[#38BDF8]" />
+                  <span className="hidden sm:inline">SVG</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -2313,16 +2481,16 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
               </div>
             </div>
 
-            {/* Section 3: 8 Fonti Ontologiche */}
+            {/* Section 3: Fonti Ontologiche & Affinità */}
             <div className="pt-3 space-y-2">
               <div className="text-[10px] uppercase tracking-wider text-[#C5A059] font-semibold flex items-center justify-between">
-                <span>Fonti di Relazione Ontologica (8)</span>
+                <span>Fonti di Relazione Ontologica ({selectedRelationSources.size}/9)</span>
                 <div className="flex items-center gap-1.5">
                   <button
                     type="button"
                     onClick={() =>
                       setSelectedRelationSources(
-                        new Set(["explicit", "entities", "mentions", "dependencies", "troubleshooting", "mcp_skills", "hierarchy", "tags"])
+                        new Set(["explicit", "entities", "mentions", "dependencies", "troubleshooting", "mcp_skills", "hierarchy", "tags", "content_overlap"])
                       )
                     }
                     className="text-[9px] text-[#A68848] hover:text-[#C5A059] underline cursor-pointer"
@@ -2340,8 +2508,9 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
                 </div>
               </div>
 
-              <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
+              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
                 {[
+                  { id: "content_overlap", label: "Affinità Contenuto & Tag", color: "#14B8A6", desc: "Correlazioni automatiche calcolate su tag e termini di testo condivisi" },
                   { id: "explicit", label: "OKF Esplicito (YAML)", color: "#C5A059", desc: "Archi formali dichiarati nel frontmatter" },
                   { id: "entities", label: "Entità Ontologiche", color: "#38BDF8", desc: "Concetti canonici condivisi" },
                   { id: "mentions", label: "Menzioni Cross-Doc", color: "#A855F7", desc: "Citazioni dirette nel testo dei documenti" },
@@ -2379,6 +2548,32 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
                   );
                 })}
               </div>
+
+              {/* Sensibilità Affinità Automatica */}
+              {selectedRelationSources.has("content_overlap") && (
+                <div className="pt-2 pb-1 border-t border-[#1C1C1C] space-y-1.5">
+                  <div className="flex items-center justify-between text-[10px] font-mono text-[#AAA]">
+                    <span className="text-teal-400 font-medium">Soglia Minima Affinità:</span>
+                    <span className="text-white font-semibold">{minAffinityThreshold}%</span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-1">
+                    {[20, 30, 45, 60].map((th) => (
+                      <button
+                        key={th}
+                        type="button"
+                        onClick={() => setMinAffinityThreshold(th)}
+                        className={`py-1 rounded text-[10px] font-mono transition-all cursor-pointer ${
+                          minAffinityThreshold === th
+                            ? "bg-teal-950/90 border border-teal-500/80 text-teal-300 font-semibold"
+                            : "bg-[#141414] border border-[#262626] text-[#888] hover:text-white"
+                        }`}
+                      >
+                        {th}%
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Section 4: Filtri Topologici & Densità */}
@@ -2595,6 +2790,10 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
                 <div className="flex items-center gap-2">
                   <div className="w-4 h-0.5 bg-[#06B6D4]" />
                   <span className="text-[#BBB]">MCP ➔ AI Skill Synergy</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-0.5 border-b-2 border-dashed border-[#14B8A6]" />
+                  <span className="text-[#14B8A6] font-medium">Affinità Contenuto & Tag</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-4 h-0.5 border-b border-dashed border-[#F59E0B]" />

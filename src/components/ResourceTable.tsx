@@ -23,28 +23,46 @@ import {
   Loader2,
   GraduationCap,
   Rss,
-  StickyNote
+  StickyNote,
+  AlertTriangle,
+  Edit3,
+  BookMarked
 } from "lucide-react";
 import { ResourceItem, ResourceType } from "../types";
 import { formatDate } from "../lib/dateUtils";
 import { generateAndDownloadResourcePdf } from "../lib/pdfExport";
+import { isReadLaterResource } from "../lib/readLaterUtils";
 
 interface ResourceTableProps {
   resources: ResourceItem[];
   onToggleFavorite: (id: string, currentFav: boolean) => void;
   onOpenDetail: (resource: ResourceItem) => void;
+  onOpenEdit?: (resource: ResourceItem) => void;
   onPrintPreview?: (resource: ResourceItem) => void;
   onExportGoogleDoc?: (resource: ResourceItem) => void;
   onDownloadPdf?: (resource: ResourceItem) => void;
+  onToggleReadLater?: (id: string, currentlyInQueue: boolean) => void;
+  selectedIds?: Set<string>;
+  onToggleSelect?: (id: string) => void;
+  onToggleSelectAll?: () => void;
+  isAllSelected?: boolean;
+  isIndeterminate?: boolean;
 }
 
 export const ResourceTable: React.FC<ResourceTableProps> = ({
   resources,
   onToggleFavorite,
   onOpenDetail,
+  onOpenEdit,
   onPrintPreview,
   onExportGoogleDoc,
   onDownloadPdf,
+  onToggleReadLater,
+  selectedIds,
+  onToggleSelect,
+  onToggleSelectAll,
+  isAllSelected = false,
+  isIndeterminate = false,
 }) => {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [generatingPdfId, setGeneratingPdfId] = useState<string | null>(null);
@@ -157,7 +175,37 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({
       <table className="w-full text-left text-xs text-[#AAA]">
         <thead className="bg-[#0F0F0F] text-[10px] uppercase font-mono tracking-wider text-[#666] border-b border-[#1F1F1F]">
           <tr>
-            <th className="py-3 px-4 w-10 text-center">Fav</th>
+            {/* Master Select Checkbox */}
+            <th className="py-3 px-3 w-10 text-center">
+              {onToggleSelectAll && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggleSelectAll();
+                  }}
+                  className="p-1 text-[#666] hover:text-[#C5A059] transition-colors cursor-pointer inline-flex items-center justify-center"
+                  title={isAllSelected ? "Deseleziona tutte" : "Seleziona tutte le risorse visibili"}
+                >
+                  <div
+                    className={`w-3.5 h-3.5 rounded flex items-center justify-center border transition-colors ${
+                      isAllSelected
+                        ? "bg-[#C5A059] border-[#C5A059]"
+                        : isIndeterminate
+                        ? "border-[#C5A059] bg-[#C5A059]/20"
+                        : "border-[#444] hover:border-[#777]"
+                    }`}
+                  >
+                    {isAllSelected ? (
+                      <Check className="w-2.5 h-2.5 text-black stroke-[3]" />
+                    ) : isIndeterminate ? (
+                      <div className="w-2 h-0.5 bg-[#C5A059] rounded-sm" />
+                    ) : null}
+                  </div>
+                </button>
+              )}
+            </th>
+            <th className="py-3 px-3 w-10 text-center">Fav</th>
             <th className="py-3 px-4 w-28">Tipo</th>
             <th className="py-3 px-4">Titolo & Sommario</th>
             <th className="py-3 px-4 hidden md:table-cell">Tags</th>
@@ -171,15 +219,42 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({
             const badge = getTypeBadge(item.type);
             const isCopied = copiedId === item.id;
             const itemDate = formatDate(item.createdAt) || formatDate(item.updatedAt) || formatDate(new Date());
+            const isSelected = selectedIds ? selectedIds.has(item.id) : false;
 
             return (
               <tr
                 key={item.id || `table-row-${rowIdx}`}
                 onClick={() => onOpenDetail(item)}
-                className="hover:bg-[#111] transition-colors cursor-pointer group"
+                className={`transition-colors cursor-pointer group ${
+                  isSelected
+                    ? "bg-[#181308]/80 hover:bg-[#1E170A] border-l-2 border-l-[#C5A059]"
+                    : "hover:bg-[#111]"
+                }`}
               >
+                {/* Selection Checkbox */}
+                <td className="py-3.5 px-3 text-center" onClick={(e) => e.stopPropagation()}>
+                  {onToggleSelect && (
+                    <button
+                      type="button"
+                      onClick={() => onToggleSelect(item.id)}
+                      className="p-1 text-[#666] hover:text-[#C5A059] transition-colors cursor-pointer inline-flex items-center justify-center"
+                      title={isSelected ? "Deseleziona risorsa" : "Seleziona risorsa per azioni in blocco"}
+                    >
+                      <div
+                        className={`w-3.5 h-3.5 rounded flex items-center justify-center border transition-colors ${
+                          isSelected
+                            ? "bg-[#C5A059] border-[#C5A059]"
+                            : "border-[#444] group-hover:border-[#777]"
+                        }`}
+                      >
+                        {isSelected && <Check className="w-2.5 h-2.5 text-black stroke-[3]" />}
+                      </div>
+                    </button>
+                  )}
+                </td>
+
                 {/* Favorite Star */}
-                <td className="py-3.5 px-4 text-center">
+                <td className="py-3.5 px-3 text-center">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -229,13 +304,38 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({
                         <span>{item.metadata.score}</span>
                       </span>
                     )}
+                    {(item.metadata?.status === "draft" || item.metadata?.isDraft) && (
+                      <span
+                        className="text-[10px] bg-[#221706] text-amber-300 border border-amber-500/40 px-1.5 py-0.5 rounded font-mono font-medium flex items-center gap-0.5 shrink-0"
+                        title={item.metadata?.draftReason || "Bozza: documento in attesa di validazione OKF v0.2"}
+                      >
+                        <AlertTriangle className="w-2.5 h-2.5 text-amber-400" />
+                        <span>Draft</span>
+                      </span>
+                    )}
+                    {(item.metadata?.uncategorized || item.metadata?.isUncategorized || item.metadata?.domain === "Uncategorized") && (
+                      <span
+                        className="text-[10px] bg-[#161616] text-[#A0A0A0] border border-[#333] px-1.5 py-0.5 rounded font-mono font-medium shrink-0"
+                        title="Non categorizzato: dominio in attesa di classificazione ontologica"
+                      >
+                        <span>Uncategorized</span>
+                      </span>
+                    )}
                   </div>
                 </td>
 
                 {/* Title and brief description */}
                 <td className="py-3.5 px-4 max-w-xs sm:max-w-md">
-                  <div className="font-serif text-white group-hover:text-[#C5A059] transition-colors font-medium truncate">
-                    {item.title}
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="font-serif text-white group-hover:text-[#C5A059] transition-colors font-medium truncate">
+                      {item.title}
+                    </span>
+                    {isReadLaterResource(item) && (
+                      <span className="text-[9.5px] font-mono px-1.5 py-0.2 rounded bg-[#0C1524] text-[#7DD3FC] border border-[#38BDF8]/40 shrink-0 font-medium flex items-center gap-0.5">
+                        <BookMarked className="w-2.5 h-2.5 text-[#38BDF8]" />
+                        <span>Read Later</span>
+                      </span>
+                    )}
                   </div>
                   <div className="text-[#666] text-[11px] truncate mt-0.5">
                     {item.summary}
@@ -288,6 +388,34 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({
                 {/* Actions */}
                 <td className="py-3.5 px-4 text-right whitespace-nowrap">
                   <div className="flex items-center justify-end gap-2">
+                    {/* Read-It-Later Toggle Button */}
+                    {onToggleReadLater && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const inQueue = isReadLaterResource(item);
+                          onToggleReadLater(item.id, inQueue);
+                        }}
+                        className={`p-1.5 rounded transition-colors ${
+                          isReadLaterResource(item)
+                            ? "bg-[#0C1524] text-[#38BDF8] border border-[#38BDF8]/40 hover:bg-[#121F35]"
+                            : "bg-[#141414] hover:bg-[#202020] text-[#777] hover:text-[#38BDF8]"
+                        }`}
+                        title={
+                          isReadLaterResource(item)
+                            ? "Rimuovi dalla Coda Read-It-Later (Ripristina nei Progetti Attivi)"
+                            : "Sposta in Read-It-Later (Conserva per dopo)"
+                        }
+                        aria-label="Read-It-Later"
+                      >
+                        <BookMarked
+                          className={`w-3.5 h-3.5 ${
+                            isReadLaterResource(item) ? "fill-[#38BDF8]/30 text-[#38BDF8]" : ""
+                          }`}
+                        />
+                      </button>
+                    )}
+
                     <button
                       onClick={(e) => handleCopy(e, item)}
                       className="p-1.5 rounded bg-[#141414] hover:bg-[#202020] text-[#888] hover:text-white transition-colors"
@@ -364,6 +492,20 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({
                         title="Anteprima di Stampa & PDF"
                       >
                         <Printer className="w-3.5 h-3.5 text-[#AAA] hover:text-[#C5A059]" />
+                      </button>
+                    )}
+
+                    {onOpenEdit && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenEdit(item);
+                        }}
+                        className="p-1.5 rounded bg-[#141414] hover:bg-[#202020] text-[#888] hover:text-[#C5A059] transition-colors"
+                        title="Modifica risorsa e gestisci tag con l'engine ML"
+                        aria-label="Modifica risorsa"
+                      >
+                        <Edit3 className="w-3.5 h-3.5 text-[#AAA] hover:text-[#C5A059]" />
                       </button>
                     )}
 

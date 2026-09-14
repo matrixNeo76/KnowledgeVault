@@ -32,10 +32,14 @@ import {
   Loader2,
   GraduationCap,
   Rss,
-  StickyNote
+  StickyNote,
+  Headphones,
+  Edit3,
+  BookMarked
 } from "lucide-react";
 import { ResourceItem, ResourceType } from "../types";
 import { formatDate } from "../lib/dateUtils";
+import { isReadLaterResource, getReadLaterPriority } from "../lib/readLaterUtils";
 import { fetchOpenGraphData, OpenGraphResult } from "../lib/ogUtils";
 import { generateAndDownloadResourcePdf } from "../lib/pdfExport";
 
@@ -43,24 +47,36 @@ interface ResourceCardProps {
   resource: ResourceItem;
   onToggleFavorite: (id: string, currentFav: boolean) => void;
   onOpenDetail: (resource: ResourceItem) => void;
+  onOpenEdit?: (resource: ResourceItem) => void;
   onUpdateProgress?: (id: string, progress: number) => void;
   onPrintPreview?: (resource: ResourceItem) => void;
   onExportGoogleDoc?: (resource: ResourceItem) => void;
   onDownloadPdf?: (resource: ResourceItem) => void;
+  onOpenAudioOverview?: (resource: ResourceItem) => void;
   onSelectTag?: (tag: string) => void;
   selectedTag?: string | null;
+  isSelected?: boolean;
+  onToggleSelect?: (id: string) => void;
+  isSelectionActive?: boolean;
+  onToggleReadLater?: (id: string, currentlyInQueue: boolean) => void;
 }
 
 export const ResourceCard: React.FC<ResourceCardProps> = ({
   resource,
   onToggleFavorite,
   onOpenDetail,
+  onOpenEdit,
   onUpdateProgress,
   onPrintPreview,
   onExportGoogleDoc,
   onDownloadPdf,
+  onOpenAudioOverview,
   onSelectTag,
   selectedTag,
+  isSelected = false,
+  onToggleSelect,
+  isSelectionActive = false,
+  onToggleReadLater,
 }) => {
   const [copied, setCopied] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
@@ -95,6 +111,10 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
       setIsGeneratingPdf(false);
     }
   };
+
+  // Read-It-Later determination
+  const isReadLater = isReadLaterResource(resource);
+  const readLaterPriority = getReadLaterPriority(resource);
 
   // Current reading progress state with optimistic local sync
   const currentProgress = resource.metadata?.readingProgress ?? (resource as any).readingProgress ?? 0;
@@ -318,7 +338,11 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
   return (
     <div 
       onClick={() => onOpenDetail(resource)}
-      className="group bg-[#0C0C0C] hover:bg-[#101010] border border-[#1C1C1C] hover:border-[#C5A059]/40 hover:shadow-lg p-4 sm:p-5 rounded-xl flex flex-col justify-between transition-all duration-150 cursor-pointer relative"
+      className={`group bg-[#0C0C0C] hover:bg-[#101010] border p-4 sm:p-5 rounded-xl flex flex-col justify-between transition-all duration-150 cursor-pointer relative ${
+        isSelected
+          ? "border-[#C5A059] bg-[#141008] shadow-[0_0_20px_rgba(197,160,89,0.18)] ring-1 ring-[#C5A059]/40"
+          : "border-[#1C1C1C] hover:border-[#C5A059]/40 hover:shadow-lg"
+      }`}
     >
       <div>
         {/* Top Header: Badge, Status, Date, Favorite */}
@@ -337,6 +361,38 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
               >
                 <BrainCircuit className="w-2.5 h-2.5 text-[#C5A059]" />
                 <span>OKF {resource.metadata?.okfVersion ? `v${resource.metadata.okfVersion}` : "v0.2"}</span>
+              </span>
+            )}
+
+            {/* Draft / Bozza Status Badge */}
+            {(resource.metadata?.status === "draft" || resource.metadata?.isDraft) && (
+              <span
+                className="text-[10px] bg-[#221706] text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded-md font-mono font-medium flex items-center gap-1 shrink-0"
+                title={resource.metadata?.draftReason || "Bozza: documento in attesa di completamento dei campi obbligatori OKF v0.2"}
+              >
+                <AlertTriangle className="w-2.5 h-2.5 text-amber-400" />
+                <span>Bozza (Draft)</span>
+              </span>
+            )}
+
+            {/* Uncategorized Status Badge */}
+            {(resource.metadata?.uncategorized || resource.metadata?.isUncategorized || resource.metadata?.domain === "Uncategorized") && (
+              <span
+                className="text-[10px] bg-[#161616] text-[#A0A0A0] border border-[#333] px-2 py-0.5 rounded-md font-mono font-medium flex items-center gap-1 shrink-0"
+                title="Non categorizzato: dominio ontologico in attesa di classificazione"
+              >
+                <span>Non categorizzato</span>
+              </span>
+            )}
+
+            {/* Read-It-Later Status Badge */}
+            {isReadLater && (
+              <span 
+                className="text-[10px] bg-[#0C1524] text-[#7DD3FC] border border-[#38BDF8]/40 px-2 py-0.5 rounded font-mono flex items-center gap-1 shrink-0 font-medium"
+                title={`Risorsa differita in Coda Read-It-Later (${readLaterPriority} priorità)`}
+              >
+                <BookMarked className="w-2.5 h-2.5 text-[#38BDF8]" />
+                <span>Read Later</span>
               </span>
             )}
 
@@ -415,6 +471,22 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
               )}
             </button>
 
+            {/* Quick Audio Briefing Button */}
+            {onOpenAudioOverview && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenAudioOverview(resource);
+                }}
+                className="p-1 text-[#555] hover:text-[#E5C170] hover:bg-[#181818] rounded transition-colors cursor-pointer"
+                title="Ascolta Audio Briefing di questa risorsa"
+                aria-label="Ascolta Audio Briefing"
+              >
+                <Headphones className="w-3.5 h-3.5 text-[#C5A059]" />
+              </button>
+            )}
+
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -427,6 +499,62 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
                 className={`w-4 h-4 ${resource.isFavorite ? "fill-[#C5A059] text-[#C5A059]" : ""}`} 
               />
             </button>
+
+            {/* Read-It-Later Toggle Button */}
+            {onToggleReadLater && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleReadLater(resource.id, isReadLater);
+                }}
+                className={`p-1 rounded transition-colors cursor-pointer ${
+                  isReadLater
+                    ? "text-[#38BDF8] bg-[#38BDF8]/15 border border-[#38BDF8]/40 hover:bg-[#38BDF8]/25 shadow-xs"
+                    : "text-[#444] hover:text-[#38BDF8] hover:bg-[#181818]"
+                }`}
+                title={
+                  isReadLater
+                    ? "Rimuovi dalla Coda Read-It-Later (Ripristina nei Progetti Attivi)"
+                    : "Sposta in Read-It-Later (Conserva per dopo e libera la vista principale)"
+                }
+                aria-label={isReadLater ? "Rimuovi da Read-It-Later" : "Sposta in Read-It-Later"}
+              >
+                <BookMarked
+                  className={`w-4 h-4 ${isReadLater ? "fill-[#38BDF8]/30 text-[#38BDF8]" : ""}`}
+                />
+              </button>
+            )}
+
+            {/* Selection Checkbox */}
+            {onToggleSelect && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleSelect(resource.id);
+                }}
+                className={`p-1 rounded transition-all cursor-pointer ${
+                  isSelected
+                    ? "text-[#C5A059] bg-[#C5A059]/20 border border-[#C5A059]/60 opacity-100"
+                    : isSelectionActive
+                    ? "text-[#666] hover:text-[#C5A059] bg-[#161616] border border-[#333] opacity-100"
+                    : "text-[#555] hover:text-[#C5A059] opacity-0 group-hover:opacity-100 bg-[#141414] border border-[#262626]"
+                }`}
+                title={isSelected ? "Deseleziona risorsa" : "Seleziona risorsa per azioni in blocco"}
+                aria-label={isSelected ? "Deseleziona risorsa" : "Seleziona risorsa"}
+              >
+                <div
+                  className={`w-3.5 h-3.5 rounded flex items-center justify-center border transition-colors ${
+                    isSelected
+                      ? "bg-[#C5A059] border-[#C5A059]"
+                      : "border-[#555] group-hover:border-[#888]"
+                  }`}
+                >
+                  {isSelected && <Check className="w-2.5 h-2.5 text-black stroke-[3]" />}
+                </div>
+              </button>
+            )}
           </div>
         </div>
 
@@ -675,24 +803,53 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
           </div>
         )}
 
-        {/* Tags */}
-        {resource.tags && resource.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1 mb-4">
-            {resource.tags.slice(0, 4).map((tag, idx) => (
-              <span 
-                key={`tag-${resource.id || 'res'}-${tag}-${idx}`}
-                className="text-[10px] font-mono bg-[#141414] text-[#777] border border-[#1F1F1F] px-2 py-0.5 rounded"
-              >
-                #{tag}
-              </span>
-            ))}
-            {resource.tags.length > 4 && (
-              <span className="text-[10px] font-mono text-[#555] px-1 py-0.5">
-                +{resource.tags.length - 4}
-              </span>
-            )}
-          </div>
-        )}
+        {/* Tags & ML Tag Suggester Quick Access */}
+        <div className="flex flex-wrap items-center gap-1.5 mb-4">
+          {resource.tags && resource.tags.length > 0 ? (
+            <>
+              {resource.tags.slice(0, 4).map((tag, idx) => (
+                <button
+                  key={`tag-${resource.id || 'res'}-${tag}-${idx}`}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelectTag?.(tag);
+                  }}
+                  className={`text-[10px] font-mono px-2 py-0.5 rounded border transition-colors ${
+                    selectedTag === tag.toLowerCase()
+                      ? "bg-[#C5A059]/20 text-[#C5A059] border-[#C5A059]/50"
+                      : "bg-[#141414] text-[#888] hover:text-[#CCC] border-[#1F1F1F] hover:border-[#333]"
+                  }`}
+                  title={`Filtra per tag #${tag}`}
+                >
+                  #{tag}
+                </button>
+              ))}
+              {resource.tags.length > 4 && (
+                <span className="text-[10px] font-mono text-[#555] px-1 py-0.5">
+                  +{resource.tags.length - 4}
+                </span>
+              )}
+            </>
+          ) : (
+            <span className="text-[10px] font-mono text-[#555] italic">Nessun tag</span>
+          )}
+
+          {onOpenEdit && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenEdit(resource);
+              }}
+              className="inline-flex items-center gap-1 text-[10px] font-mono text-[#888] hover:text-[#E5C170] bg-[#14120A] hover:bg-[#20190D] border border-[#2D2312] hover:border-[#C5A059]/60 px-1.5 py-0.5 rounded transition-all group/mltag cursor-pointer"
+              title="Apri Modifica per visualizzare i tag consigliati dal motore ML basato sui contenuti"
+            >
+              <Sparkles className="w-2.5 h-2.5 text-[#C5A059] group-hover/mltag:animate-pulse" />
+              <span className="text-[9px]">Tag ML</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Bottom Footer Actions */}
@@ -859,6 +1016,22 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
               aria-label="Stampa scheda"
             >
               <Printer className="w-3.5 h-3.5 text-[#AAA] hover:text-[#C5A059]" />
+            </button>
+          )}
+
+          {/* Edit & Suggest Tags Button */}
+          {onOpenEdit && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenEdit(resource);
+              }}
+              className="p-1.5 text-[#888] hover:text-[#C5A059] bg-[#141414] hover:bg-[#1C1C1C] border border-[#222] hover:border-[#C5A059]/50 rounded transition-colors"
+              title="Modifica risorsa e gestisci tag con l'engine ML"
+              aria-label="Modifica risorsa e tag ML"
+            >
+              <Edit3 className="w-3.5 h-3.5 text-[#AAA] hover:text-[#C5A059]" />
             </button>
           )}
 

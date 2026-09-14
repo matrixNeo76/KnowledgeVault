@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { 
   X, 
   BookOpen, 
@@ -45,35 +45,51 @@ import {
   Printer,
   GraduationCap,
   Rss,
-  StickyNote
+  StickyNote,
+  BookMarked
 } from "lucide-react";
 import Markdown from "react-markdown";
 import { ResourceItem, ResourceType } from "../types";
 import { formatDate } from "../lib/dateUtils";
 import { fetchOpenGraphData, OpenGraphResult } from "../lib/ogUtils";
+import { isReadLaterResource } from "../lib/readLaterUtils";
+import {
+  identifyRelatedResources,
+  calculateResourceAffinity,
+  RelatedResourceMatch,
+  createOkfRelationFromAffinity,
+} from "../lib/relatedResourcesEngine";
+import { TagSuggestionEngine } from "./TagSuggestionEngine";
+import { cleanTag } from "../lib/tagSuggestionEngine";
 
 interface ResourceModalProps {
   resource: ResourceItem | null;
   allResources?: ResourceItem[];
+  initialEdit?: boolean;
   onClose: () => void;
   onUpdate: (id: string, updatedData: Partial<ResourceItem>) => Promise<boolean>;
   onDelete: (id: string) => Promise<boolean>;
   onToggleFavorite?: (id: string, currentFav: boolean) => void;
   onNavigateToResource?: (resource: ResourceItem) => void;
+  onViewInGraph?: (resource: ResourceItem) => void;
   onPrintPreview?: (resource: ResourceItem) => void;
   onExportGoogleDoc?: (resource: ResourceItem) => void;
+  onToggleReadLater?: (id: string, currentlyInQueue: boolean) => void;
 }
 
 export const ResourceModal: React.FC<ResourceModalProps> = ({
   resource,
   allResources = [],
+  initialEdit = false,
   onClose,
   onUpdate,
   onDelete,
   onToggleFavorite,
   onNavigateToResource,
+  onViewInGraph,
   onPrintPreview,
   onExportGoogleDoc,
+  onToggleReadLater,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [copiedSection, setCopiedSection] = useState<string | null>(null);
@@ -147,6 +163,94 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
   const [userNotes, setUserNotes] = useState(resource?.metadata?.userNotes || "");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
+  // Auto-linking & OKF correlation state
+  const [linkingMatchId, setLinkingMatchId] = useState<string | null>(null);
+  const [linkedSuccessIds, setLinkedSuccessIds] = useState<Set<string>>(new Set());
+
+  // Automatically identified related resources via semantic affinity engine
+  const autoRelatedMatches = useMemo(() => {
+    if (!resource) return [];
+    return identifyRelatedResources(resource, allResources, { limit: 6, minScore: 18 });
+  }, [resource, allResources]);
+
+  // Unique tags across the entire vault for cluster taxonomy and ML matching
+  const vaultTags = useMemo(() => {
+    const set = new Set<string>();
+    allResources.forEach((r) => {
+      if (Array.isArray(r.tags)) {
+        r.tags.forEach((t) => {
+          const norm = cleanTag(t);
+          if (norm) set.add(norm);
+        });
+      }
+    });
+    return Array.from(set);
+  }, [allResources]);
+
+  // Parsed current tags list from tagsStr
+  const currentTagsList = useMemo(() => {
+    return tagsStr
+      .split(",")
+      .map((t) => cleanTag(t))
+      .filter((t) => t.length > 0);
+  }, [tagsStr]);
+
+  const handleAddSuggestedTag = (newTag: string) => {
+    const norm = cleanTag(newTag);
+    if (!norm) return;
+    if (!currentTagsList.includes(norm)) {
+      const updated = [...currentTagsList, norm];
+      setTagsStr(updated.join(", "));
+    }
+  };
+
+  const handleAddMultipleSuggestedTags = (newTags: string[]) => {
+    const updated = [...currentTagsList];
+    newTags.forEach((t) => {
+      const norm = cleanTag(t);
+      if (norm && !updated.includes(norm)) {
+        updated.push(norm);
+      }
+    });
+    setTagsStr(updated.join(", "));
+  };
+
+  const handleRemoveTag = (tagToRemove: string) => {
+    const norm = cleanTag(tagToRemove);
+    const updated = currentTagsList.filter((t) => t !== norm);
+    setTagsStr(updated.join(", "));
+  };
+
+  const handleLinkAsOkfRelation = async (match: RelatedResourceMatch) => {
+    if (!resource || !onUpdate) return;
+    setLinkingMatchId(match.resource.id);
+    try {
+      const newRel = createOkfRelationFromAffinity(match);
+      const existingRelations = Array.isArray(resource.metadata?.relations)
+        ? [...resource.metadata.relations]
+        : [];
+
+      const alreadyLinked = existingRelations.some(
+        (r) => r.targetId === match.resource.id || r.targetTitle.toLowerCase().trim() === match.resource.title.toLowerCase().trim()
+      );
+
+      if (!alreadyLinked) {
+        existingRelations.push(newRel);
+        await onUpdate(resource.id, {
+          metadata: {
+            ...resource.metadata,
+            relations: existingRelations,
+          },
+        });
+        setLinkedSuccessIds((prev) => new Set(prev).add(match.resource.id));
+      }
+    } catch (err) {
+      console.error("Errore salvataggio relazione automatica:", err);
+    } finally {
+      setLinkingMatchId(null);
+    }
+  };
+
   // Synchronize form when resource changes
   React.useEffect(() => {
     if (resource) {
@@ -177,7 +281,7 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
       setAiTargetAudience(resource.metadata?.aiTargetAudience || "");
       setAiActionItemsStr((resource.metadata?.aiActionItems || []).join("\n"));
       setUserNotes(resource.metadata?.userNotes || "");
-      setIsEditing(false);
+      setIsEditing(Boolean(initialEdit));
       setInsightMessage(null);
       setTranslationMessage(null);
       setSummaryMessage(null);
@@ -189,7 +293,7 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
         setViewLanguage("original");
       }
     }
-  }, [resource]);
+  }, [resource, initialEdit]);
 
   // Escape key handler
   React.useEffect(() => {
@@ -296,7 +400,7 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
         setAiTargetAudience(targetAudience || "");
         setAiActionItemsStr(actionItems.join("\n"));
 
-        await onUpdate(resource.id, {
+        const updates: any = {
           metadata: {
             ...resource.metadata,
             aiExecutiveSummary: executiveSummary,
@@ -305,8 +409,32 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
             aiActionItems: actionItems,
             aiSummarizedAt: summarizedAt || new Date().toISOString(),
             ...(estimatedReadingTime ? { readingTimeMin: estimatedReadingTime } : {}),
+            ...(data.extractedContent && (!resource.metadata?.markdownContent || resource.metadata.markdownContent.length < 200)
+              ? { markdownContent: data.extractedContent }
+              : {}),
           },
-        });
+        };
+
+        const isCorrupted = (s: string) =>
+          !s ||
+          s.includes("Nota: Il parser") ||
+          s.includes("Il parser ha tentato") ||
+          s.includes("I link web non costituiscono");
+
+        if (data.cleanedSummary && isCorrupted(resource.summary)) {
+          updates.summary = data.cleanedSummary;
+          setSummary(data.cleanedSummary);
+        } else if (executiveSummary && isCorrupted(resource.summary)) {
+          updates.summary = executiveSummary.slice(0, 300);
+          setSummary(updates.summary);
+        }
+
+        if (data.cleanedTitle && (resource.title.includes("levelup.gitconnected.com") || resource.title === "Collegamento Web" || resource.title === "Medium")) {
+          updates.title = data.cleanedTitle;
+          setTitle(data.cleanedTitle);
+        }
+
+        await onUpdate(resource.id, updates);
 
         setSummaryMessage("⚡ Riassunto Esecutivo & Key Takeaways AI memorizzati nel Vault!");
         setTimeout(() => setSummaryMessage(null), 4000);
@@ -550,11 +678,24 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
   const hasTranslation = !!(resource.metadata?.translatedSummary || resource.metadata?.translatedContent || resource.metadata?.translatedTitle);
   const isItalianView = viewLanguage === "italian" && hasTranslation;
 
-  const currentDisplayTitle = isItalianView && resource.metadata?.translatedTitle ? resource.metadata.translatedTitle : resource.title;
-  const currentDisplaySummary = isItalianView && resource.metadata?.translatedSummary ? resource.metadata.translatedSummary : resource.summary;
-  const currentDisplayMarkdown = isItalianView && resource.metadata?.translatedContent ? resource.metadata.translatedContent : resource.metadata?.markdownContent;
+  const currentDisplayTitle = isItalianView && resource.metadata?.translatedTitle ? resource.metadata.translatedTitle : (title || resource.title);
+  const currentDisplaySummary = isItalianView && resource.metadata?.translatedSummary ? resource.metadata.translatedSummary : (summary || resource.summary);
+  const currentDisplayMarkdown = isItalianView && resource.metadata?.translatedContent ? resource.metadata.translatedContent : (markdownContent || resource.metadata?.markdownContent);
 
-  const hasExecutiveSummary = !!(resource.metadata?.aiExecutiveSummary || (resource.metadata?.aiKeyTakeaways && resource.metadata.aiKeyTakeaways.length > 0));
+  const displayExecutiveSummary = aiExecutiveSummary || resource.metadata?.aiExecutiveSummary;
+  const displayKeyTakeaways = (aiKeyTakeawaysStr ? aiKeyTakeawaysStr.split("\n").filter(Boolean) : resource.metadata?.aiKeyTakeaways) || [];
+  const displayTargetAudience = aiTargetAudience || resource.metadata?.aiTargetAudience;
+  const displayActionItems = (aiActionItemsStr ? aiActionItemsStr.split("\n").filter(Boolean) : resource.metadata?.aiActionItems) || [];
+
+  const isLegacyFallbackSummary = Boolean(
+    displayExecutiveSummary &&
+    (displayExecutiveSummary.includes("è una risorsa di tipo Articolo Tecnico. Fornisce strumenti e metodologie essenziali") ||
+     displayExecutiveSummary.includes("failed_as_link") ||
+     displayExecutiveSummary.includes("Nota: Il parser") ||
+     displayKeyTakeaways.some((t: string) => t.includes("Nota: Il parser ha tentato") || t.includes("Pronto per l'adozione e il collegamento semantico")))
+  );
+
+  const hasExecutiveSummary = !!(displayExecutiveSummary || (displayKeyTakeaways && displayKeyTakeaways.length > 0));
 
   return (
     <div 
@@ -566,223 +707,415 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Top Header */}
-        <div className="p-3.5 sm:p-5 border-b border-[#1C1C1C] flex items-center justify-between gap-2.5 bg-[#080808]">
-          <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1 flex-wrap">
-            <span className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-md bg-[#141414] border border-[#262626] text-[#C5A059] text-xs font-mono font-medium shrink-0">
-              {getTypeIcon(resource.type)}
-              <span className="capitalize">
-                {resource.type === "knowledge" 
-                  ? "OKF Knowledge" 
-                  : resource.type === "paper"
-                  ? "Paper Scientifico"
-                  : resource.type === "rss"
-                  ? "Feed RSS"
-                  : resource.type === "note"
-                  ? "Nota Rapida"
-                  : resource.type === "troubleshooting"
-                  ? "Problema & Soluzione"
-                  : resource.type.replace("_", " ")}
+        <div className="p-3 sm:p-4 border-b border-[#1C1C1C] bg-[#080808] shrink-0">
+          {/* Main Top Row: Type & Favorite on left, Actions & Close X on right */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <span className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-md bg-[#141414] border border-[#262626] text-[#C5A059] text-xs font-mono font-medium shrink-0">
+                {getTypeIcon(resource.type)}
+                <span className="capitalize">
+                  {resource.type === "knowledge" 
+                    ? "OKF Knowledge" 
+                    : resource.type === "paper"
+                    ? "Paper Scientifico"
+                    : resource.type === "rss"
+                    ? "Feed RSS"
+                    : resource.type === "note"
+                    ? "Nota Rapida"
+                    : resource.type === "troubleshooting"
+                    ? "Problema & Soluzione"
+                    : resource.type.replace("_", " ")}
+                </span>
               </span>
-            </span>
 
-            {displayDate && (
-              <span className="hidden sm:flex items-center gap-1 text-[11px] font-mono text-[#777] truncate">
-                <Calendar className="w-3 h-3 shrink-0 text-[#555]" />
-                {displayDate}
-              </span>
-            )}
+              {/* Favorite Star Button in Modal */}
+              {onToggleFavorite && (
+                <button
+                  type="button"
+                  onClick={() => onToggleFavorite(resource.id, !!resource.isFavorite)}
+                  className={`p-1.5 rounded-lg border transition-all shrink-0 flex items-center gap-1.5 text-xs font-mono ${
+                    resource.isFavorite
+                      ? "bg-[#251D0C] border-[#C5A059]/50 text-[#C5A059]"
+                      : "bg-[#141414] border-[#262626] text-[#666] hover:text-[#C5A059] hover:border-[#383838]"
+                  }`}
+                  title={resource.isFavorite ? "Rimuovi dai Preferiti" : "Aggiungi ai Preferiti"}
+                >
+                  <Star className={`w-3.5 h-3.5 ${resource.isFavorite ? "fill-[#C5A059] text-[#C5A059]" : ""}`} />
+                  <span className="hidden md:inline">{resource.isFavorite ? "Preferito" : "Salva"}</span>
+                </button>
+              )}
 
-            {/* Favorite Star Button in Modal */}
-            {onToggleFavorite && (
+              {displayDate && (
+                <span className="hidden sm:flex items-center gap-1 text-[11px] font-mono text-[#777] truncate">
+                  <Calendar className="w-3 h-3 shrink-0 text-[#555]" />
+                  {displayDate}
+                </span>
+              )}
+            </div>
+
+            {/* Desktop Action Group + Desktop Close Button */}
+            <div className="hidden sm:flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+              {/* AI Documentation Deepening Button */}
               <button
                 type="button"
-                onClick={() => onToggleFavorite(resource.id, !!resource.isFavorite)}
-                className={`p-1.5 rounded-lg border transition-all shrink-0 flex items-center gap-1.5 text-xs font-mono ${
-                  resource.isFavorite
-                    ? "bg-[#251D0C] border-[#C5A059]/50 text-[#C5A059]"
-                    : "bg-[#141414] border-[#262626] text-[#666] hover:text-[#C5A059] hover:border-[#383838]"
-                }`}
-                title={resource.isFavorite ? "Rimuovi dai Preferiti" : "Aggiungi ai Preferiti"}
+                onClick={handleExpandDocumentation}
+                disabled={isExpandingDoc}
+                className="flex items-center gap-1.5 text-xs font-mono px-2.5 sm:px-3 py-1.5 rounded-lg border transition-all shrink-0 bg-[#C5A059] hover:bg-[#D5B069] text-black font-semibold shadow-sm"
+                title="Genera o approfondisci la documentazione tecnica OKF v0.2 con Google Gemini"
               >
-                <Star className={`w-3.5 h-3.5 ${resource.isFavorite ? "fill-[#C5A059] text-[#C5A059]" : ""}`} />
-                <span className="hidden md:inline">{resource.isFavorite ? "Preferito" : "Salva"}</span>
+                {isExpandingDoc ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-black" />
+                    <span className="hidden xs:inline">Espansione AI...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5 text-black" />
+                    <span className="hidden xs:inline">Approfondisci AI</span>
+                  </>
+                )}
               </button>
-            )}
+
+              {/* AI Translation Button */}
+              <button
+                type="button"
+                onClick={() => handleTranslate(false)}
+                disabled={isTranslating}
+                className={`flex items-center gap-1.5 text-xs font-mono px-2.5 sm:px-3 py-1.5 rounded-lg border transition-all shrink-0 ${
+                  hasTranslation
+                    ? viewLanguage === "italian"
+                      ? "bg-emerald-950/70 text-emerald-300 border-emerald-700/60 shadow-sm"
+                      : "bg-[#141414] text-[#AAA] hover:text-white border-[#2A2A2A]"
+                    : "bg-[#161616] hover:bg-[#222] text-[#CCC] hover:text-white border-[#2D2D2D]"
+                }`}
+                title={hasTranslation ? "Visualizza o rigenera traduzione in italiano" : "Traduci articolo e note in italiano con Google Gemini"}
+              >
+                {isTranslating ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+                    <span className="hidden xs:inline">Traduzione...</span>
+                  </>
+                ) : (
+                  <>
+                    <Languages className={`w-3.5 h-3.5 ${hasTranslation ? "text-emerald-400" : "text-[#C5A059]"}`} />
+                    <span className="hidden xs:inline">{hasTranslation ? (viewLanguage === "italian" ? "🇮🇹 Italiano" : "Traduci (IT)") : "Traduci AI"}</span>
+                  </>
+                )}
+              </button>
+
+              {/* AI Executive Summary Button */}
+              <button
+                type="button"
+                onClick={handleSummarize}
+                disabled={isSummarizing}
+                className={`flex items-center gap-1.5 text-xs font-mono px-2.5 sm:px-3 py-1.5 rounded-lg border transition-all shrink-0 ${
+                  hasExecutiveSummary
+                    ? "bg-[#251E0E] text-[#E5C170] border-[#C5A059]/50"
+                    : "bg-[#161616] hover:bg-[#222] text-[#CCC] hover:text-white border-[#2D2D2D]"
+                }`}
+                title="Genera sintesi esecutiva, punti chiave e prossimi passi con Google Gemini"
+              >
+                {isSummarizing ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-[#C5A059]" />
+                    <span className="hidden xs:inline">Sintesi AI...</span>
+                  </>
+                ) : (
+                  <>
+                    <Zap className="w-3.5 h-3.5 text-[#C5A059]" />
+                    <span className="hidden xs:inline">{hasExecutiveSummary ? "⚡ Riassunto" : "Riassumi AI"}</span>
+                  </>
+                )}
+              </button>
+
+              {/* Google Drive / Google Docs Action */}
+              {onExportGoogleDoc && (
+                <button
+                  type="button"
+                  onClick={() => onExportGoogleDoc(resource)}
+                  className={`p-1.5 sm:p-2 border rounded-lg transition-colors shrink-0 flex items-center gap-1.5 text-xs font-mono ${
+                    resource.metadata?.gdocUrl
+                      ? "bg-[#4285F4]/20 border-[#4285F4]/40 text-[#4285F4] hover:bg-[#4285F4]/30"
+                      : "bg-[#141414] hover:bg-[#1E1E1E] border-[#2B2B2B] text-[#AAA] hover:text-[#4285F4]"
+                  }`}
+                  title={resource.metadata?.gdocUrl ? "Apri o aggiorna Google Doc in cartella 'knowledge'" : "Esporta in Google Doc nella cartella 'knowledge'"}
+                >
+                  <FileText className="w-3.5 h-3.5 text-[#4285F4]" />
+                  <span className="hidden sm:inline">{resource.metadata?.gdocUrl ? "Google Doc" : "Crea GDoc"}</span>
+                </button>
+              )}
+
+              {/* Read-It-Later Header Toggle */}
+              {onToggleReadLater && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const inQueue = isReadLaterResource(resource);
+                    onToggleReadLater(resource.id, inQueue);
+                  }}
+                  className={`flex items-center gap-1.5 text-xs font-mono px-2.5 sm:px-3 py-1.5 rounded-lg border transition-all shrink-0 ${
+                    isReadLaterResource(resource)
+                      ? "bg-[#0C1524] text-[#38BDF8] border-[#38BDF8]/60 shadow-xs font-medium"
+                      : "bg-[#141414] hover:bg-[#1E1E1E] text-[#888] hover:text-[#38BDF8] border-[#2B2B2B]"
+                  }`}
+                  title={
+                    isReadLaterResource(resource)
+                      ? "Rimuovi dalla Coda Read-It-Later (Ripristina nei Progetti Attivi)"
+                      : "Sposta in Coda Read-It-Later (Conserva per dopo e mantieni il Vault concentrato)"
+                  }
+                >
+                  <BookMarked
+                    className={`w-3.5 h-3.5 ${
+                      isReadLaterResource(resource) ? "fill-[#38BDF8]/30 text-[#38BDF8]" : "text-[#777]"
+                    }`}
+                  />
+                  <span className="hidden sm:inline">
+                    {isReadLaterResource(resource) ? "In Read Later" : "+ Read Later"}
+                  </span>
+                </button>
+              )}
+
+              {/* Download .okf.md */}
+              <button
+                type="button"
+                onClick={handleDownloadMarkdown}
+                className="p-1.5 sm:p-2 text-[#AAA] hover:text-white bg-[#141414] hover:bg-[#1E1E1E] border border-[#2B2B2B] rounded-lg transition-colors shrink-0"
+                title="Scarica documento OKF in formato .okf.md"
+              >
+                <Download className="w-3.5 h-3.5 text-[#C5A059]" />
+              </button>
+
+              {/* Print & PDF Preview */}
+              {onPrintPreview && (
+                <button
+                  type="button"
+                  onClick={() => onPrintPreview(resource)}
+                  className="p-1.5 sm:p-2 text-[#AAA] hover:text-[#C5A059] bg-[#141414] hover:bg-[#1E1E1E] border border-[#2B2B2B] rounded-lg transition-colors shrink-0"
+                  title="Anteprima di Stampa & Stampa / Salva in PDF"
+                >
+                  <Printer className="w-3.5 h-3.5 text-[#C5A059]" />
+                </button>
+              )}
+
+              {resource.url && (
+                <button
+                  type="button"
+                  onClick={() => handleCopy(resource.url!, "top_link")}
+                  className="flex items-center gap-1.5 text-xs text-[#888] hover:text-white bg-[#141414] hover:bg-[#1F1F1F] border border-[#262626] px-2.5 sm:px-3 py-1.5 rounded-lg transition-colors shrink-0"
+                  title="Copia link sorgente negli appunti"
+                >
+                  {copiedSection === "top_link" ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      <span className="text-emerald-400 hidden xs:inline">Copiato!</span>
+                    </>
+                  ) : (
+                    <>
+                      <LinkIcon className="w-3.5 h-3.5 text-[#C5A059]" />
+                      <span className="hidden xs:inline">Link</span>
+                    </>
+                  )}
+                </button>
+              )}
+
+              {!isEditing ? (
+                <button
+                  onClick={() => setIsEditing(true)}
+                  className="flex items-center gap-1.5 text-xs text-[#888] hover:text-white bg-[#141414] hover:bg-[#1F1F1F] border border-[#262626] px-2.5 sm:px-3 py-1.5 rounded-lg transition-colors shrink-0"
+                >
+                  <Edit3 className="w-3.5 h-3.5" />
+                  <span className="hidden xs:inline">Modifica</span>
+                </button>
+              ) : (
+                <button
+                  onClick={handleSave}
+                  disabled={isSaving}
+                  className="flex items-center gap-1.5 text-xs text-black bg-[#C5A059] hover:bg-[#D5B069] font-medium px-2.5 sm:px-3 py-1.5 rounded-lg transition-colors shrink-0"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{isSaving ? "Salvataggio..." : "Salva"}</span>
+                </button>
+              )}
+
+              <button
+                onClick={() => setShowDeleteConfirm((prev) => !prev)}
+                disabled={isDeleting}
+                className={`p-1.5 sm:p-2 rounded-lg transition-colors shrink-0 ${
+                  showDeleteConfirm
+                    ? "bg-rose-950/80 text-rose-300 border border-rose-800/60"
+                    : "text-[#666] hover:text-rose-400 hover:bg-rose-500/10"
+                }`}
+                title="Elimina risorsa"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+
+              <div className="h-5 w-[1px] bg-[#2A2A2A] mx-1" />
+
+              <button
+                onClick={onClose}
+                aria-label="Chiudi finestra"
+                className="w-9 h-9 sm:w-8 sm:h-8 flex items-center justify-center rounded-lg bg-[#1C1C1C] hover:bg-[#2A2A2A] text-[#EEE] hover:text-white border border-[#333] transition-colors shrink-0 cursor-pointer"
+                title="Chiudi finestra (Esc)"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Mobile Top Controls: Edit/Save + Pinned Prominent Close Button */}
+            <div className="flex sm:hidden items-center gap-2 shrink-0">
+              {!isEditing ? (
+                <button
+                  type="button"
+                  onClick={() => setIsEditing(true)}
+                  className="flex items-center gap-1 text-xs text-[#AAA] hover:text-white bg-[#141414] border border-[#2A2A2A] px-2.5 py-2 rounded-lg transition-colors shrink-0"
+                  title="Modifica risorsa"
+                >
+                  <Edit3 className="w-3.5 h-3.5 text-[#C5A059]" />
+                  <span className="text-[11px] font-mono">Modifica</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={isSaving}
+                  className="flex items-center gap-1 text-xs text-black bg-[#C5A059] hover:bg-[#D5B069] font-medium px-2.5 py-2 rounded-lg transition-colors shrink-0"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span className="text-[11px] font-mono">{isSaving ? "..." : "Salva"}</span>
+                </button>
+              )}
+
+              {/* Mobile Close Button: ALWAYS visible, prominent, high contrast & 44px touch target */}
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Chiudi finestra"
+                className="w-10 h-10 flex items-center justify-center rounded-xl bg-[#222] hover:bg-[#2E2E2E] active:bg-[#383838] text-white border border-[#444] shadow-md transition-all active:scale-95 shrink-0 cursor-pointer"
+                title="Chiudi finestra"
+              >
+                <X className="w-5 h-5 stroke-[2.5]" />
+              </button>
+            </div>
           </div>
 
-          {/* Quick AI & Utility Header Actions */}
-          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 flex-wrap justify-end">
-            {/* AI Documentation Deepening Button */}
+          {/* Mobile Secondary Action Ribbon: scrollable horizontally so no buttons wrap or hide the close button */}
+          <div className="flex sm:hidden items-center gap-1.5 overflow-x-auto pt-2.5 pb-0.5 border-t border-[#181818] mt-2.5 -mx-1 px-1 text-xs scrollbar-none">
+            {/* AI Documentation Deepening */}
             <button
               type="button"
               onClick={handleExpandDocumentation}
               disabled={isExpandingDoc}
-              className="flex items-center gap-1.5 text-xs font-mono px-2.5 sm:px-3 py-1.5 rounded-lg border transition-all shrink-0 bg-[#C5A059] hover:bg-[#D5B069] text-black font-semibold shadow-sm"
-              title="Genera o approfondisci la documentazione tecnica OKF v0.2 con Google Gemini"
+              className="flex items-center gap-1 text-xs font-mono px-2.5 py-1.5 rounded-lg border transition-all shrink-0 bg-[#C5A059] text-black font-semibold shadow-xs"
             >
-              {isExpandingDoc ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-black" />
-                  <span className="hidden xs:inline">Espansione AI...</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-3.5 h-3.5 text-black" />
-                  <span className="hidden xs:inline">Approfondisci AI</span>
-                </>
-              )}
+              {isExpandingDoc ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+              <span>Approfondisci AI</span>
             </button>
 
-            {/* AI Translation Button */}
+            {/* AI Translation */}
             <button
               type="button"
               onClick={() => handleTranslate(false)}
               disabled={isTranslating}
-              className={`flex items-center gap-1.5 text-xs font-mono px-2.5 sm:px-3 py-1.5 rounded-lg border transition-all shrink-0 ${
-                hasTranslation
-                  ? viewLanguage === "italian"
-                    ? "bg-emerald-950/70 text-emerald-300 border-emerald-700/60 shadow-sm"
-                    : "bg-[#141414] text-[#AAA] hover:text-white border-[#2A2A2A]"
-                  : "bg-[#161616] hover:bg-[#222] text-[#CCC] hover:text-white border-[#2D2D2D]"
+              className={`flex items-center gap-1 text-xs font-mono px-2.5 py-1.5 rounded-lg border transition-all shrink-0 ${
+                hasTranslation && viewLanguage === "italian"
+                  ? "bg-emerald-950/70 text-emerald-300 border-emerald-700/60"
+                  : "bg-[#141414] text-[#CCC] border-[#2A2A2A]"
               }`}
-              title={hasTranslation ? "Visualizza o rigenera traduzione in italiano" : "Traduci articolo e note in italiano con Google Gemini"}
             >
-              {isTranslating ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-400" />
-                  <span className="hidden xs:inline">Traduzione...</span>
-                </>
-              ) : (
-                <>
-                  <Languages className={`w-3.5 h-3.5 ${hasTranslation ? "text-emerald-400" : "text-[#C5A059]"}`} />
-                  <span className="hidden xs:inline">{hasTranslation ? (viewLanguage === "italian" ? "🇮🇹 Italiano" : "Traduci (IT)") : "Traduci AI"}</span>
-                </>
-              )}
+              {isTranslating ? <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-400" /> : <Languages className="w-3.5 h-3.5 text-[#C5A059]" />}
+              <span>{hasTranslation ? (viewLanguage === "italian" ? "🇮🇹 IT" : "Traduci") : "Traduci"}</span>
             </button>
 
-            {/* AI Executive Summary Button */}
+            {/* AI Summary */}
             <button
               type="button"
               onClick={handleSummarize}
               disabled={isSummarizing}
-              className={`flex items-center gap-1.5 text-xs font-mono px-2.5 sm:px-3 py-1.5 rounded-lg border transition-all shrink-0 ${
+              className={`flex items-center gap-1 text-xs font-mono px-2.5 py-1.5 rounded-lg border transition-all shrink-0 ${
                 hasExecutiveSummary
                   ? "bg-[#251E0E] text-[#E5C170] border-[#C5A059]/50"
-                  : "bg-[#161616] hover:bg-[#222] text-[#CCC] hover:text-white border-[#2D2D2D]"
+                  : "bg-[#141414] text-[#CCC] border-[#2A2A2A]"
               }`}
-              title="Genera sintesi esecutiva, punti chiave e prossimi passi con Google Gemini"
             >
-              {isSummarizing ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-[#C5A059]" />
-                  <span className="hidden xs:inline">Sintesi AI...</span>
-                </>
-              ) : (
-                <>
-                  <Zap className="w-3.5 h-3.5 text-[#C5A059]" />
-                  <span className="hidden xs:inline">{hasExecutiveSummary ? "⚡ Riassunto" : "Riassumi AI"}</span>
-                </>
-              )}
+              {isSummarizing ? <Loader2 className="w-3.5 h-3.5 animate-spin text-[#C5A059]" /> : <Zap className="w-3.5 h-3.5 text-[#C5A059]" />}
+              <span>Riassunto</span>
             </button>
 
-            {/* Google Drive / Google Docs Action */}
+            {/* Google Doc */}
             {onExportGoogleDoc && (
               <button
                 type="button"
                 onClick={() => onExportGoogleDoc(resource)}
-                className={`p-1.5 sm:p-2 border rounded-lg transition-colors shrink-0 flex items-center gap-1.5 text-xs font-mono ${
-                  resource.metadata?.gdocUrl
-                    ? "bg-[#4285F4]/20 border-[#4285F4]/40 text-[#4285F4] hover:bg-[#4285F4]/30"
-                    : "bg-[#141414] hover:bg-[#1E1E1E] border-[#2B2B2B] text-[#AAA] hover:text-[#4285F4]"
-                }`}
-                title={resource.metadata?.gdocUrl ? "Apri o aggiorna Google Doc in cartella 'knowledge'" : "Esporta in Google Doc nella cartella 'knowledge'"}
+                className="p-1.5 border rounded-lg shrink-0 flex items-center gap-1 text-xs font-mono bg-[#141414] border-[#2A2A2A] text-[#AAA]"
               >
                 <FileText className="w-3.5 h-3.5 text-[#4285F4]" />
-                <span className="hidden sm:inline">{resource.metadata?.gdocUrl ? "Google Doc" : "Crea GDoc"}</span>
+                <span>Doc</span>
               </button>
             )}
 
-            {/* Download .okf.md */}
+            {/* Read Later */}
+            {onToggleReadLater && (
+              <button
+                type="button"
+                onClick={() => {
+                  const inQueue = isReadLaterResource(resource);
+                  onToggleReadLater(resource.id, inQueue);
+                }}
+                className={`flex items-center gap-1 text-xs font-mono px-2 py-1.5 rounded-lg border shrink-0 ${
+                  isReadLaterResource(resource)
+                    ? "bg-[#0C1524] text-[#38BDF8] border-[#38BDF8]/60"
+                    : "bg-[#141414] text-[#888] border-[#2B2B2B]"
+                }`}
+              >
+                <BookMarked className="w-3.5 h-3.5 text-[#38BDF8]" />
+                <span>{isReadLaterResource(resource) ? "In Read Later" : "Read Later"}</span>
+              </button>
+            )}
+
+            {/* Download */}
             <button
               type="button"
               onClick={handleDownloadMarkdown}
-              className="p-1.5 sm:p-2 text-[#AAA] hover:text-white bg-[#141414] hover:bg-[#1E1E1E] border border-[#2B2B2B] rounded-lg transition-colors shrink-0"
-              title="Scarica documento OKF in formato .okf.md"
+              className="p-1.5 text-[#AAA] bg-[#141414] border border-[#2A2A2A] rounded-lg shrink-0"
+              title="Scarica .okf.md"
             >
               <Download className="w-3.5 h-3.5 text-[#C5A059]" />
             </button>
 
-            {/* Print & PDF Preview */}
+            {/* Print */}
             {onPrintPreview && (
               <button
                 type="button"
                 onClick={() => onPrintPreview(resource)}
-                className="p-1.5 sm:p-2 text-[#AAA] hover:text-[#C5A059] bg-[#141414] hover:bg-[#1E1E1E] border border-[#2B2B2B] rounded-lg transition-colors shrink-0"
-                title="Anteprima di Stampa & Stampa / Salva in PDF"
+                className="p-1.5 text-[#AAA] bg-[#141414] border border-[#2A2A2A] rounded-lg shrink-0"
+                title="Stampa"
               >
                 <Printer className="w-3.5 h-3.5 text-[#C5A059]" />
               </button>
             )}
 
+            {/* Link */}
             {resource.url && (
               <button
                 type="button"
                 onClick={() => handleCopy(resource.url!, "top_link")}
-                className="flex items-center gap-1.5 text-xs text-[#888] hover:text-white bg-[#141414] hover:bg-[#1F1F1F] border border-[#262626] px-2.5 sm:px-3 py-1.5 rounded-lg transition-colors shrink-0"
-                title="Copia link sorgente negli appunti"
+                className="p-1.5 text-[#888] bg-[#141414] border border-[#262626] rounded-lg shrink-0"
+                title="Copia link"
               >
-                {copiedSection === "top_link" ? (
-                  <>
-                    <Check className="w-3.5 h-3.5 text-emerald-400" />
-                    <span className="text-emerald-400 hidden xs:inline">Copiato!</span>
-                  </>
-                ) : (
-                  <>
-                    <LinkIcon className="w-3.5 h-3.5 text-[#C5A059]" />
-                    <span className="hidden xs:inline">Link</span>
-                  </>
-                )}
+                {copiedSection === "top_link" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <LinkIcon className="w-3.5 h-3.5 text-[#C5A059]" />}
               </button>
             )}
 
-            {!isEditing ? (
-              <button
-                onClick={() => setIsEditing(true)}
-                className="flex items-center gap-1.5 text-xs text-[#888] hover:text-white bg-[#141414] hover:bg-[#1F1F1F] border border-[#262626] px-2.5 sm:px-3 py-1.5 rounded-lg transition-colors shrink-0"
-              >
-                <Edit3 className="w-3.5 h-3.5" />
-                <span className="hidden xs:inline">Modifica</span>
-              </button>
-            ) : (
-              <button
-                onClick={handleSave}
-                disabled={isSaving}
-                className="flex items-center gap-1.5 text-xs text-black bg-[#C5A059] hover:bg-[#D5B069] font-medium px-2.5 sm:px-3 py-1.5 rounded-lg transition-colors shrink-0"
-              >
-                <Save className="w-3.5 h-3.5" />
-                <span>{isSaving ? "Salvataggio..." : "Salva"}</span>
-              </button>
-            )}
-
+            {/* Delete */}
             <button
+              type="button"
               onClick={() => setShowDeleteConfirm((prev) => !prev)}
               disabled={isDeleting}
-              className={`p-1.5 sm:p-2 rounded-lg transition-colors shrink-0 ${
-                showDeleteConfirm
-                  ? "bg-rose-950/80 text-rose-300 border border-rose-800/60"
-                  : "text-[#666] hover:text-rose-400 hover:bg-rose-500/10"
-              }`}
-              title="Elimina risorsa"
+              className="p-1.5 text-[#666] hover:text-rose-400 bg-[#141414] border border-[#2A2A2A] rounded-lg shrink-0"
+              title="Elimina"
             >
-              <Trash2 className="w-4 h-4" />
-            </button>
-
-            <button
-              onClick={onClose}
-              aria-label="Chiudi finestra"
-              className="w-9 h-9 sm:w-8 sm:h-8 flex items-center justify-center rounded-lg bg-[#1C1C1C] hover:bg-[#2A2A2A] text-[#EEE] hover:text-white border border-[#333] transition-colors shrink-0 cursor-pointer"
-            >
-              <X className="w-5 h-5" />
+              <Trash2 className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
@@ -1098,16 +1431,62 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
                 </div>
               </div>
 
-              <div>
-                <label className="block text-[11px] font-mono uppercase text-[#666] mb-1">
-                  Tag (separati da virgola)
-                </label>
-                <input
-                  type="text"
-                  value={tagsStr}
-                  onChange={(e) => setTagsStr(e.target.value)}
-                  placeholder="mcp, typescript, ai, okf..."
-                  className="w-full bg-[#111] border border-[#262626] rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-[#C5A059]"
+              {/* Tag Management & Machine-Learning Suggestion Engine */}
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="block text-[11px] font-mono uppercase text-[#AAA] font-medium flex items-center gap-1.5">
+                    <Tag className="w-3.5 h-3.5 text-[#C5A059]" />
+                    <span>Tag della Risorsa ({currentTagsList.length})</span>
+                  </label>
+                  <span className="text-[10px] font-mono text-[#777]">
+                    Inserisci manualmente o usa i suggerimenti ML sottostanti
+                  </span>
+                </div>
+
+                {/* Active Tag Pills with One-Click Remove */}
+                {currentTagsList.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 p-2 bg-[#0C0C0C] border border-[#222] rounded-lg">
+                    {currentTagsList.map((tag) => (
+                      <span
+                        key={`active-tag-${tag}`}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono bg-[#16140E] border border-[#C5A059]/40 text-[#E5C170] shadow-xs"
+                      >
+                        <span>#{tag}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveTag(tag)}
+                          className="text-[#888] hover:text-rose-400 transition-colors cursor-pointer p-0.5"
+                          title={`Rimuovi #${tag}`}
+                          aria-label={`Rimuovi tag ${tag}`}
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Manual tag string input */}
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={tagsStr}
+                    onChange={(e) => setTagsStr(e.target.value)}
+                    placeholder="mcp, typescript, ai, okf..."
+                    className="w-full bg-[#111] border border-[#262626] rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-[#C5A059] font-mono placeholder:text-[#555]"
+                  />
+                </div>
+
+                {/* Machine-Learning Based Tag Recommendation Engine */}
+                <TagSuggestionEngine
+                  resource={resource}
+                  currentTags={currentTagsList}
+                  onAddTag={handleAddSuggestedTag}
+                  onAddMultipleTags={handleAddMultipleSuggestedTags}
+                  vaultTags={vaultTags}
+                  activeTitle={title}
+                  activeSummary={summary}
+                  activeContent={markdownContent}
                 />
               </div>
 
@@ -1547,17 +1926,21 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
                         type="button"
                         onClick={handleSummarize}
                         disabled={isSummarizing}
-                        className="flex items-center gap-1 text-[11px] font-mono text-[#E5C170] hover:text-white bg-[#261E0F] hover:bg-[#382B14] border border-[#C5A059]/40 px-2.5 py-1 rounded-md transition-colors"
-                        title="Rigenera il riassunto con Gemini AI"
+                        className={`flex items-center gap-1.5 text-[11px] font-mono px-3 py-1.5 rounded-md transition-all shadow-sm ${
+                          isLegacyFallbackSummary
+                            ? "text-black font-bold bg-[#C5A059] hover:bg-[#D8B26A] animate-pulse"
+                            : "text-[#E5C170] hover:text-white bg-[#261E0F] hover:bg-[#382B14] border border-[#C5A059]/40"
+                        }`}
+                        title="Rigenera il riassunto con Gemini AI e l'articolo reale"
                       >
-                        {isSummarizing ? <Loader2 className="w-3 h-3 animate-spin text-[#C5A059]" /> : <RotateCcw className="w-3 h-3 text-[#C5A059]" />}
-                        <span>Rigenera</span>
+                        {isSummarizing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+                        <span>{isLegacyFallbackSummary ? "Aggiorna con Articolo Reale" : "Rigenera"}</span>
                       </button>
 
                       <button
                         type="button"
                         onClick={() => handleCopy(
-                          `${resource.metadata?.aiExecutiveSummary || ""}\n\nKey Takeaways:\n${(resource.metadata?.aiKeyTakeaways || []).map((t) => `• ${t}`).join("\n")}`,
+                          `${displayExecutiveSummary || ""}\n\nKey Takeaways:\n${displayKeyTakeaways.map((t: string) => `• ${t}`).join("\n")}`,
                           "exec_summary"
                         )}
                         className="flex items-center gap-1 text-[11px] font-mono text-[#AAA] hover:text-white bg-[#141414] hover:bg-[#202020] border border-[#2A2A2A] px-2.5 py-1 rounded-md transition-colors"
@@ -1568,22 +1951,42 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
                     </div>
                   </div>
 
+                  {/* Notice if legacy placeholder detected */}
+                  {isLegacyFallbackSummary && (
+                    <div className="bg-[#241A0A] border border-[#C5A059]/50 rounded-lg p-3 text-xs text-[#E5C170] flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 text-[#C5A059] shrink-0" />
+                        <span>
+                          <strong>Avviso Testo Preliminare:</strong> Questa risorsa conteneva un riassunto generico creato prima del supporto al parsing profondo di Medium. Clicca su <strong>"Aggiorna con Articolo Reale"</strong> per scaricare il testo autentico e rigenerare la sintesi.
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleSummarize}
+                        disabled={isSummarizing}
+                        className="px-2.5 py-1 rounded bg-[#C5A059] text-black font-semibold text-[11px] shrink-0 hover:bg-[#D8B26A] transition-colors"
+                      >
+                        Aggiorna Ora
+                      </button>
+                    </div>
+                  )}
+
                   {/* Executive Overview */}
-                  {resource.metadata?.aiExecutiveSummary && (
+                  {displayExecutiveSummary && (
                     <div className="text-xs sm:text-sm text-[#E2D2B5] leading-relaxed font-sans bg-[#1A140A] p-3.5 rounded-lg border border-[#332611]">
-                      {resource.metadata.aiExecutiveSummary}
+                      {displayExecutiveSummary}
                     </div>
                   )}
 
                   {/* Key Takeaways */}
-                  {resource.metadata?.aiKeyTakeaways && resource.metadata.aiKeyTakeaways.length > 0 && (
+                  {displayKeyTakeaways && displayKeyTakeaways.length > 0 && (
                     <div>
                       <div className="text-[11px] font-mono uppercase text-[#A89060] mb-2 flex items-center gap-1.5 font-medium tracking-wider">
                         <ListChecks className="w-3.5 h-3.5 text-[#C5A059]" />
                         <span>Punti Chiave & Approfondimenti:</span>
                       </div>
                       <div className="space-y-1.5">
-                        {resource.metadata.aiKeyTakeaways.map((takeaway, idx) => (
+                        {displayKeyTakeaways.map((takeaway: string, idx: number) => (
                           <div
                             key={idx}
                             className="bg-[#18130B] border border-[#2A2011] p-2.5 rounded-lg flex items-start gap-2.5 text-xs text-[#DDD]"
@@ -1600,26 +2003,26 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
 
                   {/* Target Audience & Action Items in Columns */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                    {resource.metadata?.aiTargetAudience && (
+                    {displayTargetAudience && (
                       <div className="bg-[#151008] border border-[#2D2110] rounded-lg p-3 space-y-1.5">
                         <div className="text-[11px] font-mono uppercase text-[#C5A059] flex items-center gap-1.5">
                           <Users className="w-3.5 h-3.5" />
                           <span>Profilo Destinatari</span>
                         </div>
                         <p className="text-xs text-[#CCC] leading-relaxed">
-                          {resource.metadata.aiTargetAudience}
+                          {displayTargetAudience}
                         </p>
                       </div>
                     )}
 
-                    {resource.metadata?.aiActionItems && resource.metadata.aiActionItems.length > 0 && (
+                    {displayActionItems && displayActionItems.length > 0 && (
                       <div className="bg-[#151008] border border-[#2D2110] rounded-lg p-3 space-y-1.5">
                         <div className="text-[11px] font-mono uppercase text-emerald-400 flex items-center gap-1.5">
                           <Target className="w-3.5 h-3.5" />
                           <span>Prossimi Passi (Action Items)</span>
                         </div>
                         <ul className="space-y-1 text-xs text-[#CCC]">
-                          {resource.metadata.aiActionItems.map((item, idx) => (
+                          {displayActionItems.map((item: string, idx: number) => (
                             <li key={idx} className="flex items-start gap-1.5">
                               <Check className="w-3 h-3 text-emerald-400 shrink-0 mt-0.5" />
                               <span>{item}</span>
@@ -2672,15 +3075,28 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
                 }
 
                 return (
-                  <div className="bg-[#0B0B0B] border border-[#242424] rounded-xl p-4 sm:p-5 space-y-3">
+                  <div className="bg-[#0B0B0B] border border-[#242424] rounded-xl p-4 sm:p-5 space-y-4">
                     <div className="flex items-center justify-between flex-wrap gap-2">
                       <div className="flex items-center gap-2 text-xs font-mono text-[#C5A059] font-medium">
                         <Network className="w-4 h-4 text-[#C5A059]" />
                         <span>Nodi e Relazioni nel Knowledge Graph ({connectedItems.length} connessioni attive)</span>
                       </div>
 
-                      <div className="text-[11px] font-mono text-[#777]">
-                        Grafo Topologico OKF
+                      <div className="flex items-center gap-2">
+                        {onViewInGraph && (
+                          <button
+                            type="button"
+                            onClick={() => onViewInGraph(resource)}
+                            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-mono bg-teal-950/80 border border-teal-500/60 text-teal-300 hover:bg-teal-900 transition-all cursor-pointer"
+                            title="Apri ed evidenzia questo nodo nel Knowledge Graph"
+                          >
+                            <Sparkles className="w-3.5 h-3.5 text-teal-400" />
+                            <span>Visualizza nel Grafo</span>
+                          </button>
+                        )}
+                        <div className="text-[11px] font-mono text-[#777]">
+                          Grafo Topologico OKF
+                        </div>
                       </div>
                     </div>
 
@@ -2728,6 +3144,119 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
                         </div>
                       </div>
                     )}
+
+                    {/* Sezione Risorse Correlate Automaticamente (Tag & Contenuto Condiviso) */}
+                    {autoRelatedMatches.length > 0 && (
+                      <div className="pt-3 border-t border-[#1E1E1E] space-y-2.5">
+                        <div className="flex items-center justify-between text-xs font-mono">
+                          <span className="flex items-center gap-1.5 text-teal-400 font-semibold">
+                            <Sparkles className="w-3.5 h-3.5 text-teal-400" />
+                            <span>Affinità Automatica Rilevata ({autoRelatedMatches.length})</span>
+                          </span>
+                          <span className="text-[10px] text-[#777]">
+                            Tag sovrapposti & analisi semantica del testo
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          {autoRelatedMatches.map((match) => {
+                            const isLinked = 
+                              linkedSuccessIds.has(match.resource.id) ||
+                              (resource.metadata?.relations || []).some(
+                                (r: any) => r.targetId === match.resource.id || r.targetTitle?.toLowerCase().trim() === match.resource.title.toLowerCase().trim()
+                              );
+                            const isCurrentlyLinking = linkingMatchId === match.resource.id;
+
+                            return (
+                              <div
+                                key={`auto-rel-${match.resource.id}`}
+                                className="p-3 rounded-lg border border-teal-900/40 bg-[#0C1212] hover:border-teal-500/60 transition-all flex flex-col justify-between gap-2.5"
+                              >
+                                <div>
+                                  <div className="flex items-start justify-between gap-2 mb-1.5">
+                                    <h5 
+                                      onClick={() => onNavigateToResource?.(match.resource)}
+                                      className="font-sans text-xs font-medium text-white hover:text-teal-300 cursor-pointer line-clamp-1 flex-1"
+                                      title={match.resource.title}
+                                    >
+                                      {match.resource.title}
+                                    </h5>
+                                    <span className="text-[10px] font-mono px-2 py-0.5 rounded border bg-teal-950/80 border-teal-700/60 text-teal-300 shrink-0 font-semibold">
+                                      {match.score}% affinità
+                                    </span>
+                                  </div>
+
+                                  {/* Tags & Terms Overlap Badges */}
+                                  <div className="flex flex-wrap items-center gap-1 my-1.5">
+                                    {match.sharedTags.slice(0, 3).map((tg) => (
+                                      <span key={tg} className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-amber-950/50 text-amber-300 border border-amber-800/40">
+                                        #{tg}
+                                      </span>
+                                    ))}
+                                    {match.overlappingTerms.slice(0, 2).map((term) => (
+                                      <span key={term} className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-teal-950/50 text-teal-300 border border-teal-800/40">
+                                        {term}
+                                      </span>
+                                    ))}
+                                  </div>
+
+                                  <p className="text-[11px] text-[#888] line-clamp-2 leading-relaxed">
+                                    {match.explanation}
+                                  </p>
+                                </div>
+
+                                <div className="flex items-center justify-between gap-2 pt-2 border-t border-teal-950/80 text-[10px] font-mono">
+                                  <div className="flex items-center gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => onNavigateToResource?.(match.resource)}
+                                      className="text-teal-400 hover:text-teal-200 underline cursor-pointer"
+                                    >
+                                      Apri Scheda
+                                    </button>
+                                    {onViewInGraph && (
+                                      <>
+                                        <span className="text-[#444]">·</span>
+                                        <button
+                                          type="button"
+                                          onClick={() => onViewInGraph(match.resource)}
+                                          className="text-teal-400 hover:text-teal-200 underline cursor-pointer"
+                                        >
+                                          Nel Grafo
+                                        </button>
+                                      </>
+                                    )}
+                                  </div>
+
+                                  {/* Link as OKF Relation button */}
+                                  {isLinked ? (
+                                    <span className="flex items-center gap-1 text-[10px] text-emerald-400">
+                                      <Check className="w-3 h-3 text-emerald-400" />
+                                      <span>OKF Collegato</span>
+                                    </span>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      disabled={isCurrentlyLinking}
+                                      onClick={() => handleLinkAsOkfRelation(match)}
+                                      className="flex items-center gap-1 px-2 py-0.5 rounded bg-teal-950 hover:bg-teal-900 border border-teal-700/60 text-teal-300 text-[10px] transition-all cursor-pointer disabled:opacity-50"
+                                      title="Aggiungi questa relazione formale al frontmatter OKF"
+                                    >
+                                      {isCurrentlyLinking ? (
+                                        <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                                      ) : (
+                                        <Plus className="w-2.5 h-2.5" />
+                                      )}
+                                      <span>Collega OKF</span>
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })()}
@@ -2752,6 +3281,34 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
               )}
             </>
           )}
+        </div>
+
+        {/* Modal Sticky Bottom Footer */}
+        <div className="p-3 sm:p-3.5 border-t border-[#1C1C1C] bg-[#080808] flex items-center justify-between gap-3 shrink-0">
+          <div className="flex items-center gap-2 text-xs text-[#777] min-w-0 flex-1">
+            {resource.url ? (
+              <a
+                href={resource.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[#C5A059] hover:underline truncate text-[11px] font-mono flex items-center gap-1.5"
+                title="Apri link originale in nuova scheda"
+              >
+                <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">{resource.url}</span>
+              </a>
+            ) : (
+              <span className="text-[11px] font-mono text-[#555] truncate">Vault #{resource.id.slice(0, 8)}</span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#1C1C1C] hover:bg-[#282828] active:bg-[#333] text-[#EEE] hover:text-white border border-[#333] text-xs font-mono transition-all shrink-0 cursor-pointer shadow-sm active:scale-95"
+          >
+            <X className="w-4 h-4 text-[#AAA]" />
+            <span>Chiudi Scheda</span>
+          </button>
         </div>
       </div>
     </div>

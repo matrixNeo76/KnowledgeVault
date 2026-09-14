@@ -112,7 +112,7 @@ export async function fetchArticleTextFromUrl(rawUrl: string, timeoutMs = 6000):
     const response = await fetch(targetUrl, {
       signal: controller.signal,
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 (compatible; KnowledgeVaultReader/2.0)",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.7",
         "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
       },
@@ -133,9 +133,60 @@ export async function fetchArticleTextFromUrl(rawUrl: string, timeoutMs = 6000):
     
     // Extract title
     let title = "";
-    const titleMatch = rawHtml.match(/<title[^>]*>([^<]+)<\/title>/i);
-    if (titleMatch && titleMatch[1]) {
-      title = titleMatch[1].replace(/\s+/g, " ").trim();
+    const ogTitleMatch = rawHtml.match(/<meta[^>]+property=["'](?:og|twitter):title["'][^>]+content=["']([^"']+)["']/i) ||
+                         rawHtml.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["'](?:og|twitter):title["']/i) ||
+                         rawHtml.match(/<meta[^>]+name=["']title["'][^>]+content=["']([^"']+)["']/i);
+    if (ogTitleMatch && ogTitleMatch[1]) {
+      title = ogTitleMatch[1].replace(/\s+/g, " ").trim();
+    }
+    if (!title || title.toLowerCase() === "medium") {
+      const titleMatch = rawHtml.match(/<title[^>]*>([^<]+)<\/title>/i);
+      if (titleMatch && titleMatch[1] && titleMatch[1].toLowerCase() !== "medium") {
+        title = titleMatch[1].replace(/\s+/g, " ").trim();
+      }
+    }
+
+    // Check for Medium / GitConnected Apollo State before stripping scripts
+    let apolloParagraphs: string[] = [];
+    const apolloMatch = rawHtml.match(/window\.__APOLLO_STATE__\s*=\s*(\{[\s\S]*?\});/);
+    if (apolloMatch && apolloMatch[1]) {
+      try {
+        const apolloData = JSON.parse(apolloMatch[1]);
+        for (const [key, val] of Object.entries(apolloData)) {
+          if (val && typeof val === "object") {
+            const item = val as Record<string, any>;
+            if (item.__typename === "Post" && item.title && !title) {
+              title = item.title;
+            }
+            if (item.__typename === "Paragraph" && typeof item.text === "string" && item.text.trim()) {
+              apolloParagraphs.push(item.text.trim());
+            }
+          }
+        }
+      } catch {
+        // Continue with HTML parsing
+      }
+    }
+
+    // Check for application/ld+json articleBody or description
+    let ldJsonText = "";
+    const ldJsonMatches = [...rawHtml.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)];
+    for (const match of ldJsonMatches) {
+      try {
+        const parsed = JSON.parse(match[1]);
+        const candidate = Array.isArray(parsed) ? parsed[0] : parsed;
+        if (candidate?.headline && !title) {
+          title = candidate.headline;
+        }
+        if (candidate?.articleBody && typeof candidate.articleBody === "string") {
+          ldJsonText = candidate.articleBody;
+          break;
+        } else if (candidate?.description && typeof candidate.description === "string" && !ldJsonText) {
+          ldJsonText = candidate.description;
+        }
+      } catch {
+        // ignore JSON-LD parse errors
+      }
     }
 
     // Isolate the main readable content
@@ -198,6 +249,13 @@ export async function fetchArticleTextFromUrl(rawUrl: string, timeoutMs = 6000):
       .replace(/\n{3,}/g, "\n\n")
       .trim();
 
+    // Prefer structured Apollo paragraphs (Medium / GitConnected) or LD+JSON if richer than generic HTML
+    if (apolloParagraphs.length > 0) {
+      formattedText = apolloParagraphs.join("\n\n");
+    } else if (ldJsonText && (formattedText.length < 300 || ldJsonText.length > formattedText.length)) {
+      formattedText = ldJsonText;
+    }
+
     return {
       title,
       text: formattedText,
@@ -237,7 +295,7 @@ export async function fetchOpenGraphMetadata(rawUrl: string, timeoutMs = 4500): 
     const response = await fetch(targetUrl, {
       signal: controller.signal,
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 (compatible; KnowledgeVault/1.0)",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
       },

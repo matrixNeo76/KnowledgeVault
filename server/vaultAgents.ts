@@ -200,6 +200,7 @@ export function runDeepContentAnalyst(
 ): ContentAnalysisResult {
   const scoredItems: Array<{ id: string; title: string; excerpt: string; score: number }> = [];
   const queryWords = query.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
+  const queryLower = query.toLowerCase().trim();
 
   resources.forEach((r) => {
     let score = 0;
@@ -207,20 +208,46 @@ export function runDeepContentAnalyst(
     const summaryLower = (r.summary || "").toLowerCase();
     const markdownLower = (r.metadata?.markdownContent || "").toLowerCase();
     const executiveLower = (r.metadata?.aiExecutiveSummary || "").toLowerCase();
+    const domainLower = (r.metadata?.domain || "").toLowerCase();
 
-    // Word occurrences scoring
+    // 1. Exact phrase matching bonus
+    if (titleLower.includes(queryLower)) score += 12;
+    if (summaryLower.includes(queryLower)) score += 6;
+    if (domainLower && domainLower.includes(queryLower)) score += 6;
+
+    // 2. Word occurrences with weighted semantic fields
     queryWords.forEach((word) => {
-      if (titleLower.includes(word)) score += 5;
+      if (titleLower.includes(word)) score += 6;
+      if (domainLower.includes(word)) score += 4;
       if (summaryLower.includes(word)) score += 3;
-      if (markdownLower.includes(word)) score += 2;
       if (executiveLower.includes(word)) score += 3;
+      if (markdownLower.includes(word)) score += 1.5;
     });
 
-    // Tag and domain boost
-    if (r.tags) {
+    // 3. Tag and OKF entities matching
+    if (Array.isArray(r.tags)) {
       r.tags.forEach((tag) => {
-        if (queryWords.some((w) => tag.toLowerCase().includes(w))) score += 4;
+        const tagL = tag.toLowerCase();
+        if (tagL === queryLower) score += 8;
+        else if (queryWords.some((w) => tagL.includes(w))) score += 4;
       });
+    }
+
+    if (Array.isArray(r.metadata?.entities)) {
+      r.metadata.entities.forEach((ent) => {
+        const entName = (typeof ent === "string" ? ent : ent.name || "").toLowerCase();
+        if (entName && queryWords.some((w) => entName.includes(w))) {
+          score += 5;
+        }
+      });
+    }
+
+    // 4. Boosting per documenti preferiti (isFavorite) o con alto rating
+    if (r.isFavorite || r.metadata?.isFavorite) {
+      score *= 1.25;
+    }
+    if (typeof r.rating === "number" && r.rating > 0) {
+      score *= 1 + r.rating * 0.04;
     }
 
     if (score > 0) {
@@ -237,7 +264,7 @@ export function runDeepContentAnalyst(
         id: r.id,
         title: r.title,
         excerpt: excerpt.slice(0, 240),
-        score,
+        score: Math.round(score * 10) / 10,
       });
     }
   });
@@ -255,8 +282,8 @@ export function runDeepContentAnalyst(
     })),
     trace: {
       agent: "deep_analyst",
-      action: "Semantic Full-Text & Markdown Scan",
-      description: `Scansionati corpi Markdown, abstract e note. Estratte ${topCandidates.length} evidenze testuali con punteggio di rilevanza.`,
+      action: "Hybrid Semantic & BM25 Scoring Scan",
+      description: `Scansione semantica ibrida su corpi Markdown, titoli, tag ed entità canoniche. Estratte ${topCandidates.length} evidenze testuali con punteggio di rilevanza normalizzato e boosting preferiti.`,
       itemsFound: topCandidates.length,
       status: topCandidates.length > 0 ? "success" : "warning",
       timestamp: new Date().toISOString(),
@@ -382,9 +409,12 @@ export function runGroundingVerifier(
 // Central Orchestrator: Pipeline Esecutiva Multi-Agente
 // ============================================================================
 
+export type AgentStreamProgressCallback = (event: string, data: any) => void;
+
 export async function executeAgenticVaultQuery(
   request: AgenticQueryRequest,
-  genAI: GoogleGenAI | null
+  genAI: GoogleGenAI | null,
+  onProgress?: AgentStreamProgressCallback
 ): Promise<AgenticQueryResponse> {
   const startTime = Date.now();
   const allResources = loadVaultResources(request.clientResources);
@@ -402,20 +432,31 @@ export async function executeAgenticVaultQuery(
 
   const orchestratorPlan = `Pianificazione Orchestrator per query: "${query}". Attivazione coordinata di Graph Navigator (topologia D3), Deep Content Analyst (Markdown & Note), Code Specialist (GitHub & MCP) e Grounding Verifier (Cekikj).`;
 
-  traces.push({
+  const orchestratorTrace: AgentTraceStep = {
     agent: "orchestrator",
     action: "Intent Decomposition & Task Dispatch",
     description: `Decomposto l'intento dell'utente in modalità "${request.mode || "quick_synthesis"}". Inviati task di esplorazione paralleli.`,
     status: "success",
     timestamp: new Date().toISOString(),
-  });
+  };
+  traces.push(orchestratorTrace);
+  if (onProgress) {
+    onProgress("plan_generated", { plan: orchestratorPlan });
+    onProgress("agent_trace_step", orchestratorTrace);
+  }
 
   // Step 2: Parallel Sub-Agent Execution
   const graphResult = runGraphNavigator(query, allResources, keywords);
   traces.push(graphResult.trace);
+  if (onProgress) {
+    onProgress("agent_trace_step", graphResult.trace);
+  }
 
   const contentResult = runDeepContentAnalyst(query, allResources, keywords);
   traces.push(contentResult.trace);
+  if (onProgress) {
+    onProgress("agent_trace_step", contentResult.trace);
+  }
 
   // Unione e deduplicazione dei candidati primari
   const candidateIdsSet = new Set<string>([
@@ -431,6 +472,9 @@ export async function executeAgenticVaultQuery(
   const candidateIds = Array.from(candidateIdsSet);
   const codeResult = runCodeImplementationSpecialist(query, allResources, candidateIds);
   traces.push(codeResult.trace);
+  if (onProgress) {
+    onProgress("agent_trace_step", codeResult.trace);
+  }
 
   // Seleziona i migliori candidati (massimo 12 per contenere il context budget nel bounded loop)
   const candidateResources = allResources
@@ -576,6 +620,9 @@ Fornisci la sintesi epistemica verificata seguendo le istruzioni di sistema. Ris
               console.log(`[VAULT_AGENTS] Dispatching tool: ${fc.name}`);
               const { output, trace } = dispatchVaultTool(fc.name, fc.args, allResources);
               traces.push(trace);
+              if (onProgress) {
+                onProgress("agent_trace_step", trace);
+              }
 
               if (fc.name === "search_vault" && Array.isArray(output.results)) {
                 output.results.forEach((r: any) => candidateIdsSet.add(r.id));
@@ -646,6 +693,9 @@ Fornisci la sintesi epistemica verificata seguendo le istruzioni di sistema. Ris
   // Step 4: Grounding Verifier Audit
   const groundingResult = runGroundingVerifier(declaredAbsence ? [] : extractedCitedIds, allResources);
   traces.push(groundingResult.trace);
+  if (onProgress) {
+    onProgress("grounding_check", groundingResult.trace);
+  }
 
   // Costruisci i metadati per i badge interattivi cliccabili nella UI
   const citedResourceMap = new Map(allResources.map((r) => [r.id, r]));

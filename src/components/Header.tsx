@@ -22,7 +22,9 @@ import {
   Download,
   HardDrive,
   RefreshCw,
-  GitBranch
+  GitBranch,
+  Server,
+  Headphones
 } from "lucide-react";
 import { ViewMode, SortOption } from "../types";
 import { User } from "firebase/auth";
@@ -44,6 +46,8 @@ interface HeaderProps {
   onOpenCekikjInspector?: () => void;
   onOpenKnowledgeUpload?: () => void;
   onOpenOkfSync?: () => void;
+  onOpenMcpServer?: () => void;
+  onOpenAudioOverview?: () => void;
   onSeedDemo?: () => void;
   isSeeding?: boolean;
   user: User | null;
@@ -88,6 +92,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenCekikjInspector,
   onOpenKnowledgeUpload,
   onOpenOkfSync,
+  onOpenMcpServer,
+  onOpenAudioOverview,
   onSeedDemo,
   isSeeding = false,
   totalCount,
@@ -345,10 +351,21 @@ export const Header: React.FC<HeaderProps> = ({
             aria-label="Cekikj Epistemic Engine"
           >
             <ShieldAlert className="w-3.5 h-3.5 text-[#C5A059]" />
-            <span>Zero-Guessing</span>
-            <span className="text-[10px] px-1 py-0.2 rounded bg-[#C5A059]/20 text-[#E5C170] font-semibold border border-[#C5A059]/30">
-              Gate
-            </span>
+            <span>Cekikj Gate</span>
+          </button>
+        )}
+
+        {/* Server MCP Nativo Quick Action */}
+        {onOpenMcpServer && (
+          <button
+            onClick={onOpenMcpServer}
+            className="hidden xl:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#3A2D1B] bg-[#141009] hover:bg-[#1E170E] hover:border-[#C5A059]/50 text-[#C5A059] hover:text-[#E5C170] text-xs font-mono transition-all shadow-xs cursor-pointer"
+            title="Server MCP Nativo: Connetti Claude Desktop, Cursor o agenti esterni al Knowledge Vault tramite JSON-RPC 2.0"
+            aria-label="Server MCP Nativo"
+          >
+            <Server className="w-3.5 h-3.5 text-[#C5A059]" />
+            <span>Server MCP</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
           </button>
         )}
 
@@ -491,8 +508,53 @@ export const Header: React.FC<HeaderProps> = ({
               {/* Sezione 2: Epistemica & Protezione */}
               <div className="py-1">
                 <div className="px-3 py-1 text-[10px] font-mono text-[#666] uppercase tracking-wider flex items-center justify-between">
-                  <span>Epistemica & Sicurezza</span>
+                  <span>Integrazioni & Epistemica</span>
                 </div>
+
+                {/* Server MCP Nativo */}
+                {onOpenMcpServer && (
+                  <button
+                    onClick={() => {
+                      setIsMoreMenuOpen(false);
+                      onOpenMcpServer();
+                    }}
+                    className="w-full flex items-center justify-between px-3 py-1.5 text-[#E5C170] hover:text-white hover:bg-[#1C160B] transition-colors text-left group cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2.5 truncate">
+                      <Server className="w-3.5 h-3.5 text-[#C5A059] shrink-0" />
+                      <div className="flex flex-col truncate">
+                        <span className="font-semibold truncate">Server MCP Nativo</span>
+                        <span className="text-[9.5px] text-[#A68848]">Claude Desktop, Cursor & JSON-RPC</span>
+                      </div>
+                    </div>
+                    <span className="text-[9px] font-mono text-emerald-400 bg-emerald-950/40 px-1.5 py-0.2 rounded border border-emerald-800/30 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                      MCP
+                    </span>
+                  </button>
+                )}
+
+                {/* Audio Overview & Voice Briefing */}
+                {onOpenAudioOverview && (
+                  <button
+                    onClick={() => {
+                      setIsMoreMenuOpen(false);
+                      onOpenAudioOverview();
+                    }}
+                    className="w-full flex items-center justify-between px-3 py-1.5 text-[#E5C170] hover:text-white hover:bg-[#1C160B] transition-colors text-left group cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2.5 truncate">
+                      <Headphones className="w-3.5 h-3.5 text-[#C5A059] shrink-0" />
+                      <div className="flex flex-col truncate">
+                        <span className="font-semibold truncate">Audio Overview & Briefing</span>
+                        <span className="text-[9.5px] text-[#A68848]">Podcast Executive & Sintesi Vocale</span>
+                      </div>
+                    </div>
+                    <span className="text-[9px] font-mono text-[#C5A059] bg-[#C5A059]/20 px-1.5 py-0.2 rounded border border-[#C5A059]/30 flex items-center gap-1">
+                      Audio
+                    </span>
+                  </button>
+                )}
 
                 {/* Zero-Guessing (Cekikj) */}
                 {onOpenCekikjInspector && (

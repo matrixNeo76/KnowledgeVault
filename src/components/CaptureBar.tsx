@@ -26,13 +26,14 @@ import {
   Square,
   Trash2
 } from "lucide-react";
-import { ResourceType, CaptureStage } from "../types";
+import { ResourceType, CaptureStage, TransformationCategory } from "../types";
 
 interface CaptureBarProps {
   onCapture: (input: string, explicitType?: ResourceType) => Promise<boolean>;
   isAnalyzing: boolean;
   captureStage?: CaptureStage;
   captureStageMessage?: string;
+  transformationCategory?: TransformationCategory | null;
   onOpenKnowledgeUpload?: () => void;
   onOpenDiagnostic?: () => void;
   onOpenGoogleDrive?: () => void;
@@ -47,6 +48,7 @@ export const CaptureBar: React.FC<CaptureBarProps> = ({
   isAnalyzing,
   captureStage = "idle",
   captureStageMessage,
+  transformationCategory,
   onOpenKnowledgeUpload,
   onUploadRawFile,
   onOpenIntelligence,
@@ -287,6 +289,12 @@ export const CaptureBar: React.FC<CaptureBarProps> = ({
         return "Invio richiesta...";
       case "analyzing":
         return "Elaborazione AI...";
+      case "transforming":
+        if (transformationCategory === "web_link") return "Data Transformation: Web Link...";
+        if (transformationCategory === "github_repo") return "Data Transformation: GitHub Repo...";
+        if (transformationCategory === "okf_draft") return "Data Transformation: OKF Bozza (Draft)...";
+        if (transformationCategory === "okf_document") return "Data Transformation: OKF Document...";
+        return "Data Transformation in corso...";
       case "saving":
         return "Salvataggio nel Vault...";
       case "success":
@@ -422,46 +430,110 @@ export const CaptureBar: React.FC<CaptureBarProps> = ({
 
           {/* Stepper Feedback when Analyzing */}
           {isAnalyzing && (
-            <div className="mx-0.5 px-3 py-1.5 bg-[#12110D] border border-[#C5A059]/30 rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs text-[#DDD] animate-fade-in">
-              <div className="flex items-center gap-2">
-                <span className="flex h-2 w-2 relative">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#C5A059] opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-[#C5A059]"></span>
-                </span>
-                <span className="font-medium text-[#E5C170] text-xs">
-                  {getStageLabel()}
-                </span>
+            <div className="mx-0.5 px-3 py-2 bg-[#12110D] border border-[#C5A059]/30 rounded-xl space-y-2 animate-fade-in shadow-lg">
+              <div className="flex flex-wrap items-center justify-between gap-2.5 text-xs text-[#DDD]">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className="flex h-2 w-2 relative shrink-0">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#C5A059] opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-[#C5A059]"></span>
+                  </span>
+                  <span className="font-medium text-[#E5C170] text-xs truncate">
+                    {getStageLabel()}
+                  </span>
+                </div>
+
+                {/* 4-Step Stepper: 1. Invio -> 2. AI Parsing -> 3. Data Transformation -> 4. Vault Storage */}
+                <div className="flex items-center gap-1 text-[10px] font-mono">
+                  <span className={`flex items-center gap-1 px-1.5 py-0.5 rounded ${
+                    captureStage === 'sending' 
+                      ? 'bg-[#C5A059] text-black font-semibold' 
+                      : 'text-emerald-400 bg-emerald-950/40'
+                  }`}>
+                    1. Invio
+                  </span>
+                  <ArrowRight className="w-2.5 h-2.5 text-[#555]" />
+                  <span className={`flex items-center gap-1 px-1.5 py-0.5 rounded ${
+                    captureStage === 'analyzing' 
+                      ? 'bg-[#C5A059] text-black font-semibold' 
+                      : captureStage === 'transforming' || captureStage === 'saving' || captureStage === 'success'
+                      ? 'text-emerald-400 bg-emerald-950/40'
+                      : 'text-[#666]'
+                  }`}>
+                    2. AI Parsing
+                  </span>
+                  <ArrowRight className="w-2.5 h-2.5 text-[#555]" />
+                  <span className={`flex items-center gap-1 px-1.5 py-0.5 rounded ${
+                    captureStage === 'transforming' 
+                      ? 'bg-[#C5A059] text-black font-semibold ring-1 ring-[#C5A059]' 
+                      : captureStage === 'saving' || captureStage === 'success'
+                      ? 'text-emerald-400 bg-emerald-950/40'
+                      : 'text-[#666]'
+                  }`}>
+                    3. Trasformazione
+                  </span>
+                  <ArrowRight className="w-2.5 h-2.5 text-[#555]" />
+                  <span className={`flex items-center gap-1 px-1.5 py-0.5 rounded ${
+                    captureStage === 'saving' 
+                      ? 'bg-[#C5A059] text-black font-semibold' 
+                      : captureStage === 'success'
+                      ? 'text-emerald-400 bg-emerald-950/40'
+                      : 'text-[#666]'
+                  }`}>
+                    4. Vault
+                  </span>
+                </div>
               </div>
 
-              <div className="flex items-center gap-1 text-[10px] font-mono">
-                <span className={`flex items-center gap-1 px-1.5 py-0.2 rounded ${
-                  captureStage === 'sending' 
-                    ? 'bg-[#C5A059] text-black font-semibold' 
-                    : 'text-emerald-400 bg-emerald-950/40'
-                }`}>
-                  1. Invio
-                </span>
-                <ArrowRight className="w-2.5 h-2.5 text-[#555]" />
-                <span className={`flex items-center gap-1 px-1.5 py-0.2 rounded ${
-                  captureStage === 'analyzing' 
-                    ? 'bg-[#C5A059] text-black font-semibold' 
-                    : captureStage === 'saving' || captureStage === 'success'
-                    ? 'text-emerald-400 bg-emerald-950/40'
-                    : 'text-[#666]'
-                }`}>
-                  2. AI Parsing
-                </span>
-                <ArrowRight className="w-2.5 h-2.5 text-[#555]" />
-                <span className={`flex items-center gap-1 px-1.5 py-0.2 rounded ${
-                  captureStage === 'saving' 
-                    ? 'bg-[#C5A059] text-black font-semibold' 
-                    : captureStage === 'success'
-                    ? 'text-emerald-400 bg-emerald-950/40'
-                    : 'text-[#666]'
-                }`}>
-                  3. Vault
-                </span>
-              </div>
+              {/* Specific Visual Indicator during Intermediate 'Data Transformation' Phase */}
+              {(captureStage === 'transforming' || transformationCategory) && (
+                <div
+                  id="capture-transformation-indicator"
+                  className={`flex items-center justify-between gap-3 px-3 py-1.5 rounded-lg border text-xs transition-all animate-fade-in ${
+                    transformationCategory === "web_link"
+                      ? "bg-sky-950/80 border-sky-500/60 text-sky-200"
+                      : transformationCategory === "github_repo"
+                      ? "bg-purple-950/80 border-purple-500/60 text-purple-200"
+                      : transformationCategory === "okf_draft"
+                      ? "bg-[#2A1808]/95 border-amber-500/70 text-amber-200"
+                      : "bg-[#251A0A]/95 border-[#C5A059]/70 text-[#F5DE98]"
+                  }`}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="flex items-center justify-center w-5 h-5 rounded-full bg-black/50 border border-white/10 shrink-0">
+                      {transformationCategory === "web_link" && <Globe className="w-3.5 h-3.5 text-sky-400 animate-pulse" />}
+                      {transformationCategory === "github_repo" && <Github className="w-3.5 h-3.5 text-purple-400 animate-pulse" />}
+                      {transformationCategory === "okf_draft" && <FileText className="w-3.5 h-3.5 text-amber-400 animate-pulse" />}
+                      {(transformationCategory === "okf_document" || !transformationCategory) && (
+                        <FileText className="w-3.5 h-3.5 text-[#C5A059] animate-pulse" />
+                      )}
+                    </span>
+                    <div className="flex items-baseline gap-1.5 truncate">
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-[#999] shrink-0">
+                        Data Transformation:
+                      </span>
+                      <span className="font-bold tracking-wide text-xs">
+                        {transformationCategory === "web_link"
+                          ? "Web Link"
+                          : transformationCategory === "github_repo"
+                          ? "GitHub Repo"
+                          : transformationCategory === "okf_draft"
+                          ? "OKF Bozza (Draft)"
+                          : "OKF Document"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <span className="text-[11px] opacity-85 hidden sm:inline text-right font-mono shrink-0">
+                    {transformationCategory === "web_link"
+                      ? "Escluso schema OKF v0.2 · Salvataggio come link web"
+                      : transformationCategory === "github_repo"
+                      ? "Repository codice open-source · Architettura tecnica"
+                      : transformationCategory === "okf_draft"
+                      ? "Campi OKF incompleti · Reindirizzato a Bozza / Uncategorized"
+                      : "Schema OKF v0.2 · Frontmatter YAML & entità ontologiche"}
+                  </span>
+                </div>
+              )}
             </div>
           )}
 

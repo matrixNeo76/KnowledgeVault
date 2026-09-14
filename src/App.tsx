@@ -8,7 +8,9 @@ import {
   ResourceItem, 
   NavCategory, 
   ViewMode, 
-  SortOption 
+  SortOption,
+  ResourceType,
+  ReadLaterPriority
 } from "./types";
 import { filterAndRankResources } from "./lib/searchEngine";
 import { exportResourcesToJSON } from "./lib/exportUtils";
@@ -17,6 +19,13 @@ import { saveQuotaExceededStatus } from "./lib/cacheManager";
 import { resetLocalQuotaLock } from "./lib/quotaTelemetry";
 import { useVaultData, saveLocalResources } from "./hooks/useVaultData";
 import { useVaultCapture } from "./hooks/useVaultCapture";
+import { 
+  isReadLaterResource, 
+  toggleReadLaterStatus, 
+  setReadLaterPriority, 
+  setReadLaterNotes, 
+  setReadLaterTargetDate 
+} from "./lib/readLaterUtils";
 
 // Main Components
 import { Sidebar } from "./components/Sidebar";
@@ -25,11 +34,15 @@ import { CaptureBar } from "./components/CaptureBar";
 import { StatsBanner } from "./components/StatsBanner";
 import { ResourceCard } from "./components/ResourceCard";
 import { ResourceTable } from "./components/ResourceTable";
+import { ReadItLaterQueue } from "./components/ReadItLaterQueue";
+import { BulkActionsToolbar } from "./components/BulkActionsToolbar";
 import { KnowledgeGraph } from "./components/KnowledgeGraph";
 import { RawFileManager } from "./components/RawFileManager";
 import { QuotaTelemetryPage } from "./components/QuotaTelemetryPage";
 import { VaultModalsContainer } from "./components/VaultModalsContainer";
 import { OkfSyncModal } from "./components/OkfSyncModal";
+import { McpConnectionModal } from "./components/McpConnectionModal";
+import { AudioOverviewModal } from "./components/AudioOverviewModal";
 
 // Icons
 import { FolderSearch, Plus, AlertCircle, BrainCircuit, RefreshCw, ShieldCheck } from "lucide-react";
@@ -69,6 +82,11 @@ export default function App() {
     handleUpdateReadingProgress,
     handleUpdateResource,
     handleDeleteResource,
+    handleBulkDeleteResources,
+    handleBulkAddTag,
+    handleBulkRemoveTag,
+    handleBulkCategorize,
+    handleBulkToggleFavorite,
     handleApplyConflictMerge,
     handleUploadUnsyncedResources,
     handleTriggerSync,
@@ -81,10 +99,12 @@ export default function App() {
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<SortOption>("newest");
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  const [graphFocusedResourceId, setGraphFocusedResourceId] = useState<string | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // Selected Resources for Modals
   const [selectedResourceForDetail, setSelectedResourceForDetail] = useState<ResourceItem | null>(null);
+  const [isInitialEditForDetail, setIsInitialEditForDetail] = useState<boolean>(false);
   const [selectedKnowledgeForReader, setSelectedKnowledgeForReader] = useState<ResourceItem | null>(null);
   const [printPreviewResource, setPrintPreviewResource] = useState<ResourceItem | null>(null);
   const [isPrintDossierOpen, setIsPrintDossierOpen] = useState(false);
@@ -104,6 +124,9 @@ export default function App() {
   const [isVaultHealthCheckOpen, setIsVaultHealthCheckOpen] = useState(false);
   const [isIntelligenceDrawerOpen, setIsIntelligenceDrawerOpen] = useState(false);
   const [intelligencePrefilledQuery, setIntelligencePrefilledQuery] = useState<string>("");
+  const [isMcpModalOpen, setIsMcpModalOpen] = useState(false);
+  const [isAudioOverviewOpen, setIsAudioOverviewOpen] = useState(false);
+  const [selectedAudioResource, setSelectedAudioResource] = useState<ResourceItem | null>(null);
 
   // 3. Raw Files Buffer & Ingestion Hook
   const {
@@ -113,6 +136,7 @@ export default function App() {
     isAnalyzing,
     captureStage,
     captureStageMessage,
+    transformationCategory,
     analyzeWithAI,
     handleCapture,
     handleUploadRawFile,
@@ -149,6 +173,24 @@ export default function App() {
       const next = !prev;
       try {
         localStorage.setItem("KV_ZEN_MODE", String(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  // Active Project Focus Mode: Declutters primary vault by hiding Read-It-Later items
+  const [hideReadLater, setHideReadLater] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("KV_HIDE_READ_LATER") === "true";
+    }
+    return false;
+  });
+
+  const handleToggleHideReadLater = () => {
+    setHideReadLater((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("KV_HIDE_READ_LATER", String(next));
       } catch {}
       return next;
     });
@@ -203,6 +245,8 @@ export default function App() {
       link: 0,
       favorites: 0,
       raw_files: rawFiles.length,
+      read_later: 0,
+      read_later_unread: 0,
     };
     resources.forEach((r) => {
       if (r.type && res[r.type] !== undefined) {
@@ -210,6 +254,12 @@ export default function App() {
       }
       if (r.isFavorite) {
         res.favorites++;
+      }
+      if (isReadLaterResource(r)) {
+        res.read_later++;
+        if (!r.metadata?.readingStatus || r.metadata?.readingStatus === "unread") {
+          res.read_later_unread++;
+        }
       }
     });
     return res;
@@ -241,9 +291,126 @@ export default function App() {
       searchQuery,
       currentCategory,
       selectedTag,
-      sortBy
+      sortBy,
+      currentCategory !== "read_later" && hideReadLater
     );
-  }, [resources, currentCategory, selectedTag, searchQuery, sortBy]);
+  }, [resources, currentCategory, selectedTag, searchQuery, sortBy, hideReadLater]);
+
+  // Bulk Actions Selection State
+  const [selectedResourceIds, setSelectedResourceIds] = useState<Set<string>>(new Set());
+
+  // Clean up selected IDs if resources get deleted or are no longer in the vault
+  useEffect(() => {
+    setSelectedResourceIds((prev) => {
+      if (prev.size === 0) return prev;
+      const validIds = new Set(resources.map((r) => r.id));
+      let changed = false;
+      const next = new Set<string>();
+      prev.forEach((id) => {
+        if (validIds.has(id)) {
+          next.add(id);
+        } else {
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [resources]);
+
+  const handleToggleSelect = (id: string) => {
+    setSelectedResourceIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAllVisible = () => {
+    const visibleIds = filteredResources.map((r) => r.id);
+    setSelectedResourceIds(new Set(visibleIds));
+  };
+
+  const handleClearSelection = () => {
+    setSelectedResourceIds(new Set());
+  };
+
+  const handleToggleSelectAllVisible = () => {
+    if (filteredResources.length > 0 && selectedResourceIds.size === filteredResources.length) {
+      handleClearSelection();
+    } else {
+      handleSelectAllVisible();
+    }
+  };
+
+  const onBulkDelete = async () => {
+    const ids = Array.from(selectedResourceIds);
+    const ok = await handleBulkDeleteResources(ids);
+    if (ok) handleClearSelection();
+    return ok;
+  };
+
+  const onBulkAddTag = async (tag: string) => {
+    const ids = Array.from(selectedResourceIds);
+    const ok = await handleBulkAddTag(ids, tag);
+    return ok;
+  };
+
+  const onBulkRemoveTag = async (tag: string) => {
+    const ids = Array.from(selectedResourceIds);
+    const ok = await handleBulkRemoveTag(ids, tag);
+    return ok;
+  };
+
+  const onBulkCategorize = async (type: ResourceType) => {
+    const ids = Array.from(selectedResourceIds);
+    const ok = await handleBulkCategorize(ids, type);
+    return ok;
+  };
+
+  const onBulkToggleFavorite = async (fav: boolean) => {
+    const ids = Array.from(selectedResourceIds);
+    const ok = await handleBulkToggleFavorite(ids, fav);
+    return ok;
+  };
+
+  // Read-It-Later Queue Handlers
+  const handleToggleReadLater = async (id: string, currentlyInQueue: boolean) => {
+    const target = resources.find((r) => r.id === id);
+    if (!target) return;
+    const updated = toggleReadLaterStatus(target, !currentlyInQueue);
+    await handleUpdateResource(id, updated);
+    setStatusMessage(
+      !currentlyInQueue
+        ? `"${target.title.slice(0, 30)}..." aggiunto alla Coda Read-It-Later.`
+        : `"${target.title.slice(0, 30)}..." rimosso dalla Coda (Progetti Attivi).`
+    );
+    setTimeout(() => setStatusMessage(null), 3000);
+  };
+
+  const handleUpdateReadLaterPriority = async (id: string, priority: ReadLaterPriority) => {
+    const target = resources.find((r) => r.id === id);
+    if (!target) return;
+    const updated = setReadLaterPriority(target, priority);
+    await handleUpdateResource(id, updated);
+  };
+
+  const handleUpdateReadLaterNotes = async (id: string, notes: string) => {
+    const target = resources.find((r) => r.id === id);
+    if (!target) return;
+    const updated = setReadLaterNotes(target, notes);
+    await handleUpdateResource(id, updated);
+  };
+
+  const handleUpdateReadLaterTargetDate = async (id: string, targetDate: string | undefined) => {
+    const target = resources.find((r) => r.id === id);
+    if (!target) return;
+    const updated = setReadLaterTargetDate(target, targetDate);
+    await handleUpdateResource(id, updated);
+  };
 
   return (
     <div className="flex h-screen w-full bg-[#050505] text-[#E0E0E0] font-sans overflow-hidden">
@@ -343,6 +510,11 @@ export default function App() {
           onUploadUnsynced={handleUploadUnsyncedResources}
           onOpenKnowledgeUpload={() => setIsKnowledgeUploadOpen(true)}
           onOpenOkfSync={() => setIsOkfSyncModalOpen(true)}
+          onOpenMcpServer={() => setIsMcpModalOpen(true)}
+          onOpenAudioOverview={() => {
+            setSelectedAudioResource(null);
+            setIsAudioOverviewOpen(true);
+          }}
           onSeedDemo={() => handleSeedDemoData(true)}
           isSeeding={isSeeding}
         />
@@ -442,6 +614,8 @@ export default function App() {
           <div className="flex-1 w-full h-full min-h-0 relative flex flex-col overflow-hidden bg-[#070707] p-2 sm:p-3">
             <KnowledgeGraph
               resources={filteredResources}
+              focusedResourceId={graphFocusedResourceId}
+              onClearFocusedResource={() => setGraphFocusedResourceId(null)}
               onSelectResource={(item) => {
                 if (item.type === "knowledge") {
                   setSelectedKnowledgeForReader(item);
@@ -499,10 +673,13 @@ export default function App() {
                   onClearSearch={() => setSearchQuery("")}
                   onOpenPrintDossier={() => setIsPrintDossierOpen(true)}
                   onOpenDiscrepancyInspector={() => setIsDiscrepancyInspectorOpen(true)}
+                  hideReadLater={hideReadLater}
+                  onToggleHideReadLater={handleToggleHideReadLater}
+                  onNavigateToReadLater={() => setCurrentCategory("read_later")}
                 />
               )}
 
-              {/* Resources, Quota Telemetry or Raw Files Display */}
+              {/* Resources, Quota Telemetry, Raw Files or Read-It-Later Display */}
               {currentCategory === "quota_monitor" ? (
                 <div className="flex-1 flex flex-col min-h-0">
                   <QuotaTelemetryPage
@@ -538,6 +715,23 @@ export default function App() {
                     isConvertingId={isConvertingRawFileId}
                   />
                 </div>
+              ) : currentCategory === "read_later" ? (
+                <div className="flex-1 flex flex-col min-h-0">
+                  <ReadItLaterQueue
+                    resources={resources}
+                    onUpdateResource={handleUpdateResource}
+                    onOpenDetail={(res) => {
+                      setIsInitialEditForDetail(false);
+                      if (res.type === "knowledge") {
+                        setSelectedKnowledgeForReader(res);
+                      } else {
+                        setSelectedResourceForDetail(res);
+                      }
+                    }}
+                    onOpenKnowledgeReader={(res) => setSelectedKnowledgeForReader(res)}
+                    onBackToMainVault={() => setCurrentCategory("all")}
+                  />
+                </div>
               ) : isLoadingResources ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 animate-pulse">
                   {[1, 2, 3, 4, 5, 6].map((i) => (
@@ -555,19 +749,20 @@ export default function App() {
                   </h3>
                   <p className="text-xs text-[#777] max-w-md mb-6 leading-relaxed">
                     {resources.length > 0
-                      ? `Attualmente sono presenti ${resources.length} risorse nel tuo Vault, ma nessuna corrisponde ai filtri attivi (${currentCategory !== "all" ? `categoria "${currentCategory}"` : ""}${selectedTag ? ` • tag "#${selectedTag}"` : ""}${searchQuery ? ` • ricerca "${searchQuery}"` : ""}).`
+                      ? `Attualmente sono presenti ${resources.length} risorse nel tuo Vault, ma nessuna corrisponde ai filtri attivi (${currentCategory !== "all" ? `categoria "${currentCategory}"` : ""}${selectedTag ? ` • tag "#${selectedTag}"` : ""}${searchQuery ? ` • ricerca "${searchQuery}"` : ""}${hideReadLater ? " • filtro Focus Progetti attivo (Read-It-Later nascosti)" : ""}).`
                       : (searchQuery || selectedTag
                         ? "Nessun risultato corrisponde ai criteri di ricerca impostati. Prova a rimuovere i filtri."
                         : "Il tuo Vault è vuoto o le risorse sono archiviate nei livelli di storage (LocalStorage / IndexedDB / Server).")}
                   </p>
                   
                   <div className="flex items-center gap-3 flex-wrap justify-center">
-                    {resources.length > 0 && (currentCategory !== "all" || selectedTag || searchQuery) ? (
+                    {resources.length > 0 && (currentCategory !== "all" || selectedTag || searchQuery || hideReadLater) ? (
                       <button
                         onClick={() => {
                           setCurrentCategory("all");
                           setSearchQuery("");
                           setSelectedTag(null);
+                          if (hideReadLater) handleToggleHideReadLater();
                         }}
                         className="px-4 py-2 rounded-lg bg-[#C5A059] hover:bg-[#D5B069] text-black font-semibold text-xs transition-colors flex items-center gap-1.5 shadow-md cursor-pointer"
                       >
@@ -615,16 +810,29 @@ export default function App() {
                       key={item.id}
                       resource={item}
                       onToggleFavorite={handleToggleFavorite}
+                      onToggleReadLater={handleToggleReadLater}
                       onUpdateProgress={handleUpdateReadingProgress}
                       onPrintPreview={(res) => setPrintPreviewResource(res)}
                       onExportGoogleDoc={handleExportGoogleDoc}
+                      onOpenAudioOverview={(res) => {
+                        setSelectedAudioResource(res);
+                        setIsAudioOverviewOpen(true);
+                      }}
+                      onOpenEdit={(res) => {
+                        setIsInitialEditForDetail(true);
+                        setSelectedResourceForDetail(res);
+                      }}
                       onOpenDetail={(res) => {
+                        setIsInitialEditForDetail(false);
                         if (res.type === "knowledge") {
                           setSelectedKnowledgeForReader(res);
                         } else {
                           setSelectedResourceForDetail(res);
                         }
                       }}
+                      isSelected={selectedResourceIds.has(item.id)}
+                      onToggleSelect={handleToggleSelect}
+                      isSelectionActive={selectedResourceIds.size > 0}
                     />
                   ))}
                 </div>
@@ -633,18 +841,44 @@ export default function App() {
                 <ResourceTable
                   resources={filteredResources}
                   onToggleFavorite={handleToggleFavorite}
+                  onToggleReadLater={handleToggleReadLater}
                   onPrintPreview={(res) => setPrintPreviewResource(res)}
                   onExportGoogleDoc={handleExportGoogleDoc}
+                  onOpenEdit={(res) => {
+                    setIsInitialEditForDetail(true);
+                    setSelectedResourceForDetail(res);
+                  }}
                   onOpenDetail={(res) => {
+                    setIsInitialEditForDetail(false);
                     if (res.type === "knowledge") {
                       setSelectedKnowledgeForReader(res);
                     } else {
                       setSelectedResourceForDetail(res);
                     }
                   }}
+                  selectedIds={selectedResourceIds}
+                  onToggleSelect={handleToggleSelect}
+                  onToggleSelectAll={handleToggleSelectAllVisible}
+                  isAllSelected={filteredResources.length > 0 && selectedResourceIds.size === filteredResources.length}
+                  isIndeterminate={selectedResourceIds.size > 0 && selectedResourceIds.size < filteredResources.length}
                 />
               )}
             </div>
+
+            {/* Floating Bulk Actions Toolbar */}
+            <BulkActionsToolbar
+              selectedIds={selectedResourceIds}
+              totalVisibleCount={filteredResources.length}
+              selectedResources={resources.filter((r) => selectedResourceIds.has(r.id))}
+              allTags={allTags}
+              onSelectAllVisible={handleSelectAllVisible}
+              onClearSelection={handleClearSelection}
+              onBulkAddTag={onBulkAddTag}
+              onBulkRemoveTag={onBulkRemoveTag}
+              onBulkCategorize={onBulkCategorize}
+              onBulkDelete={onBulkDelete}
+              onBulkToggleFavorite={onBulkToggleFavorite}
+            />
 
             {/* Bottom Floating Quick Capture Bar */}
             <div className="p-4 sm:p-6 sm:pt-0 shrink-0 bg-gradient-to-t from-[#050505] via-[#050505]/90 to-transparent">
@@ -654,6 +888,7 @@ export default function App() {
                   isAnalyzing={isAnalyzing}
                   captureStage={captureStage}
                   captureStageMessage={captureStageMessage}
+                  transformationCategory={transformationCategory}
                   onOpenKnowledgeUpload={() => setIsKnowledgeUploadOpen(true)}
                   onOpenDiagnostic={() => setIsDiagnosticOpen(true)}
                   onOpenGoogleDrive={() => setIsGoogleDriveOpen(true)}
@@ -683,10 +918,13 @@ export default function App() {
         setIsDiscrepancyInspectorOpen={setIsDiscrepancyInspectorOpen}
         selectedResourceForDetail={selectedResourceForDetail}
         setSelectedResourceForDetail={setSelectedResourceForDetail}
+        isInitialEditForDetail={isInitialEditForDetail}
+        setIsInitialEditForDetail={setIsInitialEditForDetail}
         resources={resources}
         handleUpdateResource={handleUpdateResource}
         handleDeleteResource={handleDeleteResource}
         handleToggleFavorite={handleToggleFavorite}
+        onToggleReadLater={handleToggleReadLater}
         selectedKnowledgeForReader={selectedKnowledgeForReader}
         setSelectedKnowledgeForReader={setSelectedKnowledgeForReader}
         printPreviewResource={printPreviewResource}
@@ -748,6 +986,10 @@ export default function App() {
         intelligencePrefilledQuery={intelligencePrefilledQuery}
         setIntelligencePrefilledQuery={setIntelligencePrefilledQuery}
         setViewMode={setViewMode}
+        onNavigateToGraphNode={(resourceId) => {
+          setGraphFocusedResourceId(resourceId);
+          setViewMode("graph");
+        }}
       />
 
       {/* Sincronizzazione & Importazione OKF (GitHub / Specifiche di Sistema) */}
@@ -763,6 +1005,24 @@ export default function App() {
         }}
         isSyncingSystem={isSeeding}
         quotaExceeded={quotaExceeded}
+      />
+
+      {/* Server MCP Nativo & Connessione IDE */}
+      <McpConnectionModal
+        isOpen={isMcpModalOpen}
+        onClose={() => setIsMcpModalOpen(false)}
+        vaultResourcesCount={resources.length}
+      />
+
+      {/* Audio Overview & Executive Voice Briefing */}
+      <AudioOverviewModal
+        isOpen={isAudioOverviewOpen}
+        onClose={() => {
+          setIsAudioOverviewOpen(false);
+          setSelectedAudioResource(null);
+        }}
+        resources={resources}
+        selectedResource={selectedAudioResource}
       />
     </div>
   );

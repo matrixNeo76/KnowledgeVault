@@ -23,7 +23,7 @@ import {
   disableNetwork,
   User 
 } from "../lib/firebase";
-import { ResourceItem, ResourceType, RawFileItem, DiagnosticLog, CaptureStage } from "../types";
+import { ResourceItem, ResourceType, RawFileItem, DiagnosticLog, CaptureStage, TransformationCategory, ResourceMetadata } from "../types";
 import { localFallbackAnalyzeResource } from "../lib/fallbackParser";
 import { parseDate, getTimestampMillis } from "../lib/dateUtils";
 import { loadRawFilesFromIndexedDB } from "../lib/indexedDb";
@@ -35,7 +35,7 @@ import {
 } from "./useVaultData";
 import { saveQuotaExceededStatus } from "../lib/cacheManager";
 import { recordLifecycleEvent } from "../lib/resourceLifecycleTracker";
-import { validateOKFDocumentSchema } from "../lib/okfParser";
+import { validateOKFDocumentSchema, VALID_OKF_DOC_TYPES, parseOKFDocument } from "../lib/okfParser";
 
 // Local storage key for raw files
 const RAW_FILES_STORAGE_KEY = "knowledge_vault_raw_files";
@@ -124,7 +124,12 @@ export function classifyCaptureInput(input: string, explicitType?: ResourceType)
   const hasHttpPrefix = lower.startsWith("http://") || lower.startsWith("https://") || lower.startsWith("www.");
   const urlRegex = /(?:https?:\/\/|www\.)[^\s]+/i;
   const urlMatch = trimmed.match(urlRegex);
-  const detectedUrl = urlMatch ? (urlMatch[0].startsWith("www.") ? `https://${urlMatch[0]}` : urlMatch[0]) : undefined;
+  const domainPattern = /^(?:https?:\/\/)?([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(?:\/[^\s]*)?$/i;
+  const isDomainMatch = !urlMatch && domainPattern.test(trimmed) && !trimmed.includes(" ") && length < 350;
+  const detectedUrl = urlMatch 
+    ? (urlMatch[0].startsWith("www.") ? `https://${urlMatch[0]}` : urlMatch[0]) 
+    : (isDomainMatch ? (trimmed.startsWith("http") ? trimmed : `https://${trimmed}`) : undefined);
+  const effectiveHttpOrWeb = hasHttpPrefix || Boolean(detectedUrl) || isDomainMatch;
 
   const isGitHub = Boolean(lower.includes("github.com/"));
   const isArxiv = Boolean(lower.includes("arxiv.org/") || lower.includes("doi.org/") || lower.startsWith("paper:"));
@@ -181,8 +186,8 @@ export function classifyCaptureInput(input: string, explicitType?: ResourceType)
   }
 
   // Priorità 4: Collegamento Web Standard (URL o dominio web senza frontmatter)
-  const isPureUrl = (hasHttpPrefix || Boolean(detectedUrl)) && !isMultiLine && length < 350;
-  const isWebUrlDominant = (hasHttpPrefix || Boolean(detectedUrl)) && !hasYamlFrontmatter && !trimmed.startsWith("#") && length < 450;
+  const isPureUrl = (effectiveHttpOrWeb || Boolean(detectedUrl)) && !isMultiLine && length < 350;
+  const isWebUrlDominant = (effectiveHttpOrWeb || Boolean(detectedUrl)) && !hasYamlFrontmatter && !trimmed.startsWith("#") && length < 450;
 
   if ((isPureUrl || isWebUrlDominant || explicitType === "link" || explicitType === "article") && !hasYamlFrontmatter) {
     return {
@@ -192,7 +197,7 @@ export function classifyCaptureInput(input: string, explicitType?: ResourceType)
       isExplicitKnowledge,
       confidence: 0.92,
       reason: "Identificato collegamento web esterno (URL standard)",
-      characteristics: { hasHttpPrefix, isGitHub, isArxiv, isRss, hasYamlFrontmatter, hasOkfVersionHeader, isMultiLine, length }
+      characteristics: { hasHttpPrefix: effectiveHttpOrWeb, isGitHub, isArxiv, isRss, hasYamlFrontmatter, hasOkfVersionHeader, isMultiLine, length }
     };
   }
 
@@ -279,6 +284,236 @@ export function classifyCaptureInput(input: string, explicitType?: ResourceType)
   };
 }
 
+export interface EnforcedOKFValidationResult {
+  isValidOKF: boolean;
+  status: 'draft' | 'stable' | 'active';
+  isDraft: boolean;
+  draftReason?: string;
+  isUncategorized: boolean;
+  uncategorized: boolean;
+  schemaCompliance: 'okf_v0.2_compliant' | 'draft_pending_validation' | 'uncategorized';
+  missingMandatoryFields: string[];
+  failureReasons: string[];
+  primaryFailureReason?: string;
+  enforcedTitle: string;
+  enforcedSummary: string;
+  enforcedTags: string[];
+  enforcedDomain: string;
+  enforcedDocType: string;
+  enforcedMetadata: ResourceMetadata;
+  enforcedMarkdownContent: string;
+}
+
+/**
+ * SCHEMA VALIDATION LAYER (OKF v0.2)
+ * Applica una validazione deterministica e rigorosa della struttura OKF v0.2.
+ * Se una risorsa non soddisfa tutti i campi obbligatori dell'ontologia,
+ * la reindirizza automaticamente allo stato 'Draft' (Bozza) o la contrassegna
+ * come 'Uncategorized' (Non categorizzato), preservando integralmente i dati
+ * e prevenendo qualsiasi conversione fallita o perdita di informazioni.
+ */
+export function enforceOKFSchemaValidation(candidate: {
+  title?: string;
+  summary?: string;
+  tags?: string[];
+  rawContent?: string;
+  markdownContent?: string;
+  metadata?: ResourceMetadata;
+  resourceType?: ResourceType | string;
+  sourceFileName?: string;
+}): EnforcedOKFValidationResult {
+  const content = candidate.markdownContent || candidate.metadata?.markdownContent || candidate.rawContent || "";
+  const baseValidation = validateOKFDocumentSchema(content, candidate.metadata, candidate.resourceType);
+
+  const parsedDoc = baseValidation.parsedDocument || parseOKFDocument(content, candidate.title || "Documento Tecnico");
+  const effectiveMeta: ResourceMetadata = {
+    ...(candidate.metadata || {}),
+  };
+
+  const missingMandatoryFields: string[] = [];
+
+  // 1. okf_version: "0.2"
+  const okfVersion = effectiveMeta.okfVersion || (effectiveMeta as any).okf_version || parsedDoc.okfVersion;
+  const hasOkfVersion = Boolean(okfVersion && String(okfVersion).includes("0.2"));
+  if (!hasOkfVersion) {
+    missingMandatoryFields.push('okf_version: "0.2"');
+  }
+
+  // 2. title: non vuoto e non generico
+  const rawTitle = (candidate.title || (effectiveMeta as any).title || parsedDoc.title || candidate.sourceFileName || "").trim();
+  const isGenericTitle = !rawTitle || rawTitle === "Documento Tecnico" || rawTitle === "Nuova Risorsa" || rawTitle.startsWith("http");
+  if (isGenericTitle) {
+    missingMandatoryFields.push("titolo specifico e non vuoto");
+  }
+
+  // 3. docType: deve appartenere a VALID_OKF_DOC_TYPES
+  const rawDocType = effectiveMeta.docType || (effectiveMeta as any).type || parsedDoc.docType || "";
+  const isValidDocType = Boolean(rawDocType && VALID_OKF_DOC_TYPES.includes(rawDocType as any));
+  if (!isValidDocType) {
+    missingMandatoryFields.push(`tipo documento consentito (${VALID_OKF_DOC_TYPES.join(", ")})`);
+  }
+
+  // 4. domain: dominio applicativo non vuoto e non generico
+  const rawDomain = (effectiveMeta.domain || parsedDoc.domain || "").trim();
+  const isGenericDomain = !rawDomain || ["generale", "general", "sconosciuto", "unknown", "uncategorized", "default"].includes(rawDomain.toLowerCase());
+  if (isGenericDomain) {
+    missingMandatoryFields.push("dominio semantico qualificato");
+  }
+
+  // 5. tags: array con almeno 1 tag
+  const rawTags: (string | number)[] = Array.isArray(candidate.tags) && candidate.tags.length > 0 
+    ? candidate.tags 
+    : (Array.isArray((effectiveMeta as any).tags) && (effectiveMeta as any).tags.length > 0 ? (effectiveMeta as any).tags : parsedDoc.tags || []);
+  if (!Array.isArray(rawTags) || rawTags.length === 0) {
+    missingMandatoryFields.push("tag descrittivi (almeno 1)");
+  }
+
+  // 6. entities: array con almeno 1 entità ontologica strutturata
+  const rawEntities = effectiveMeta.entities || parsedDoc.entities || [];
+  if (!Array.isArray(rawEntities) || rawEntities.length === 0) {
+    missingMandatoryFields.push("entità ontologiche nel grafo (entities)");
+  }
+
+  // 7. relations: array valido di relazioni
+  const rawRelations = effectiveMeta.relations || parsedDoc.relations || [];
+  if (!Array.isArray(rawRelations)) {
+    missingMandatoryFields.push("relazioni ontologiche (relations in formato array)");
+  }
+
+  // 8. frontmatter YAML e corpo markdown
+  const hasFrontmatter = Boolean(parsedDoc.hasFrontmatter || content.startsWith("---"));
+  if (!hasFrontmatter) {
+    missingMandatoryFields.push("blocco YAML frontmatter delimitato da '---'");
+  }
+  const bodyText = (parsedDoc.bodyMarkdown || content.replace(/^---[\s\S]*?---\n*/, "") || "").trim();
+  if (bodyText.length < 40) {
+    missingMandatoryFields.push("corpo del testo documentale (minimo 40 caratteri)");
+  }
+
+  const isValidOKF = baseValidation.isValidOKF && missingMandatoryFields.length === 0;
+
+  if (isValidOKF) {
+    const enforcedTitle = rawTitle;
+    const enforcedDomain = rawDomain;
+    const enforcedDocType = rawDocType;
+    const enforcedTags: string[] = Array.from(new Set([...rawTags.map(String), "okf-v0.2"]));
+    const enforcedSummary = candidate.summary || (effectiveMeta as any).summary || `Specifiche tecniche validate OKF v0.2: ${enforcedTitle}`;
+    
+    return {
+      isValidOKF: true,
+      status: (effectiveMeta.status as any) || "stable",
+      isDraft: false,
+      isUncategorized: false,
+      uncategorized: false,
+      schemaCompliance: "okf_v0.2_compliant",
+      missingMandatoryFields: [],
+      failureReasons: [],
+      enforcedTitle,
+      enforcedSummary,
+      enforcedTags,
+      enforcedDomain,
+      enforcedDocType,
+      enforcedMarkdownContent: content,
+      enforcedMetadata: {
+        ...effectiveMeta,
+        okfVersion: "0.2",
+        status: (effectiveMeta.status as any) || "stable",
+        isDraft: false,
+        isUncategorized: false,
+        uncategorized: false,
+        domain: enforcedDomain,
+        docType: enforcedDocType,
+        okfValidationPassed: true,
+        okfValidationWarnings: [],
+        schemaCompliance: "okf_v0.2_compliant",
+        entities: rawEntities,
+        relations: rawRelations,
+        markdownContent: content,
+      },
+    };
+  }
+
+  // ==========================================================================
+  // RIDIREZIONE AUTOMATICA A STATO 'DRAFT' / 'UNCATEGORIZED'
+  // Previene il fallimento della conversione o la perdita di dati.
+  // ==========================================================================
+  const isUncategorized = isGenericDomain || !isValidDocType;
+  const enforcedTitle = (!isGenericTitle && rawTitle)
+    ? rawTitle 
+    : (candidate.sourceFileName?.replace(/\.[^/.]+$/, "") || "Bozza Tecnica Senza Titolo");
+
+  const enforcedDomain = isGenericDomain ? "Uncategorized" : rawDomain;
+  const enforcedDocType = isValidDocType ? rawDocType : "concept";
+
+  const draftReason = `Validazione Schema OKF v0.2 incompleta. Reindirizzato automaticamente allo stato di Bozza (Draft) per preservare integralmente i dati: ${missingMandatoryFields.join(", ")}.`;
+
+  // Sanitizzazione tag bozza
+  const draftTags = new Set<string>(rawTags.map(String));
+  draftTags.add("draft");
+  if (isUncategorized) {
+    draftTags.add("uncategorized");
+  }
+  const enforcedTags: string[] = Array.from(draftTags);
+
+  const enforcedSummary = candidate.summary || 
+    `Bozza archiviata nel Knowledge Vault. Reindirizzato automaticamente dal Validatore Schema per preservare tutti i contenuti estratti in attesa di completamento dei campi OKF.`;
+
+  // Generazione o aggiornamento frontmatter per garantire che markdown e lettori visualizzino il documento correttamente
+  let enforcedMarkdownContent = content;
+  if (!hasFrontmatter) {
+    enforcedMarkdownContent = `---\nokf_version: "0.2"\ntitle: "${enforcedTitle}"\ntype: "${enforcedDocType}"\nstatus: "draft"\ndomain: "${enforcedDomain}"\ntags: ${JSON.stringify(enforcedTags)}\nentities:\n  - name: "${enforcedTitle}"\n    type: "concept"\n    description: "Bozza creata in attesa di classificazione ontologica"\nrelations: []\n---\n\n# ${enforcedTitle}\n\n> **Nota del Validatore Schema**: *Questo documento è stato preservato in stato Bozza (Draft) poiché mancano alcuni campi obbligatori OKF v0.2 (${missingMandatoryFields.join(", ")}).*\n\n---\n\n${bodyText || content || enforcedSummary}\n`;
+  } else {
+    if (enforcedMarkdownContent.includes("status:")) {
+      enforcedMarkdownContent = enforcedMarkdownContent.replace(/status:\s*["']?[a-zA-Z0-9_-]+["']?/, 'status: "draft"');
+    } else {
+      enforcedMarkdownContent = enforcedMarkdownContent.replace(/^---\s*[\r\n]+/, '---\nstatus: "draft"\n');
+    }
+  }
+
+  const failureReasons = [
+    ...baseValidation.failureReasons,
+    ...missingMandatoryFields.map((f) => `Campo obbligatorio non conforme: ${f}`)
+  ];
+
+  const enforcedMetadata: ResourceMetadata = {
+    ...effectiveMeta,
+    okfVersion: "0.2",
+    status: "draft",
+    isDraft: true,
+    draftReason,
+    isUncategorized,
+    uncategorized: isUncategorized,
+    domain: enforcedDomain,
+    docType: enforcedDocType,
+    okfValidationPassed: false,
+    okfValidationWarnings: missingMandatoryFields.map((f) => `Campo mancante: ${f}`),
+    schemaCompliance: isUncategorized ? "uncategorized" : "draft_pending_validation",
+    entities: rawEntities.length > 0 ? rawEntities : [{ name: enforcedTitle, type: "concept", description: "Bozza in attesa di ontologia" }],
+    relations: rawRelations,
+    markdownContent: enforcedMarkdownContent,
+  };
+
+  return {
+    isValidOKF: false,
+    status: "draft",
+    isDraft: true,
+    draftReason,
+    isUncategorized,
+    uncategorized: isUncategorized,
+    schemaCompliance: isUncategorized ? "uncategorized" : "draft_pending_validation",
+    missingMandatoryFields,
+    failureReasons,
+    primaryFailureReason: missingMandatoryFields[0] ? `Manca: ${missingMandatoryFields[0]}` : baseValidation.primaryFailureReason,
+    enforcedTitle,
+    enforcedSummary,
+    enforcedTags,
+    enforcedDomain,
+    enforcedDocType,
+    enforcedMetadata,
+    enforcedMarkdownContent,
+  };
+}
+
 interface UseVaultCaptureProps {
   user: User | null;
   quotaExceeded: boolean;
@@ -324,6 +559,7 @@ export function useVaultCapture({
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [captureStage, setCaptureStage] = useState<CaptureStage>("idle");
   const [captureStageMessage, setCaptureStageMessage] = useState<string>("");
+  const [transformationCategory, setTransformationCategory] = useState<TransformationCategory | null>(null);
 
   const wasQuotaExceededRef = useRef<boolean>(quotaExceeded);
   useEffect(() => {
@@ -1002,19 +1238,75 @@ export function useVaultCapture({
         };
       }
 
+      // ========================================================================
+      // SCHEMA VALIDATION LAYER (Strict OKF v0.2 Enforcement)
+      // Se la risorsa non soddisfa i campi obbligatori di OKF v0.2,
+      // viene automaticamente reindirizzata a 'Draft' (Bozza) o 'Uncategorized'
+      // anziché forzare una conversione fallita o perdere i dati estratti.
+      // ========================================================================
+      const schemaValidation = enforceOKFSchemaValidation({
+        title: resPayload.title,
+        summary: resPayload.summary,
+        tags: resPayload.tags,
+        markdownContent: resPayload.metadata?.markdownContent,
+        rawContent: reconstructedText || file.notes || file.fileName,
+        metadata: resPayload.metadata,
+        resourceType: "knowledge",
+        sourceFileName: file.fileName,
+      });
+
+      const finalTitle = schemaValidation.enforcedTitle;
+      const finalSummary = schemaValidation.enforcedSummary;
+      const finalTags = schemaValidation.enforcedTags;
+      const finalMetadata: ResourceMetadata = {
+        ...schemaValidation.enforcedMetadata,
+        sourceFileName: file.fileName,
+        sourceFileId: file.id,
+      };
+
+      if (!schemaValidation.isValidOKF) {
+        addLog(
+          "warn",
+          "OKF_PARSER",
+          `[${convSessionId}] [Schema Validation Layer] Conversione file "${file.fileName}" non conforme a tutti i campi obbligatori OKF v0.2 (${schemaValidation.missingMandatoryFields.join(", ")}). Reindirizzato automaticamente a Bozza (Draft) / Uncategorized.`,
+          {
+            missingFields: schemaValidation.missingMandatoryFields,
+            isDraft: schemaValidation.isDraft,
+            isUncategorized: schemaValidation.isUncategorized,
+            schemaCompliance: schemaValidation.schemaCompliance,
+          }
+        );
+
+        recordLifecycleEvent({
+          stage: "OKF_SCHEMA_VALIDATION",
+          resourceTitle: finalTitle,
+          resourceType: "knowledge",
+          status: "warn",
+          message: `[Conversione File ${convSessionId}] Schema OKF v0.2 incompleto: reindirizzato automaticamente a Bozza (Draft) - Mancano: ${schemaValidation.missingMandatoryFields.join(", ")}`,
+          details: {
+            convSessionId,
+            redirectedToDraft: true,
+            isUncategorized: schemaValidation.isUncategorized,
+            missingMandatoryFields: schemaValidation.missingMandatoryFields,
+          },
+        });
+      } else {
+        addLog(
+          "success",
+          "OKF_PARSER",
+          `[${convSessionId}] [Schema Validation Layer] File "${file.fileName}" conforme allo standard OKF v0.2 (docType: "${finalMetadata.docType}", entità: ${finalMetadata.entities?.length || 0})`
+        );
+      }
+
       const newResourceId = "conv-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
       const newResourceItem: ResourceItem = {
         id: newResourceId,
         userId: activeUser.uid,
         type: "knowledge",
-        title: resPayload.title,
-        summary: resPayload.summary,
-        tags: resPayload.tags || ["file-upload", "okf-v0.2"],
-        metadata: {
-          ...resPayload.metadata,
-          sourceFileName: file.fileName,
-          sourceFileId: file.id,
-        },
+        title: finalTitle,
+        summary: finalSummary,
+        tags: finalTags,
+        metadata: finalMetadata,
         rawInput: `File: ${file.fileName}`,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -1035,16 +1327,18 @@ export function useVaultCapture({
         status: potentialDup ? "warn" : "info",
         message: potentialDup
           ? `[Conversione File ${convSessionId}] Trasformazione completata: possibile duplicato rilevato nel Vault ("${potentialDup.title}", ID: "${potentialDup.id}")`
-          : `[Conversione File ${convSessionId}] File "${file.fileName}" trasformato in specifica OKF v0.2: "${newResourceItem.title}" (${newResourceItem.tags?.length || 0} tag, dominio: "${newResourceItem.metadata?.domain || 'Generale'}")`,
+          : `[Conversione File ${convSessionId}] File "${file.fileName}" trasformato (${schemaValidation.isDraft ? "Bozza / Draft" : "Specifica OKF v0.2"}): "${newResourceItem.title}" (${newResourceItem.tags?.length || 0} tag, dominio: "${newResourceItem.metadata?.domain || 'Generale'}")`,
         details: {
           convSessionId,
           tempId: newResourceId,
           sourceFileId: file.id,
           sourceFileName: file.fileName,
-          docType: resPayload.metadata?.docType,
-          domain: resPayload.metadata?.domain,
-          entitiesCount: resPayload.metadata?.entities?.length || 0,
-          relationsCount: resPayload.metadata?.relations?.length || 0,
+          isDraft: schemaValidation.isDraft,
+          isUncategorized: schemaValidation.isUncategorized,
+          docType: finalMetadata.docType,
+          domain: finalMetadata.domain,
+          entitiesCount: finalMetadata.entities?.length || 0,
+          relationsCount: finalMetadata.relations?.length || 0,
           potentialDuplicate: potentialDup
             ? { id: potentialDup.id, title: potentialDup.title, type: potentialDup.type }
             : null,
@@ -1065,7 +1359,7 @@ export function useVaultCapture({
         setRawFiles((prev) => {
           const updated = prev.map((f) =>
             f.id === file.id
-              ? { ...f, status: "converted_okf" as const, convertedResourceId: newResourceId, convertedResourceTitle: resPayload.title }
+              ? { ...f, status: "converted_okf" as const, convertedResourceId: newResourceId, convertedResourceTitle: finalTitle }
               : f
           );
           saveLocalRawFiles(updated, activeUser.uid);
@@ -1082,8 +1376,12 @@ export function useVaultCapture({
           details: { convSessionId, id: newResourceId, countBefore, countAfter, delta: countAfter - countBefore },
         });
 
-        addLog("success", "OKF_PARSER", `[${convSessionId}] Documento convertito e salvato in memoria locale: "${resPayload.title}" (conteggio: ${countBefore} -> ${countAfter})`);
-        setStatusMessage(`File convertito in specifica OKF v0.2: "${resPayload.title}"`);
+        addLog("success", "OKF_PARSER", `[${convSessionId}] Documento convertito e salvato in memoria locale: "${finalTitle}" (conteggio: ${countBefore} -> ${countAfter})`);
+        setStatusMessage(
+          schemaValidation.isDraft
+            ? `File salvato come Bozza (Draft) nel Vault: "${finalTitle}" (${schemaValidation.isUncategorized ? "Non categorizzato" : "Validazione OKF incompleta"})`
+            : `File convertito in specifica OKF v0.2: "${finalTitle}"`
+        );
         setTimeout(() => setStatusMessage(null), 5000);
         setSelectedKnowledgeForReader(newResourceItem);
         checkAndLogFilterVisibility(newResourceItem, convSessionId, "Conversione File Locale");
@@ -1127,12 +1425,23 @@ export function useVaultCapture({
         });
 
         if (!file.id.startsWith("local-")) {
-          await withFirestoreTimeout(updateDoc(doc(db, "raw_files", file.id), {
-            status: "converted_okf",
-            convertedResourceId: newResourceDoc.id,
-            convertedResourceTitle: resPayload.title,
-            updatedAt: serverTimestamp(),
-          }), 10000);
+          try {
+            await withFirestoreTimeout(
+              setDoc(
+                doc(db, "raw_files", file.id),
+                {
+                  status: "converted_okf",
+                  convertedResourceId: newResourceDoc.id,
+                  convertedResourceTitle: finalTitle,
+                  updatedAt: serverTimestamp(),
+                },
+                { merge: true }
+              ),
+              3500
+            );
+          } catch (updateRawErr: any) {
+            console.warn("Raw file status update in Firestore deferred (latency):", updateRawErr?.message || updateRawErr);
+          }
         }
       } catch (saveErr: any) {
         recordLifecycleEvent({
@@ -1167,7 +1476,7 @@ export function useVaultCapture({
       setRawFiles((prev) => {
         const updated = prev.map((f) =>
           f.id === file.id
-            ? { ...f, status: "converted_okf" as const, convertedResourceId: newResourceItem.id, convertedResourceTitle: resPayload.title }
+            ? { ...f, status: "converted_okf" as const, convertedResourceId: newResourceItem.id, convertedResourceTitle: finalTitle }
             : f
         );
         saveLocalRawFiles(updated, activeUser.uid);
@@ -1177,12 +1486,16 @@ export function useVaultCapture({
       addLog(
         "success",
         "OKF_PARSER",
-        `[${convSessionId}] Documento convertito con successo in OKF v0.2! Creato: "${resPayload.title}" (conteggio risorse: ${countBeforeUpdate} -> ${countAfterUpdate}, delta: +${countAfterUpdate - countBeforeUpdate})`
+        `[${convSessionId}] Documento convertito con successo! Creato: "${finalTitle}" (stato: ${schemaValidation.status}, conteggio risorse: ${countBeforeUpdate} -> ${countAfterUpdate}, delta: +${countAfterUpdate - countBeforeUpdate})`
       );
 
       checkAndLogFilterVisibility(newResourceItem, convSessionId, "Conversione File OKF");
 
-      setStatusMessage(`File convertito in specifica OKF v0.2: "${resPayload.title}"`);
+      setStatusMessage(
+        schemaValidation.isDraft
+          ? `File salvato come Bozza (Draft) nel Vault: "${finalTitle}" (${schemaValidation.isUncategorized ? "Non categorizzato" : "Validazione OKF incompleta"})`
+          : `File convertito in specifica OKF v0.2: "${finalTitle}"`
+      );
       setTimeout(() => setStatusMessage(null), 5000);
       setSelectedKnowledgeForReader(newResourceItem);
       setCurrentCategory("knowledge");
@@ -1191,11 +1504,91 @@ export function useVaultCapture({
 
       return true;
     } catch (err: any) {
-      console.error("Convert file to OKF error:", err);
-      addLog("error", "GEMINI_AI", `[${convSessionId}] Errore durante conversione file "${file.fileName}": ${err.message}`, err);
-      setErrorMessage(`Errore conversione: ${err.message || "Errore sconosciuto"}`);
-      setTimeout(() => setErrorMessage(null), 5000);
-      return false;
+      console.warn("Convert file to OKF error, activating Schema Validation Draft fallback:", err);
+      addLog("warn", "GEMINI_AI", `[${convSessionId}] Errore conversione (${err?.message}). Attivazione automatica schema fallback Bozza (Draft) per preservare i dati.`, err);
+
+      try {
+        const cleanName = file.fileName.replace(/\.[^/.]+$/, "");
+        const fallbackText = file.textContent || file.notes || `Contenuto estratto dal file ${file.fileName}`;
+        const isAudioFile = Boolean(
+          (file.mimeType && file.mimeType.toLowerCase().startsWith("audio/")) ||
+          file.fileType?.toLowerCase() === "audio" ||
+          /\.(mp3|wav|m4a|ogg|aac|flac)$/i.test(file.fileName)
+        );
+        const draftFallback = enforceOKFSchemaValidation({
+          title: cleanName,
+          summary: `Bozza creata a seguito di eccezione durante la conversione del file ${file.fileName}. Tutti i dati grezzi sono stati preservati.`,
+          tags: ["file-upload", isAudioFile ? "audio" : "document", "draft", "uncategorized"],
+          markdownContent: fallbackText,
+          rawContent: fallbackText,
+          metadata: {
+            sourceFileName: file.fileName,
+            sourceFileId: file.id,
+            status: "draft",
+            isDraft: true,
+            isUncategorized: true,
+            uncategorized: true,
+            domain: "Uncategorized",
+            docType: "concept",
+          },
+          resourceType: "knowledge",
+          sourceFileName: file.fileName,
+        });
+
+        const fallbackResourceId = "conv-draft-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
+        const fallbackResourceItem: ResourceItem = {
+          id: fallbackResourceId,
+          userId: activeUser.uid,
+          type: "knowledge",
+          title: draftFallback.enforcedTitle,
+          summary: draftFallback.enforcedSummary,
+          tags: draftFallback.enforcedTags,
+          metadata: {
+            ...draftFallback.enforcedMetadata,
+            sourceFileName: file.fileName,
+            sourceFileId: file.id,
+          },
+          rawInput: `File: ${file.fileName}`,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+
+        setResources((prev) => {
+          const filtered = prev.filter((r) => r.id !== fallbackResourceId);
+          const updated = [fallbackResourceItem, ...filtered];
+          saveLocalResources(updated, activeUser.uid);
+          return updated;
+        });
+
+        setRawFiles((prev) => {
+          const updated = prev.map((f) =>
+            f.id === file.id
+              ? { ...f, status: "converted_okf" as const, convertedResourceId: fallbackResourceId, convertedResourceTitle: fallbackResourceItem.title }
+              : f
+          );
+          saveLocalRawFiles(updated, activeUser.uid);
+          return updated;
+        });
+
+        if (!quotaExceeded) {
+          withFirestoreTimeout(addDoc(collection(db, "resources"), sanitizeForFirestore({
+            ...fallbackResourceItem,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          })), 5000).catch(() => {});
+        }
+
+        setStatusMessage(`File salvato come Bozza (Draft) nel Vault: "${fallbackResourceItem.title}"`);
+        setTimeout(() => setStatusMessage(null), 5000);
+        setSelectedKnowledgeForReader(fallbackResourceItem);
+        setCurrentCategory("knowledge");
+        return true;
+      } catch (innerErr: any) {
+        console.error("Critical draft fallback failure:", innerErr);
+        setErrorMessage(`Errore conversione: ${err.message || "Errore sconosciuto"}`);
+        setTimeout(() => setErrorMessage(null), 5000);
+        return false;
+      }
     } finally {
       setIsConvertingRawFileId(null);
     }
@@ -1274,15 +1667,51 @@ export function useVaultCapture({
             entities: data.result.metadata?.entities?.length || 0,
             metadata: data.result.metadata,
           });
-          return data.result;
+          return { ...data.result, _source: "cloud_ai" };
         }
       } else {
         const errText = await res.text().catch(() => "");
         addLog("warn", "GEMINI_AI", `[${activeCorrId}] Risposta server non ottimale (${res.status}): ${errText.slice(0, 100)}, attivazione parser locale`);
+        const fallbackParsed = localFallbackAnalyzeResource(input, explicitType);
+        return { 
+          ...fallbackParsed, 
+          _source: "local_fallback", 
+          _failureReason: `Risposta server HTTP ${res.status}: ${errText.slice(0, 100)}` 
+        };
       }
     } catch (networkErr: any) {
       console.warn("[Analyze AI] Endpoint request failed or timed out, activating local parser:", networkErr?.message);
       addLog("warn", "GEMINI_AI", `[${activeCorrId}] Analisi cloud non disponibile (${networkErr?.message || "timeout"}), elaborazione con parser euristico locale ad alta velocità...`);
+      if (onStageUpdate) {
+        onStageUpdate("analyzing", "Estrazione euristica locale...");
+      }
+
+      const fallbackParsed = localFallbackAnalyzeResource(input, explicitType);
+      recordLifecycleEvent({
+        stage: "AI_ANALYSIS_FALLBACK",
+        resourceTitle: fallbackParsed.title,
+        resourceType: fallbackParsed.type,
+        status: "warn",
+        message: `[Analisi Semantica ${activeCorrId}] Applicato parser euristico locale ad alta velocità: "${fallbackParsed.title}" (${fallbackParsed.type})`,
+        details: {
+          correlationId: activeCorrId,
+          fallbackTitle: fallbackParsed.title,
+          fallbackType: fallbackParsed.type,
+          tagsCount: fallbackParsed.tags?.length || 0,
+          tags: fallbackParsed.tags,
+          reason: networkErr?.message || "Timeout o errore endpoint",
+        },
+      });
+
+      addLog("info", "GEMINI_AI", `[${activeCorrId}] Analisi locale completata con successo: "${fallbackParsed.title}" (Tipo: ${fallbackParsed.type})`, {
+        tags: fallbackParsed.tags,
+        metadata: fallbackParsed.metadata,
+      });
+      return { 
+        ...fallbackParsed, 
+        _source: "local_fallback", 
+        _failureReason: networkErr?.message || "Timeout o errore chiamata AI" 
+      };
     }
 
     if (onStageUpdate) {
@@ -1309,7 +1738,7 @@ export function useVaultCapture({
       tags: fallbackParsed.tags,
       metadata: fallbackParsed.metadata,
     });
-    return fallbackParsed;
+    return { ...fallbackParsed, _source: "local_fallback", _failureReason: "Nessun risultato valido da endpoint cloud" };
   };
 
   // Capture Bar Handler
@@ -1335,15 +1764,79 @@ export function useVaultCapture({
     const initialVaultCount = resources.length;
 
     // ========================================================================
-    // VALIDAZIONE FASE 1: CLASSIFICAZIONE DETERMINISTICA INPUT PRIMA DELLO STORAGE
+    // LOGGING STEP PRE-TRASFORMAZIONE: ACQUISIZIONE E ISPEZIONE TIPO INPUT GREZZO
+    // Cattura la tipologia esatta dell'input grezzo prima di qualsiasi trasformazione.
     // ========================================================================
     const inputClassification = classifyCaptureInput(input, explicitType);
+
+    let preTransformationUrlError: string | null = null;
+    let parsedUrlStructure: { protocol?: string; hostname?: string; pathname?: string; search?: string } | null = null;
+    if (inputClassification.isWebLink || inputClassification.detectedUrl) {
+      try {
+        const toTest = inputClassification.detectedUrl || (input.trim().startsWith("http") ? input.trim() : `https://${input.trim()}`);
+        const parsed = new URL(toTest);
+        parsedUrlStructure = {
+          protocol: parsed.protocol,
+          hostname: parsed.hostname,
+          pathname: parsed.pathname,
+          search: parsed.search,
+        };
+      } catch (err: any) {
+        preTransformationUrlError = err?.message || "Sintassi URL non valida o URI malformato";
+      }
+    }
 
     addLog(
       "info", 
       "CAPTURE", 
-      `[${captureSessionId}] [Fase 1: Classificazione Input] Riconosciuto: '${inputClassification.classification}' (isWebLink: ${inputClassification.isWebLink}, confidenza: ${(inputClassification.confidence * 100).toFixed(0)}%, URL: "${inputClassification.detectedUrl || 'N/A'}") - ${inputClassification.reason}`
+      `[${captureSessionId}] [RAW_INPUT_CAPTURED] Acquisito input grezzo di tipo '${inputClassification.classification}' (isWebLink: ${inputClassification.isWebLink}, explicitType: "${explicitType || 'auto'}", caratteri: ${input.length}, linee: ${input.split('\n').length}, URL: "${inputClassification.detectedUrl || 'N/A'}") - ${inputClassification.reason}`,
+      {
+        captureSessionId,
+        rawInputType: inputClassification.classification,
+        isWebLink: inputClassification.isWebLink,
+        detectedUrl: inputClassification.detectedUrl || null,
+        urlSyntaxValid: !preTransformationUrlError,
+        urlParseError: preTransformationUrlError,
+        urlStructure: parsedUrlStructure,
+        explicitType: explicitType || "auto",
+        inputLength: input.length,
+        lineCount: input.split("\n").length,
+        hasYamlFrontmatter: inputClassification.characteristics.hasYamlFrontmatter,
+        hasOkfVersionHeader: inputClassification.characteristics.hasOkfVersionHeader,
+        confidence: inputClassification.confidence,
+        rawSnippet: input.trim().slice(0, 140),
+        timestamp: new Date().toISOString(),
+      }
     );
+
+    recordLifecycleEvent({
+      stage: "RAW_INPUT_CAPTURED",
+      resourceTitle: input.trim().slice(0, 60) || "Input Grezzo",
+      resourceType: inputClassification.classification,
+      status: "info",
+      message: `[Cattura ${captureSessionId}] Ispezione pre-trasformazione: Input grezzo rilevato come '${inputClassification.classification}' (isWebLink: ${inputClassification.isWebLink}, caratteri: ${input.length}) - ${inputClassification.reason}`,
+      details: {
+        captureSessionId,
+        rawInputType: inputClassification.classification,
+        isWebLink: inputClassification.isWebLink,
+        detectedUrl: inputClassification.detectedUrl || null,
+        urlSyntaxValid: !preTransformationUrlError,
+        urlParseError: preTransformationUrlError,
+        urlStructure: parsedUrlStructure,
+        explicitType: explicitType || "auto",
+        inputLength: input.length,
+        lineCount: input.split("\n").length,
+        hasYamlFrontmatter: inputClassification.characteristics.hasYamlFrontmatter,
+        hasOkfVersionHeader: inputClassification.characteristics.hasOkfVersionHeader,
+        confidence: inputClassification.confidence,
+        rawSnippet: input.trim().slice(0, 140),
+        initialVaultCount,
+        currentCategory,
+        selectedTag,
+        searchQuery,
+        userId: activeUser.uid,
+      },
+    });
 
     recordLifecycleEvent({
       stage: "CAPTURE_INITIATED",
@@ -1371,16 +1864,21 @@ export function useVaultCapture({
     setIsAnalyzing(true);
     setCaptureStage("sending");
     setCaptureStageMessage("Invio richiesta...");
+    setTransformationCategory(null);
 
     const safetyTimer = setTimeout(() => {
       setIsAnalyzing(false);
       setCaptureStage("idle");
       setCaptureStageMessage("");
+      setTransformationCategory(null);
     }, 45000);
 
     addLog("info", "CAPTURE", `[${captureSessionId}] Ricevuta richiesta di cattura [${explicitType || "auto"}]: ${input.slice(0, 80)}...`);
     try {
       let analyzed: any = null;
+      let aiAnalysisFailed = false;
+      let aiFailureReason = "";
+
       try {
         analyzed = await analyzeWithAI(
           input, 
@@ -1391,7 +1889,13 @@ export function useVaultCapture({
           },
           captureSessionId
         );
-      } catch (aiErr) {
+        if (analyzed && analyzed._source === "local_fallback") {
+          aiAnalysisFailed = true;
+          aiFailureReason = analyzed._failureReason || "Analisi AI non riuscita, ricorso a parser locale";
+        }
+      } catch (aiErr: any) {
+        aiAnalysisFailed = true;
+        aiFailureReason = aiErr?.message || "Eccezione durante la chiamata AI";
         console.warn("[handleCapture] AI analysis error, falling back to local heuristic:", aiErr);
         analyzed = localFallbackAnalyzeResource(input, explicitType);
       }
@@ -1421,17 +1925,21 @@ export function useVaultCapture({
         resolvedUrl = extraMetadata.gdocUrl;
       }
 
-      const mergedMetadata = {
+      let mergedMetadata: ResourceMetadata = {
         ...(analyzed.metadata || {}),
         ...(extraMetadata || {})
       };
 
       // ========================================================================
-      // VALIDAZIONE FASE 2: VERIFICA SCHEMA OKF & LOG MOTIVO SPECIFICO DI FALLIMENTO
-      // Previene che i collegamenti web vengano etichettati erroneamente come OKF!
+      // VALIDAZIONE FASE 2: VERIFICA PARSING LINK WEB & LOG MOTIVO SPECIFICO
+      // Se è un link web che fallisce il parsing, registra il motivo specifico
+      // INVECE di applicare il fallback a documento OKF ("knowledge")!
       // ========================================================================
       const isLinkOrExternalWeb = 
         inputClassification.isWebLink || 
+        explicitType === "link" || 
+        inputClassification.classification === "web_link" ||
+        inputClassification.classification === "github_repo" ||
         resolvedType === "link" || 
         resolvedType === "article" || 
         resolvedType === "github_repo" ||
@@ -1441,65 +1949,178 @@ export function useVaultCapture({
       let okfFailureReason = "";
 
       if (isLinkOrExternalWeb) {
-        // UN LINK WEB NON DEVE MAI ESSERE CONVERTITO IN SCHEMA DOCUMENTO OKF
-        okfConversionFailed = true;
-        okfFailureReason = `L'input è un collegamento web ("${resolvedUrl || inputClassification.detectedUrl || input}"). I link web non soddisfano i requisiti di specifica tecnica OKF v0.2 (richiedono corpo documentale e frontmatter YAML con entità ontologiche). Conversione a schema OKF respinta per prevenire etichettatura errata. Tipo confermato: "${resolvedType}".`;
+        // Verifica se il parsing del collegamento web ha riscontrato anomalie o fallimenti
+        const linkParseFailures: string[] = [];
+        if (preTransformationUrlError) {
+          linkParseFailures.push(`Sintassi URL non valida o URI malformato: "${preTransformationUrlError}"`);
+        }
+        if (aiAnalysisFailed || analyzed?._source === "local_fallback") {
+          linkParseFailures.push(
+            analyzed?._failureReason
+              ? `Analisi cloud non riuscita (${analyzed._failureReason}) - recupero con parser euristico locale`
+              : "Analisi cloud non disponibile o timeout - recupero con parser euristico locale"
+          );
+        }
+        if (!analyzed || !analyzed.title || analyzed.title === "Nuova Risorsa" || analyzed.title === input.trim()) {
+          linkParseFailures.push("Estrazione metadati remoti incompleta: nessun titolo significativo recuperato dal target web");
+        }
 
-        addLog("warn", "OKF_PARSER", `[${captureSessionId}] [Fase 2: Validazione OKF] ${okfFailureReason}`);
+        const isFailure = linkParseFailures.length > 0;
+        const specificLinkFailureReason = isFailure
+          ? linkParseFailures.join(" | ")
+          : `L'input è un collegamento web ("${resolvedUrl || inputClassification.detectedUrl || input}"). I link web sono collegamenti/risorse esterne e non documenti con schema OKF v0.2.`;
+
+        okfConversionFailed = true;
+        okfFailureReason = specificLinkFailureReason;
+
+        addLog(
+          isFailure ? "warn" : "info", 
+          "CAPTURE", 
+          `[${captureSessionId}] [${isFailure ? "Fallimento Parsing Link Web" : "Fase 2: Classificazione Link Web"}] Motivo specifico: ${specificLinkFailureReason}. La risorsa NON viene convertita in documento OKF ("knowledge"): preservato rigidamente tipo '${resolvedType === "github_repo" ? "github_repo" : "link"}'.`,
+          {
+            captureSessionId,
+            url: resolvedUrl || inputClassification.detectedUrl || input,
+            rawInputType: inputClassification.classification,
+            parseFailures: linkParseFailures,
+            specificFailureReason: specificLinkFailureReason,
+            defaultOkfPrevented: true,
+            originalAnalyzedType: analyzed?.type,
+            enforcedType: resolvedType === "github_repo" ? "github_repo" : "link",
+          }
+        );
 
         recordLifecycleEvent({
           stage: "OKF_SCHEMA_VALIDATION",
-          resourceTitle: analyzed.title || "Web Link",
-          resourceType: resolvedType === "knowledge" ? "link" : resolvedType,
-          status: "warn",
-          message: `[Cattura ${captureSessionId}] Conversione a schema OKF respinta per link web: ${okfFailureReason}`,
+          resourceTitle: analyzed.title || resolvedUrl || "Web Link",
+          resourceType: resolvedType === "github_repo" ? "github_repo" : "link",
+          status: isFailure ? "warn" : "info",
+          message: isFailure
+            ? `[Cattura ${captureSessionId}] Parsing link web non riuscito: ${specificLinkFailureReason} - Default a documento OKF impedito.`
+            : `[Cattura ${captureSessionId}] Collegamento web esterno rilevato: conversione a schema documentale OKF v0.2 esclusa per preservare integrità tipologica.`,
           details: {
             captureSessionId,
             step: 2,
             okfConversionPassed: false,
-            specificFailureReason: okfFailureReason,
+            specificFailureReason: specificLinkFailureReason,
+            parseFailures: linkParseFailures,
             classification: inputClassification.classification,
             isWebLink: true,
-            url: resolvedUrl,
+            url: resolvedUrl || inputClassification.detectedUrl || null,
             originalType: analyzed.type,
-            coercedType: resolvedType === "knowledge" ? "link" : resolvedType,
+            defaultOkfPrevented: true,
+            coercedType: resolvedType === "github_repo" ? "github_repo" : "link",
           },
         });
 
-        // Azione correttiva vincolante: impedisce che il link web diventi 'knowledge' o mantenga versioni OKF
+        // Azione correttiva vincolante: impedisce rigorosamente che il link web diventi 'knowledge' o mantenga versioni OKF
         if (resolvedType === "knowledge") {
           resolvedType = "link";
         }
         delete mergedMetadata.okfVersion;
         delete mergedMetadata.okf_version;
+        delete mergedMetadata.entities;
+        delete mergedMetadata.relations;
+        delete mergedMetadata.markdownContent;
         if (mergedMetadata.docType && !["guide", "tool_description"].includes(mergedMetadata.docType)) {
           delete mergedMetadata.docType;
+        }
+
+        if (isFailure) {
+          mergedMetadata.linkParseFailed = true;
+          mergedMetadata.linkParseFailureReason = specificLinkFailureReason;
+          mergedMetadata.parseStatus = "failed_as_link";
+        }
+        mergedMetadata.isWebLink = true;
+
+        // Sanitizzazione sicura di titolo e sommario
+        if (!analyzed.title || analyzed.title === "Nuova Risorsa" || analyzed.title === "Documento Knowledge" || analyzed.title === input.trim()) {
+          if (parsedUrlStructure?.hostname) {
+            analyzed.title = parsedUrlStructure.hostname.replace(/^www\./, "");
+          } else if (resolvedUrl) {
+            analyzed.title = resolvedUrl.replace(/^https?:\/\//, "").slice(0, 50);
+          } else {
+            analyzed.title = "Collegamento Web";
+          }
+        }
+
+        if (!analyzed.summary || analyzed.summary === input.trim()) {
+          analyzed.summary = mergedMetadata.ogDescription || `Collegamento web a ${resolvedUrl || input}.`;
         }
       } else if (
         explicitType === "knowledge" || 
         resolvedType === "knowledge" || 
         inputClassification.classification === "okf_document" ||
-        mergedMetadata.okfVersion ||
-        (Array.isArray(analyzed.tags) && analyzed.tags.includes("okf-v0.2"))
+        Boolean(inputClassification.characteristics?.hasYamlFrontmatter) ||
+        Boolean(inputClassification.characteristics?.hasOkfVersionHeader) ||
+        Boolean(mergedMetadata.okfVersion) ||
+        Boolean(mergedMetadata.okf_version) ||
+        Boolean(mergedMetadata.docType) ||
+        (Array.isArray(analyzed.tags) && (
+          analyzed.tags.includes("okf-v0.2") || 
+          analyzed.tags.includes("okf") || 
+          analyzed.tags.includes("knowledge")
+        ))
       ) {
-        // Non è un link web, ed è candidato allo schema OKF v0.2: validiamo rigorosamente
-        const okfValidation = validateOKFDocumentSchema(
-          mergedMetadata.markdownContent || input,
-          mergedMetadata,
-          resolvedType
-        );
+        // ========================================================================
+        // SCHEMA VALIDATION LAYER (Strict OKF v0.2 Structure Enforcement)
+        // Se una risorsa in ingresso destinata o associata allo standard OKF v0.2
+        // non contiene tutti i campi obbligatori (okf_version: "0.2", title, 
+        // docType valido, domain, tags, entities, relations, frontmatter e markdown),
+        // viene reindirizzata automaticamente allo stato 'Draft' (Bozza) o 'Uncategorized'
+        // preservando l'integrità dei dati senza provocare conversioni fallite o perdite.
+        // ========================================================================
+        resolvedType = "knowledge";
 
-        if (!okfValidation.isValidOKF) {
+        const schemaEnforcement = enforceOKFSchemaValidation({
+          title: analyzed.title,
+          summary: analyzed.summary,
+          tags: Array.isArray(analyzed.tags) ? analyzed.tags : [],
+          markdownContent: mergedMetadata.markdownContent || input,
+          rawContent: input,
+          metadata: mergedMetadata,
+          resourceType: resolvedType,
+        });
+
+        if (!schemaEnforcement.isValidOKF) {
           okfConversionFailed = true;
-          okfFailureReason = okfValidation.primaryFailureReason || okfValidation.failureReasons.join(" | ") || "Schema OKF v0.2 non conforme.";
+          okfFailureReason = schemaEnforcement.primaryFailureReason || schemaEnforcement.failureReasons.join(" | ") || "Schema OKF v0.2 non conforme.";
+
+          // Reindirizzamento automatico allo stato 'Draft' / 'Uncategorized'
+          mergedMetadata = {
+            ...mergedMetadata,
+            ...schemaEnforcement.enforcedMetadata,
+            status: "draft",
+            isDraft: true,
+            isUncategorized: schemaEnforcement.isUncategorized,
+            uncategorized: schemaEnforcement.isUncategorized,
+            draftReason: schemaEnforcement.draftReason,
+            schemaCompliance: schemaEnforcement.schemaCompliance,
+            okfValidationPassed: false,
+            okfValidationWarnings: schemaEnforcement.failureReasons,
+          };
+          if (schemaEnforcement.enforcedTitle) {
+            analyzed.title = schemaEnforcement.enforcedTitle;
+          }
+          if (schemaEnforcement.enforcedSummary) {
+            analyzed.summary = schemaEnforcement.enforcedSummary;
+          }
+          if (schemaEnforcement.enforcedTags && schemaEnforcement.enforcedTags.length > 0) {
+            analyzed.tags = schemaEnforcement.enforcedTags;
+          }
+          if (schemaEnforcement.enforcedMarkdownContent) {
+            mergedMetadata.markdownContent = schemaEnforcement.enforcedMarkdownContent;
+          }
 
           addLog(
             "warn",
             "OKF_PARSER",
-            `[${captureSessionId}] [Fase 2: Validazione OKF Fallita] Conversione allo schema OKF v0.2 incompleta: ${okfFailureReason}`,
+            `[${captureSessionId}] [Fase 2: Schema Validation Layer] Risorsa reindirizzata a Bozza (Draft) / Uncategorized per preservare i dati: ${okfFailureReason}`,
             {
-              allReasons: okfValidation.failureReasons,
-              classification: inputClassification.classification,
+              missingFields: schemaEnforcement.missingMandatoryFields,
+              warnings: schemaEnforcement.failureReasons,
+              status: schemaEnforcement.status,
+              isDraft: schemaEnforcement.isDraft,
+              isUncategorized: schemaEnforcement.isUncategorized,
               title: analyzed.title,
             }
           );
@@ -1509,23 +2130,47 @@ export function useVaultCapture({
             resourceTitle: analyzed.title || "Documento Tecnico",
             resourceType: resolvedType,
             status: "warn",
-            message: `[Cattura ${captureSessionId}] Conversione schema OKF v0.2 incompleta: ${okfFailureReason}`,
+            message: `[Cattura ${captureSessionId}] Schema OKF v0.2 incompleto: reindirizzato automaticamente a Bozza (Draft) - Mancano: ${schemaEnforcement.missingMandatoryFields.join(", ")}`,
             details: {
               captureSessionId,
               step: 2,
               okfConversionPassed: false,
+              redirectedToDraft: true,
+              isUncategorized: schemaEnforcement.isUncategorized,
+              missingMandatoryFields: schemaEnforcement.missingMandatoryFields,
               specificFailureReason: okfFailureReason,
-              allReasons: okfValidation.failureReasons,
-              classification: inputClassification.classification,
             },
           });
-
-          mergedMetadata.okfValidationWarnings = okfValidation.failureReasons;
         } else {
+          mergedMetadata = {
+            ...mergedMetadata,
+            ...schemaEnforcement.enforcedMetadata,
+            okfVersion: "0.2",
+            status: (schemaEnforcement.enforcedMetadata.status as any) || "stable",
+            isDraft: false,
+            isUncategorized: false,
+            uncategorized: false,
+            okfValidationPassed: true,
+            okfValidationWarnings: [],
+            schemaCompliance: "okf_v0.2_compliant",
+          };
+          if (schemaEnforcement.enforcedTitle) {
+            analyzed.title = schemaEnforcement.enforcedTitle;
+          }
+          if (schemaEnforcement.enforcedSummary) {
+            analyzed.summary = schemaEnforcement.enforcedSummary;
+          }
+          if (schemaEnforcement.enforcedTags && schemaEnforcement.enforcedTags.length > 0) {
+            analyzed.tags = schemaEnforcement.enforcedTags;
+          }
+          if (schemaEnforcement.enforcedMarkdownContent) {
+            mergedMetadata.markdownContent = schemaEnforcement.enforcedMarkdownContent;
+          }
+
           addLog(
             "success",
             "OKF_PARSER",
-            `[${captureSessionId}] [Fase 2: Validazione OKF Superata] Documento validato con successo conforme allo standard OKF v0.2 (docType: "${mergedMetadata.docType || okfValidation.parsedDocument?.docType || 'concept'}", entità: ${mergedMetadata.entities?.length || okfValidation.parsedDocument?.entities.length || 0})`
+            `[${captureSessionId}] [Fase 2: Schema Validation Layer] Documento validato con successo conforme allo standard OKF v0.2 (docType: "${mergedMetadata.docType || 'concept'}", entità: ${mergedMetadata.entities?.length || 0})`
           );
 
           recordLifecycleEvent({
@@ -1555,7 +2200,61 @@ export function useVaultCapture({
         if (resolvedType === "link" && !sanitizedTags.includes("link")) {
           sanitizedTags.push("link");
         }
+        if (!sanitizedTags.includes("web")) {
+          sanitizedTags.push("web");
+        }
+        if (parsedUrlStructure?.hostname) {
+          const domainTag = parsedUrlStructure.hostname.replace(/^www\./, "").split(".")[0];
+          if (domainTag && domainTag.length > 1 && !sanitizedTags.includes(domainTag)) {
+            sanitizedTags.push(domainTag);
+          }
+        }
+      } else if (mergedMetadata.status === "draft" || mergedMetadata.isDraft) {
+        if (!sanitizedTags.includes("draft")) {
+          sanitizedTags.push("draft");
+        }
+        if (mergedMetadata.isUncategorized && !sanitizedTags.includes("uncategorized")) {
+          sanitizedTags.push("uncategorized");
+        }
       }
+
+      // ========================================================================
+      // FASE INTERMEDIA: DATA TRANSFORMATION (Visual Indicator UI Flow)
+      // Chiarisce visivamente se la risorsa viene categorizzata come Web Link,
+      // GitHub Repo, OKF Document o OKF Bozza (Draft) prima di essere salvata.
+      // ========================================================================
+      let detectedTransformCategory: TransformationCategory = "okf_document";
+      if (resolvedType === "github_repo" || inputClassification.classification === "github_repo") {
+        detectedTransformCategory = "github_repo";
+      } else if (isLinkOrExternalWeb || resolvedType === "link" || resolvedType === "article") {
+        detectedTransformCategory = "web_link";
+      } else if (mergedMetadata.status === "draft" || mergedMetadata.isDraft) {
+        detectedTransformCategory = "okf_draft";
+      } else {
+        detectedTransformCategory = "okf_document";
+      }
+
+      const categoryDisplayLabel = 
+        detectedTransformCategory === "web_link" 
+          ? "Web Link" 
+          : detectedTransformCategory === "github_repo" 
+          ? "GitHub Repo" 
+          : detectedTransformCategory === "okf_draft"
+          ? "OKF Bozza (Draft)"
+          : "OKF Document";
+
+      // Impostazione dello stato e del messaggio per la fase intermedia di Data Transformation
+      setCaptureStage("transforming");
+      setTransformationCategory(detectedTransformCategory);
+      setCaptureStageMessage(
+        detectedTransformCategory === "okf_draft"
+          ? "Data Transformation: Reindirizzato a Bozza OKF (Draft)..."
+          : `Data Transformation: Categorizzato come ${categoryDisplayLabel}...`
+      );
+
+      // Breve pausa calibrata per consentire all'interfaccia utente di mostrare distintamente
+      // l'indicatore visivo di categorizzazione (Web Link, GitHub Repo o OKF Document) prima del commit allo storage
+      await new Promise((resolve) => setTimeout(resolve, 850));
 
       // Controllo duplicati pre-flight rispetto alle risorse esistenti
       const potentialDuplicate = resources.find((r) => {
@@ -1570,10 +2269,12 @@ export function useVaultCapture({
         resourceType: resolvedType,
         status: potentialDuplicate ? "warn" : "info",
         message: potentialDuplicate
-          ? `[Cattura ${captureSessionId}] Dati trasformati in ${resolvedType}: possibile duplicato esistente ("${potentialDuplicate.title}", ID: "${potentialDuplicate.id}")`
-          : `[Cattura ${captureSessionId}] Dati trasformati in risorsa standard (${resolvedType}, ${sanitizedTags.length} tag, dominio: "${mergedMetadata.domain || 'Generale'}")`,
+          ? `[Cattura ${captureSessionId}] Dati trasformati in ${resolvedType} (${categoryDisplayLabel}): possibile duplicato esistente ("${potentialDuplicate.title}", ID: "${potentialDuplicate.id}")`
+          : `[Cattura ${captureSessionId}] Dati trasformati in risorsa standard (${resolvedType} - ${categoryDisplayLabel}, ${sanitizedTags.length} tag, dominio: "${mergedMetadata.domain || 'Generale'}")`,
         details: {
           captureSessionId,
+          transformationCategory: detectedTransformCategory,
+          transformationCategoryLabel: categoryDisplayLabel,
           step1_classification: inputClassification.classification,
           step2_okfValidated: !okfConversionFailed,
           step2_okfFailureReason: okfFailureReason || null,
@@ -1637,7 +2338,11 @@ export function useVaultCapture({
 
         setCaptureStage("success");
         setCaptureStageMessage("Completato!");
-        setStatusMessage(`Risorsa "${localResource.title}" aggiunta al Vault!`);
+        if (mergedMetadata.status === "draft" || mergedMetadata.isDraft) {
+          setStatusMessage(`Risorsa "${localResource.title}" reindirizzata e salvata come Bozza (Draft) nel Vault!`);
+        } else {
+          setStatusMessage(`Risorsa "${localResource.title}" aggiunta al Vault!`);
+        }
         setTimeout(() => setStatusMessage(null), 4000);
 
         if (currentCategory !== "all" && currentCategory !== resolvedType) {
@@ -1760,7 +2465,11 @@ export function useVaultCapture({
 
       setCaptureStage("success");
       setCaptureStageMessage("Completato!");
-      setStatusMessage(`Risorsa "${rawData.title}" aggiunta al Vault!`);
+      if (mergedMetadata.status === "draft" || mergedMetadata.isDraft) {
+        setStatusMessage(`Risorsa "${rawData.title}" reindirizzata e salvata come Bozza (Draft) nel Vault!`);
+      } else {
+        setStatusMessage(`Risorsa "${rawData.title}" aggiunta al Vault!`);
+      }
       setTimeout(() => setStatusMessage(null), 4000);
 
       if (currentCategory !== "all" && currentCategory !== resolvedType) {
@@ -1773,21 +2482,32 @@ export function useVaultCapture({
     } catch (error: any) {
       console.warn("Capture fallback activated:", error);
       const emergencyFallback = localFallbackAnalyzeResource(input, explicitType);
+      
+      const schemaReport = enforceOKFSchemaValidation({
+        title: emergencyFallback.title,
+        summary: emergencyFallback.summary,
+        tags: emergencyFallback.tags,
+        markdownContent: emergencyFallback.metadata?.markdownContent || input,
+        rawContent: input,
+        metadata: {
+          ...(emergencyFallback.metadata || {}),
+          ...(extraMetadata || {})
+        },
+        resourceType: emergencyFallback.type,
+      });
+
       const localId = "local-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
       const localResource: ResourceItem = {
         id: localId,
         userId: activeUser.uid,
         type: emergencyFallback.type,
-        title: emergencyFallback.title,
+        title: schemaReport.enforcedTitle,
         url: emergencyFallback.url || extraMetadata?.gdocUrl || (input.startsWith("http") ? input.trim() : ""),
         rawInput: input,
-        summary: emergencyFallback.summary,
-        tags: emergencyFallback.tags,
+        summary: schemaReport.enforcedSummary,
+        tags: schemaReport.enforcedTags,
         isFavorite: false,
-        metadata: {
-          ...(emergencyFallback.metadata || {}),
-          ...(extraMetadata || {})
-        },
+        metadata: schemaReport.enforcedMetadata,
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -1816,7 +2536,11 @@ export function useVaultCapture({
 
       setCaptureStage("success");
       setCaptureStageMessage("Completato (Offline)!");
-      setStatusMessage(`Risorsa "${localResource.title}" salvata nel Vault!`);
+      setStatusMessage(
+        schemaReport.isDraft
+          ? `Risorsa "${localResource.title}" salvata come Bozza (Draft) nel Vault!`
+          : `Risorsa "${localResource.title}" salvata nel Vault!`
+      );
       setTimeout(() => setStatusMessage(null), 4000);
       return true;
     } finally {
@@ -1825,7 +2549,8 @@ export function useVaultCapture({
         setIsAnalyzing(false);
         setCaptureStage("idle");
         setCaptureStageMessage("");
-      }, 500);
+        setTransformationCategory(null);
+      }, 1500);
     }
   };
 
@@ -1837,6 +2562,7 @@ export function useVaultCapture({
     isAnalyzing,
     captureStage,
     captureStageMessage,
+    transformationCategory,
     analyzeWithAI,
     handleCapture,
     handleUploadRawFile,

@@ -35,10 +35,13 @@ export interface VaultModalsContainerProps {
   // Detail Modal
   selectedResourceForDetail: ResourceItem | null;
   setSelectedResourceForDetail: React.Dispatch<React.SetStateAction<ResourceItem | null>>;
+  isInitialEditForDetail?: boolean;
+  setIsInitialEditForDetail?: (val: boolean) => void;
   resources: ResourceItem[];
   handleUpdateResource: (id: string, updatedData: Partial<ResourceItem>) => Promise<boolean>;
   handleDeleteResource: (id: string) => Promise<boolean>;
   handleToggleFavorite: (id: string, currentFav: boolean) => Promise<void>;
+  onToggleReadLater?: (id: string, currentlyInQueue: boolean) => void;
   
   // Reader Modal
   selectedKnowledgeForReader: ResourceItem | null;
@@ -122,6 +125,7 @@ export interface VaultModalsContainerProps {
   intelligencePrefilledQuery: string;
   setIntelligencePrefilledQuery: (query: string) => void;
   setViewMode: (mode: any) => void;
+  onNavigateToGraphNode?: (resourceId: string) => void;
 }
 
 export function VaultModalsContainer({
@@ -131,10 +135,13 @@ export function VaultModalsContainer({
   setIsDiscrepancyInspectorOpen,
   selectedResourceForDetail,
   setSelectedResourceForDetail,
+  isInitialEditForDetail = false,
+  setIsInitialEditForDetail,
   resources,
   handleUpdateResource,
   handleDeleteResource,
   handleToggleFavorite,
+  onToggleReadLater,
   selectedKnowledgeForReader,
   setSelectedKnowledgeForReader,
   printPreviewResource,
@@ -196,6 +203,7 @@ export function VaultModalsContainer({
   intelligencePrefilledQuery,
   setIntelligencePrefilledQuery,
   setViewMode,
+  onNavigateToGraphNode,
 }: VaultModalsContainerProps) {
   return (
     <>
@@ -203,12 +211,21 @@ export function VaultModalsContainer({
       <ResourceModal
         resource={selectedResourceForDetail}
         allResources={resources}
-        onClose={() => setSelectedResourceForDetail(null)}
+        initialEdit={isInitialEditForDetail}
+        onClose={() => {
+          setSelectedResourceForDetail(null);
+          setIsInitialEditForDetail?.(false);
+        }}
         onUpdate={handleUpdateResource}
         onDelete={handleDeleteResource}
         onToggleFavorite={handleToggleFavorite}
+        onToggleReadLater={onToggleReadLater}
         onPrintPreview={(res) => setPrintPreviewResource(res)}
         onExportGoogleDoc={handleExportGoogleDoc}
+        onViewInGraph={(res) => {
+          setSelectedResourceForDetail(null);
+          onNavigateToGraphNode?.(res.id);
+        }}
         onNavigateToResource={(res) => {
           setSelectedResourceForDetail(res);
         }}
@@ -222,6 +239,10 @@ export function VaultModalsContainer({
         onUpdate={handleUpdateResource}
         onPrintPreview={(res) => setPrintPreviewResource(res)}
         onExportGoogleDoc={handleExportGoogleDoc}
+        onViewInGraph={(res) => {
+          setSelectedKnowledgeForReader(null);
+          onNavigateToGraphNode?.(res.id);
+        }}
         onNavigateToResource={(res) => {
           if (res.type === "knowledge") {
             setSelectedKnowledgeForReader(res);

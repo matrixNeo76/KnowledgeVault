@@ -23,7 +23,8 @@ import {
   LayoutGrid,
   List,
   Network,
-  Printer
+  Printer,
+  BookMarked
 } from "lucide-react";
 import { ResourceType, NavCategory, SortOption, ViewMode } from "../types";
 
@@ -42,6 +43,8 @@ interface StatsBannerProps {
     note?: number;
     favorites: number;
     raw_files?: number;
+    read_later?: number;
+    read_later_unread?: number;
   };
   currentCategory: NavCategory;
   allTags: string[];
@@ -56,6 +59,9 @@ interface StatsBannerProps {
   onClearSearch?: () => void;
   onOpenPrintDossier?: () => void;
   onOpenDiscrepancyInspector?: () => void;
+  hideReadLater?: boolean;
+  onToggleHideReadLater?: () => void;
+  onNavigateToReadLater?: () => void;
 }
 
 export const StatsBanner: React.FC<StatsBannerProps> = ({
@@ -71,6 +77,9 @@ export const StatsBanner: React.FC<StatsBannerProps> = ({
   onClearSearch,
   onOpenPrintDossier,
   onOpenDiscrepancyInspector,
+  hideReadLater = false,
+  onToggleHideReadLater,
+  onNavigateToReadLater,
 }) => {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [tagSearchInput, setTagSearchInput] = useState("");
@@ -177,6 +186,13 @@ export const StatsBanner: React.FC<StatsBannerProps> = ({
           icon: <StickyNote className="w-4 h-4 text-[#FBBF24]" />,
           badgeColor: "bg-[#FBBF24]/15 text-[#FDE047] border-[#FBBF24]/30",
         };
+      case "read_later":
+        return {
+          title: "Coda di Lettura (Read-It-Later)",
+          subtitle: "Risorse differite e prioritarie per mantenere il Vault principale concentrato sui progetti attivi",
+          icon: <BookMarked className="w-4 h-4 text-[#38BDF8]" />,
+          badgeColor: "bg-[#38BDF8]/15 text-[#7DD3FC] border-[#38BDF8]/30",
+        };
       default:
         return {
           title: "Tutte le Risorse",
@@ -265,6 +281,30 @@ export const StatsBanner: React.FC<StatsBannerProps> = ({
                 </button>
               )}
             </div>
+          )}
+
+          {/* Active Projects Focus Toggle: hides read later items to keep primary view uncluttered */}
+          {currentCategory !== "read_later" && (counts.read_later ?? 0) > 0 && onToggleHideReadLater && (
+            <button
+              type="button"
+              onClick={onToggleHideReadLater}
+              className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-mono transition-all cursor-pointer border ${
+                hideReadLater
+                  ? "bg-[#0C1524] text-[#38BDF8] border-[#38BDF8]/60 font-semibold shadow-xs"
+                  : "bg-[#121212] hover:bg-[#181818] text-[#888] hover:text-[#DDD] border-[#222]"
+              }`}
+              title={
+                hideReadLater
+                  ? `Focus Progetti Attivi ATTIVO: ${counts.read_later} elementi in Read-It-Later sono esclusi da questa vista. Clicca per visualizzarli.`
+                  : `Attiva Focus Progetti: nascondi ${counts.read_later} elementi differiti in Read-It-Later per concentrarti sui progetti attivi.`
+              }
+            >
+              <BookMarked className={`w-3 h-3 ${hideReadLater ? "text-[#38BDF8]" : "text-[#777]"}`} />
+              <span className="hidden sm:inline">Focus Progetti</span>
+              <span className={`text-[10px] px-1 rounded ${hideReadLater ? "bg-[#38BDF8]/20 text-[#38BDF8]" : "bg-[#1C1C1C] text-[#888]"}`}>
+                {hideReadLater ? "ON" : counts.read_later}
+              </span>
+            </button>
           )}
 
           {/* Filter Popover Trigger */}

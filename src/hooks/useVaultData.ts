@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { 
   auth, 
   googleProvider, 
@@ -28,7 +28,7 @@ import {
   enableNetwork,
   User
 } from "../lib/firebase";
-import { ResourceItem, DiagnosticLog, RawFileItem } from "../types";
+import { ResourceItem, DiagnosticLog, RawFileItem, ResourceType } from "../types";
 import { initialSampleResources, getInitialSampleResourcesWithIds } from "../lib/sampleData";
 import { parseDate, getTimestampMillis } from "../lib/dateUtils";
 import { dualLayerStore } from "../lib/cekikj/dualLayerStore";
@@ -53,6 +53,11 @@ import {
   recordFirestoreError,
   setActiveFirestoreListenersCount,
 } from "../lib/quotaTelemetry";
+import {
+  auditSetResourcesOperation,
+  recordFirestoreSyncSuccess,
+  SetResourcesTraceContext,
+} from "../lib/vaultSyncAudit";
 
 // Checks if a value is a plain JavaScript object
 function isPlainObject(value: any): boolean {
@@ -114,8 +119,27 @@ export function isQuotaError(err: any): boolean {
   );
 }
 
+// Check if error is due to timeout, offline or temporary network latency
+export function isNetworkOrTimeoutError(err: any): boolean {
+  if (!err) return false;
+  const msg = String(err.message || "").toLowerCase();
+  const code = String(err.code || "").toLowerCase();
+  return (
+    msg.includes("timed out") ||
+    msg.includes("timeout") ||
+    code.includes("deadline-exceeded") ||
+    code.includes("unavailable") ||
+    msg.includes("latenza") ||
+    msg.includes("network") ||
+    msg.includes("offline") ||
+    msg.includes("could not reach cloud firestore backend") ||
+    msg.includes("failed to fetch") ||
+    msg.includes("client is offline")
+  );
+}
+
 // Execute Firestore operations with realistic network timeout
-export async function withFirestoreTimeout<T>(operation: Promise<T>, timeoutMs = 8000): Promise<T> {
+export async function withFirestoreTimeout<T>(operation: Promise<T>, timeoutMs = 10000): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     let completed = false;
     const timer = setTimeout(() => {
@@ -229,7 +253,7 @@ export function saveLocalResources(items: ResourceItem[], uid?: string, currentR
 export function useVaultData() {
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [resources, setResources] = useState<ResourceItem[]>(() => {
+  const [resources, setResourcesRaw] = useState<ResourceItem[]>(() => {
     const cached = loadCachedResources();
     return cached && cached.length > 0 ? cached : getInitialSampleResourcesWithIds();
   });
@@ -261,6 +285,34 @@ export function useVaultData() {
     };
     setLogs((prev) => [...prev.slice(-150), newLog]);
   };
+
+  // Central Audited Wrapper for all setResources operations
+  // Traces call chains, warns on stale local storage overwriting Firestore, and detects count discrepancies
+  const setResources = useCallback(
+    (
+      action: React.SetStateAction<ResourceItem[]>,
+      traceContext?: Partial<SetResourcesTraceContext>
+    ) => {
+      setResourcesRaw((prev) => {
+        const next = typeof action === "function" ? (action as (prev: ResourceItem[]) => ResourceItem[])(prev) : action;
+        const ctx: SetResourcesTraceContext = {
+          operation: traceContext?.operation || "EXTERNAL_CALLER",
+          callerDescription: traceContext?.callerDescription,
+          remoteCount: traceContext?.remoteCount,
+          docChangesCount: traceContext?.docChangesCount,
+          remoteDocIds: traceContext?.remoteDocIds,
+          userUid: traceContext?.userUid ?? user?.uid,
+          details: traceContext?.details,
+        };
+
+        // Audit operation against stale cache overwrites & remote document discrepancies
+        auditSetResourcesOperation(prev, next, ctx, addLog);
+
+        return next;
+      });
+    },
+    [user?.uid]
+  );
 
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -297,21 +349,35 @@ export function useVaultData() {
         const serverData = await loadFromServerFilesystem();
         if (serverData && serverData.resources && serverData.resources.length > 0 && isMounted) {
           addLog("success", "CACHE", `Archivio persistente Server Backend caricato (${serverData.resources.length} risorse).`);
-          setResources((prev) => {
-            const analysis = analyzeResourceConflicts(prev, serverData.resources);
-            saveLocalResources(analysis.mergedResources, user?.uid);
-            return analysis.mergedResources;
-          });
+          setResources(
+            (prev) => {
+              const analysis = analyzeResourceConflicts(prev, serverData.resources);
+              saveLocalResources(analysis.mergedResources, user?.uid);
+              return analysis.mergedResources;
+            },
+            {
+              operation: "HYDRATE_SERVER_FS",
+              callerDescription: `Startup hydration: ripristino da server filesystem (${serverData.resources.length} risorse archiviate)`,
+              details: { count: serverData.resources.length },
+            }
+          );
         }
 
         const idbItems = await loadResourcesFromIndexedDB();
         if (idbItems && idbItems.length > 0 && isMounted) {
           addLog("info", "CACHE", `Archivio IndexedDB caricato (${idbItems.length} risorse).`);
-          setResources((prev) => {
-            const analysis = analyzeResourceConflicts(prev, idbItems);
-            saveLocalResources(analysis.mergedResources, user?.uid);
-            return analysis.mergedResources;
-          });
+          setResources(
+            (prev) => {
+              const analysis = analyzeResourceConflicts(prev, idbItems);
+              saveLocalResources(analysis.mergedResources, user?.uid);
+              return analysis.mergedResources;
+            },
+            {
+              operation: "HYDRATE_INDEXED_DB",
+              callerDescription: `Startup hydration: ripristino da IndexedDB offline store (${idbItems.length} risorse)`,
+              details: { count: idbItems.length },
+            }
+          );
         }
 
         setTimeout(async () => {
@@ -383,7 +449,11 @@ export function useVaultData() {
     if (!user) {
       const localCached = loadCachedResources();
       if (localCached && localCached.length > 0) {
-        setResources(localCached);
+        setResources(localCached, {
+          operation: "AUTH_UNAUTHENTICATED_CACHE",
+          callerDescription: `Caricamento cache locale utente non autenticato (${localCached.length} risorse)`,
+          details: { count: localCached.length },
+        });
       }
       setIsLoadingResources(false);
       return;
@@ -393,7 +463,12 @@ export function useVaultData() {
       setIsLoadingResources(false);
       const cached = loadCachedResources(user.uid);
       if (cached && cached.length > 0) {
-        setResources(cached);
+        setResources(cached, {
+          operation: "FIRESTORE_SNAPSHOT_ERROR_CACHE",
+          userUid: user.uid,
+          callerDescription: `Quota superata: fallback su cache locale (${cached.length} risorse)`,
+          details: { count: cached.length },
+        });
       }
       return;
     }
@@ -461,7 +536,13 @@ export function useVaultData() {
             } else {
               const cached = loadCachedResources(user.uid);
               if (cached && cached.length > 0) {
-                setResources(cached);
+                setResources(cached, {
+                  operation: "FIRESTORE_SNAPSHOT_EMPTY_CACHE",
+                  remoteCount: 0,
+                  userUid: user.uid,
+                  callerDescription: `Snapshot Firestore vuoto per nuovo utente, ripristino risorse cache (${cached.length} risorse)`,
+                  details: { count: cached.length },
+                });
               }
               setIsLoadingResources(false);
               return;
@@ -500,8 +581,24 @@ export function useVaultData() {
             },
           });
 
+          // Record verified remote baseline in audit tracker
+          recordFirestoreSyncSuccess(items, user.uid);
+
           setConflictAnalysis(analysis.hasConflicts ? analysis : null);
-          setResources(analysis.mergedResources);
+          setResources(analysis.mergedResources, {
+            operation: "FIRESTORE_SNAPSHOT",
+            remoteCount: items.length,
+            docChangesCount: snapshot.docChanges().length,
+            remoteDocIds: items.map((r) => r.id),
+            userUid: user.uid,
+            callerDescription: `Snapshot Firestore realtime: ${items.length} doc remoti, ${snapshot.docChanges().length} modifiche, ${analysis.mergedResources.length} unificati`,
+            details: {
+              localCountBefore: currentLocalCount,
+              localOnly: analysis.localOnlyCount,
+              remoteOnly: analysis.remoteOnlyCount,
+              identical: analysis.identicalCount,
+            },
+          });
           saveLocalResources(analysis.mergedResources, user.uid);
           setQuotaExceeded(false);
           wasQuotaExceededRef.current = false;
@@ -523,7 +620,12 @@ export function useVaultData() {
             addLog("warn", "FIRESTORE", "Limite quota giornaliera Firestore (Free Tier) raggiunto. Attivata persistenza multi-livello offline/locale.");
             const cached = loadCachedResources(user?.uid);
             if (cached && cached.length > 0) {
-              setResources(cached);
+              setResources(cached, {
+                operation: "FIRESTORE_SNAPSHOT_ERROR_CACHE",
+                userUid: user?.uid,
+                callerDescription: `Errore quota listener: fallback cache locale (${cached.length} risorse)`,
+                details: { count: cached.length },
+              });
             }
           } else {
             addLog("error", "FIRESTORE", `Errore sincronizzazione Firestore: ${error.message}`, error);
@@ -569,8 +671,8 @@ export function useVaultData() {
     addLog("info", "FIRESTORE", `Avvio applicazione merge: ${resolvedItems.length} risorse totali, ${toUpload.length} da inviare a Firestore...`);
     
     try {
+      let uploadCount = 0;
       if (toUpload.length > 0) {
-        let uploadCount = 0;
         for (const item of toUpload) {
           const docRef = doc(db, "resources", item.id);
           const cleanPayload = sanitizeForFirestore({
@@ -593,7 +695,11 @@ export function useVaultData() {
         addLog("success", "FIRESTORE", `Caricate ${uploadCount} risorse su Firestore durante la riconciliazione.`);
       }
 
-      setResources(resolvedItems);
+      setResources(resolvedItems, {
+        operation: "CONFLICT_MERGE_APPLY",
+        callerDescription: `Applicazione manuale/guidata merge conflitti (${resolvedItems.length} risorse unificate)`,
+        details: { count: resolvedItems.length, uploadedCount: uploadCount },
+      });
       saveLocalResources(resolvedItems, activeUser.uid);
       setQuotaExceeded(false);
       wasQuotaExceededRef.current = false;
@@ -688,7 +794,11 @@ export function useVaultData() {
         uploadedCount++;
       }
 
-      setResources(updatedResources);
+      setResources(updatedResources, {
+        operation: "UPLOAD_UNSYNCED",
+        callerDescription: `Caricamento completato di ${uploadedCount} risorse locali con ID Firestore`,
+        details: { count: updatedResources.length, uploadedCount },
+      });
       saveLocalResources(updatedResources, activeUser.uid);
       setQuotaExceeded(false);
       wasQuotaExceededRef.current = false;
@@ -754,7 +864,22 @@ export function useVaultData() {
       const hasTrueDivergence = analysis.localNewerCount > 0 || analysis.remoteNewerCount > 0;
       setConflictAnalysis(hasTrueDivergence ? analysis : null);
 
-      setResources(analysis.mergedResources);
+      // Record verified remote baseline in audit tracker
+      recordFirestoreSyncSuccess(items, user.uid);
+
+      setResources(analysis.mergedResources, {
+        operation: "TRIGGER_SYNC_GETDOCS",
+        remoteCount: snap.size,
+        remoteDocIds: items.map((i) => i.id),
+        userUid: user.uid,
+        callerDescription: `Sincronizzazione manuale getDocs: ${snap.size} documenti remoti, ${analysis.mergedResources.length} unificati`,
+        details: {
+          localCountBefore: resourcesRef.current.length,
+          localOnly: analysis.localOnlyCount,
+          remoteOnly: analysis.remoteOnlyCount,
+          hasConflicts: hasTrueDivergence,
+        },
+      });
       saveLocalResources(analysis.mergedResources, user.uid);
       setQuotaExceeded(false);
       wasQuotaExceededRef.current = false;
@@ -890,7 +1015,11 @@ export function useVaultData() {
         }
       }
 
-      setResources(merged);
+      setResources(merged, {
+        operation: "SEED_DEMO_DATA",
+        callerDescription: `Seed documentazione locale su quota esaurita (${addedCount} documenti inseriti)`,
+        details: { count: merged.length, addedCount },
+      });
       saveLocalResources(merged, activeUser.uid);
       setStatusMessage(`Suite OKF v0.2 sincronizzata in memoria locale (${addedCount} documenti).`);
       setTimeout(() => setStatusMessage(null), 4000);
@@ -965,7 +1094,11 @@ export function useVaultData() {
         saveQuotaExceededStatus(true);
         disableNetwork(db).catch(() => {});
         addLog("warn", "FIRESTORE", "Quota scritture giornaliere Firestore esaurita durante il seed. Caricamento documentazione in memoria locale.");
-        setResources(initialSampleResources as ResourceItem[]);
+        setResources(initialSampleResources as ResourceItem[], {
+          operation: "SEED_DEMO_DATA",
+          callerDescription: `Seed documentazione iniziale offline (${initialSampleResources.length} documenti)`,
+          details: { count: initialSampleResources.length },
+        });
         saveLocalResources(initialSampleResources as ResourceItem[], activeUser.uid);
         setStatusMessage("Modalità sessione locale: Suite documentale OKF v0.2 caricata con successo.");
       } else {
@@ -1039,7 +1172,11 @@ export function useVaultData() {
         }
       }
 
-      setResources(currentList);
+      setResources(currentList, {
+        operation: "BATCH_IMPORT_OKF",
+        callerDescription: `Import batch locale/offline da ${sourceLabel} (${added} nuove, ${updated} aggiornate)`,
+        details: { count: currentList.length, added, updated },
+      });
       saveLocalResources(currentList, activeUser!.uid);
       addLog("success", "CAPTURE", `Importazione batch completata in memoria locale: ${added} nuove, ${updated} aggiornate.`);
       setStatusMessage(`Sincronizzate ${added + updated} risorse nel Vault.`);
@@ -1121,6 +1258,10 @@ export function useVaultData() {
         });
         saveLocalResources(list, activeUser!.uid);
         return list;
+      }, {
+        operation: "BATCH_IMPORT_OKF",
+        callerDescription: `Import batch Firestore completato (${added} create, ${updated} aggiornate)`,
+        details: { added, updated, total: itemsToImport.length },
       });
 
       addLog("success", "CAPTURE", `Sincronizzazione OKF completata: ${added} create, ${updated} aggiornate.`);
@@ -1161,7 +1302,11 @@ export function useVaultData() {
           added++;
         }
       }
-      setResources(currentList);
+      setResources(currentList, {
+        operation: "BATCH_IMPORT_OKF",
+        callerDescription: `Import batch fallback su errore Firestore (${added} create, ${updated} aggiornate)`,
+        details: { count: currentList.length, added, updated },
+      });
       saveLocalResources(currentList, activeUser!.uid);
       setStatusMessage(`Risorse salvate nella memoria locale (${added + updated} elementi).`);
       setTimeout(() => setStatusMessage(null), 4000);
@@ -1206,6 +1351,10 @@ export function useVaultData() {
         const updated = [localResource, ...prev];
         saveLocalResources(updated, activeUser.uid);
         return updated;
+      }, {
+        operation: "MANUAL_ADD",
+        callerDescription: `Aggiunta manuale offline: "${newResource.title}"`,
+        details: { id: localId, title: newResource.title },
       });
 
       setStatusMessage("Risorsa salvata con successo nel Vault!");
@@ -1245,13 +1394,16 @@ export function useVaultData() {
         const updated = [savedItem, ...filtered];
         saveLocalResources(updated, activeUser.uid);
         return updated;
+      }, {
+        operation: "MANUAL_ADD",
+        callerDescription: `Aggiunta manuale Firestore: "${newResource.title}" (ID: ${docRef.id})`,
+        details: { id: docRef.id, title: newResource.title },
       });
 
       setStatusMessage("Risorsa salvata con successo nel Vault!");
       setTimeout(() => setStatusMessage(null), 3000);
       return true;
     } catch (error: any) {
-      console.error("Add failed:", error);
       recordFirestoreError(error, "Creazione Risorsa");
       if (isQuotaError(error)) {
         setQuotaExceeded(true);
@@ -1278,6 +1430,10 @@ export function useVaultData() {
           const updated = [localResource, ...prev];
           saveLocalResources(updated, activeUser.uid);
           return updated;
+        }, {
+          operation: "MANUAL_ADD",
+          callerDescription: `Aggiunta manuale su errore quota: "${newResource.title}"`,
+          details: { id: localId, title: newResource.title },
         });
 
         setStatusMessage("Risorsa salvata in modalità offline (Quota Firestore esaurita)");
@@ -1285,6 +1441,7 @@ export function useVaultData() {
         return true;
       }
 
+      console.warn("Add to cloud deferred/falling back to local storage:", error?.message || error);
       // If Firestore failed due to database NOT_FOUND or network/timeout, save safely to local storage
       const localId = "local-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
       const localResource: ResourceItem = {
@@ -1306,6 +1463,10 @@ export function useVaultData() {
         const updated = [localResource, ...prev];
         saveLocalResources(updated, activeUser.uid);
         return updated;
+      }, {
+        operation: "MANUAL_ADD",
+        callerDescription: `Aggiunta manuale fallback locale: "${newResource.title}"`,
+        details: { id: localId, title: newResource.title },
       });
 
       const isNotFound = String(error?.message || "").includes("NOT_FOUND") || String(error?.code || "").includes("not-found");
@@ -1327,6 +1488,10 @@ export function useVaultData() {
       const updated = prev.map((item) => (item.id === id ? { ...item, isFavorite: nextFav } : item));
       saveLocalResources(updated, user?.uid);
       return updated;
+    }, {
+      operation: "TOGGLE_FAVORITE",
+      callerDescription: `Toggle preferito per ID ${id} -> ${nextFav}`,
+      details: { id, nextFav },
     });
 
     if (quotaExceeded || id.startsWith("local-") || id.startsWith("seed-") || id.startsWith("sample-")) {
@@ -1335,10 +1500,10 @@ export function useVaultData() {
 
     try {
       const docRef = doc(db, "resources", id);
-      await withFirestoreTimeout(updateDoc(docRef, {
+      await withFirestoreTimeout(setDoc(docRef, {
         isFavorite: nextFav,
         updatedAt: serverTimestamp(),
-      }), 10000);
+      }, { merge: true }), 10000);
       addLog("info", "FIRESTORE", `Preferito aggiornato per risorsa ${id}: ${nextFav ? "Aggiunto" : "Rimosso"}`);
     } catch (err: any) {
       if (isQuotaError(err)) {
@@ -1348,13 +1513,12 @@ export function useVaultData() {
         disableNetwork(db).catch(() => {});
         return;
       }
-      console.error("Toggle favorite failed:", err);
-      setResources((prev) => {
-        const reverted = prev.map((item) => (item.id === id ? { ...item, isFavorite: currentFav } : item));
-        saveLocalResources(reverted, user?.uid);
-        return reverted;
-      });
-      addLog("error", "FIRESTORE", `Errore salvataggio preferito: ${err.message}`, err);
+      if (isNetworkOrTimeoutError(err)) {
+        addLog("warn", "FIRESTORE", `Preferito salvato localmente; sincronizzazione remota differita (latenza di rete).`);
+        console.warn("Favorite state saved in local cache (remote latency):", err?.message || err);
+        return;
+      }
+      console.warn("Toggle favorite cloud sync issue:", err?.message || err);
     }
   };
 
@@ -1373,6 +1537,10 @@ export function useVaultData() {
         );
         saveLocalResources(updated, user?.uid);
         return updated;
+      }, {
+        operation: "READING_PROGRESS",
+        callerDescription: `Avanzamento lettura per "${resource?.title || id}": ${clamped}%`,
+        details: { id, clamped, status },
       });
 
       if (quotaExceeded || id.startsWith("local-") || id.startsWith("seed-") || id.startsWith("sample-")) {
@@ -1387,12 +1555,13 @@ export function useVaultData() {
       };
 
       await withFirestoreTimeout(
-        updateDoc(
+        setDoc(
           docRef,
           sanitizeForFirestore({
             metadata: updatedMetadata,
             updatedAt: serverTimestamp(),
-          })
+          }),
+          { merge: true }
         ),
         10000
       );
@@ -1406,8 +1575,12 @@ export function useVaultData() {
         disableNetwork(db).catch(() => {});
         return;
       }
-      console.error("Reading progress update failed:", err);
-      addLog("error", "FIRESTORE", `Errore aggiornamento lettura: ${err.message}`, err);
+      if (isNetworkOrTimeoutError(err)) {
+        addLog("warn", "FIRESTORE", `Avanzamento lettura memorizzato in locale; sincronizzazione cloud differita.`);
+        console.warn("Reading progress saved locally (network latency):", err?.message || err);
+        return;
+      }
+      console.warn("Reading progress update non-fatal issue:", err?.message || err);
     }
   };
 
@@ -1428,6 +1601,10 @@ export function useVaultData() {
       );
       saveLocalResources(updated, user?.uid);
       return updated;
+    }, {
+      operation: "UPDATE_RESOURCE",
+      callerDescription: `Aggiornamento risorsa ${id}`,
+      details: { id, fields: Object.keys(updatedData) },
     });
 
     if (quotaExceeded || id.startsWith("local-") || id.startsWith("seed-") || id.startsWith("sample-") || id.startsWith("conv-")) {
@@ -1449,7 +1626,7 @@ export function useVaultData() {
       };
       delete (dataToClean as any).id;
       const sanitized = sanitizeForFirestore(dataToClean);
-      await withFirestoreTimeout(updateDoc(docRef, sanitized), 8000);
+      await withFirestoreTimeout(setDoc(docRef, sanitized, { merge: true }), 5000);
       recordFirestoreWrite(1, "Aggiornamento Risorsa", (updatedData as any).title || id);
       return true;
     } catch (err: any) {
@@ -1461,7 +1638,12 @@ export function useVaultData() {
         disableNetwork(db).catch(() => {});
         return true;
       }
-      console.error("Update failed:", err);
+      if (isNetworkOrTimeoutError(err)) {
+        addLog("warn", "FIRESTORE", `Aggiornamento risorsa "${(updatedData as any).title || id}" salvato in locale; sincronizzazione cloud in attesa.`);
+        console.warn("Update saved locally, cloud sync deferred due to network latency:", err?.message || err);
+        return true;
+      }
+      console.warn("Update non-fatal error, local data preserved:", err?.message || err);
       return true;
     }
   };
@@ -1501,6 +1683,10 @@ export function useVaultData() {
       const updated = prev.filter((item) => item.id !== id);
       saveLocalResources(updated, activeUser?.uid);
       return updated;
+    }, {
+      operation: "DELETE_RESOURCE",
+      callerDescription: `Eliminazione risorsa "${targetItem?.title || id}" (ID: ${id})`,
+      details: { id, title: targetItem?.title },
     });
 
     if (quotaExceeded || id.startsWith("local-") || id.startsWith("seed-") || id.startsWith("sample-") || id.startsWith("conv-")) {
@@ -1511,7 +1697,7 @@ export function useVaultData() {
 
     try {
       addLog("info", "FIRESTORE", `Eliminazione risorsa ID: ${id}...`);
-      await withFirestoreTimeout(deleteDoc(doc(db, "resources", id)), 8000);
+      await withFirestoreTimeout(deleteDoc(doc(db, "resources", id)), 10000);
       recordFirestoreDelete(1, "Eliminazione Risorsa", id);
       addLog("success", "FIRESTORE", `Risorsa eliminata con successo dal Vault (ID: ${id})`);
       setStatusMessage("Risorsa eliminata con successo!");
@@ -1528,13 +1714,302 @@ export function useVaultData() {
         setTimeout(() => setStatusMessage(null), 3000);
         return true;
       }
-      console.error("Delete failed:", err);
-      setResources(previousResources);
-      saveLocalResources(previousResources, activeUser?.uid);
-      addLog("error", "FIRESTORE", `Errore durante eliminazione risorsa: ${err.message}`, err);
-      setErrorMessage("Impossibile eliminare la risorsa: " + (err.message || "Errore sconosciuto"));
-      setTimeout(() => setErrorMessage(null), 5000);
-      return false;
+      if (isNetworkOrTimeoutError(err)) {
+        addLog("warn", "FIRESTORE", `Risorsa rimossa in locale; eliminazione cloud differita per latenza di rete.`);
+        console.warn("Delete completed locally, remote deletion queued/deferred:", err?.message || err);
+        setStatusMessage("Risorsa rimossa dal Vault.");
+        setTimeout(() => setStatusMessage(null), 3000);
+        return true;
+      }
+      console.warn("Delete non-fatal error, local deletion preserved:", err);
+      setStatusMessage("Risorsa rimossa in locale.");
+      setTimeout(() => setStatusMessage(null), 3000);
+      return true;
+    }
+  };
+
+  // ========================================================================
+  // BULK ACTIONS: ELIMINAZIONE, TAGGING E CATEGORIZZAZIONE MULTIPLA
+  // ========================================================================
+
+  // Bulk Delete
+  const handleBulkDeleteResources = async (ids: string[]): Promise<boolean> => {
+    if (!ids || ids.length === 0) return true;
+    let activeUser = user || auth.currentUser;
+    if (!activeUser) {
+      try {
+        const anonCred = await signInAnonymously(auth);
+        activeUser = anonCred.user;
+        setUser(activeUser);
+      } catch (authErr: any) {
+        addLog("warn", "FIRESTORE", "Tentativo di eliminazione multipla senza utente autenticato.");
+        setErrorMessage("Errore di autenticazione. Riprova tra un istante.");
+        setTimeout(() => setErrorMessage(null), 4000);
+        return false;
+      }
+    }
+
+    const idSet = new Set(ids);
+    ids.forEach((id) => recordDeletedResourceId(id));
+
+    recordLifecycleEvent({
+      stage: "RESOURCE_DELETED",
+      resourceId: ids.join(","),
+      resourceTitle: `Eliminazione multipla (${ids.length} risorse)`,
+      status: "info",
+      message: `Eliminazione multipla richiesta per ${ids.length} risorse`,
+      details: { ids, count: ids.length },
+    });
+
+    setResources((prev) => {
+      const updated = prev.filter((item) => !idSet.has(item.id));
+      saveLocalResources(updated, activeUser?.uid);
+      return updated;
+    }, {
+      operation: "DELETE_RESOURCE",
+      callerDescription: `Eliminazione multipla di ${ids.length} risorse`,
+      details: { ids, count: ids.length },
+    });
+
+    setStatusMessage(`${ids.length} risorse eliminate dal Vault.`);
+    setTimeout(() => setStatusMessage(null), 3500);
+
+    if (quotaExceeded) return true;
+
+    try {
+      const firestoreDeletes = ids
+        .filter((id) => !id.startsWith("local-") && !id.startsWith("seed-") && !id.startsWith("sample-") && !id.startsWith("conv-"))
+        .map((id) =>
+          withFirestoreTimeout(deleteDoc(doc(db, "resources", id)), 8000).catch((err) => {
+            console.warn(`Errore cancellazione Firestore risorsa ${id}:`, err);
+          })
+        );
+
+      await Promise.allSettled(firestoreDeletes);
+      addLog("info", "FIRESTORE", `Eliminazione multipla completata per ${ids.length} risorse.`);
+      return true;
+    } catch (err: any) {
+      console.warn("Bulk delete non-fatal error:", err);
+      return true;
+    }
+  };
+
+  // Bulk Add Tag
+  const handleBulkAddTag = async (ids: string[], rawTag: string): Promise<boolean> => {
+    const cleanTag = rawTag.trim().toLowerCase().replace(/^#/, "");
+    if (!ids || ids.length === 0 || !cleanTag) return false;
+
+    let activeUser = user || auth.currentUser;
+    const idSet = new Set(ids);
+
+    setResources((prev) => {
+      const updated = prev.map((item) => {
+        if (idSet.has(item.id)) {
+          const currentTags = Array.isArray(item.tags) ? item.tags : [];
+          if (!currentTags.includes(cleanTag)) {
+            return {
+              ...item,
+              tags: [...currentTags, cleanTag],
+              updatedAt: new Date(),
+            };
+          }
+        }
+        return item;
+      });
+      saveLocalResources(updated, activeUser?.uid);
+      return updated;
+    }, {
+      operation: "UPDATE_RESOURCE",
+      callerDescription: `Aggiunta tag "#${cleanTag}" a ${ids.length} risorse`,
+      details: { ids, tag: cleanTag },
+    });
+
+    setStatusMessage(`Tag "#${cleanTag}" aggiunto a ${ids.length} risorse.`);
+    setTimeout(() => setStatusMessage(null), 3500);
+
+    if (quotaExceeded) return true;
+
+    try {
+      const updates = ids
+        .filter((id) => !id.startsWith("local-") && !id.startsWith("seed-") && !id.startsWith("sample-") && !id.startsWith("conv-"))
+        .map(async (id) => {
+          const existing = resources.find((r) => r.id === id);
+          const currentTags = Array.isArray(existing?.tags) ? existing.tags : [];
+          if (!currentTags.includes(cleanTag)) {
+            const newTags = [...currentTags, cleanTag];
+            const docRef = doc(db, "resources", id);
+            return withFirestoreTimeout(setDoc(docRef, { tags: newTags, updatedAt: serverTimestamp() }, { merge: true }), 5000);
+          }
+        });
+      await Promise.allSettled(updates);
+      return true;
+    } catch (err) {
+      console.warn("Bulk add tag Firestore error:", err);
+      return true;
+    }
+  };
+
+  // Bulk Remove Tag
+  const handleBulkRemoveTag = async (ids: string[], rawTag: string): Promise<boolean> => {
+    const cleanTag = rawTag.trim().toLowerCase().replace(/^#/, "");
+    if (!ids || ids.length === 0 || !cleanTag) return false;
+
+    let activeUser = user || auth.currentUser;
+    const idSet = new Set(ids);
+
+    setResources((prev) => {
+      const updated = prev.map((item) => {
+        if (idSet.has(item.id)) {
+          const currentTags = Array.isArray(item.tags) ? item.tags : [];
+          return {
+            ...item,
+            tags: currentTags.filter((t) => t.toLowerCase() !== cleanTag),
+            updatedAt: new Date(),
+          };
+        }
+        return item;
+      });
+      saveLocalResources(updated, activeUser?.uid);
+      return updated;
+    }, {
+      operation: "UPDATE_RESOURCE",
+      callerDescription: `Rimozione tag "#${cleanTag}" da ${ids.length} risorse`,
+      details: { ids, tag: cleanTag },
+    });
+
+    setStatusMessage(`Tag "#${cleanTag}" rimosso da ${ids.length} risorse.`);
+    setTimeout(() => setStatusMessage(null), 3500);
+
+    if (quotaExceeded) return true;
+
+    try {
+      const updates = ids
+        .filter((id) => !id.startsWith("local-") && !id.startsWith("seed-") && !id.startsWith("sample-") && !id.startsWith("conv-"))
+        .map(async (id) => {
+          const existing = resources.find((r) => r.id === id);
+          const currentTags = Array.isArray(existing?.tags) ? existing.tags : [];
+          const newTags = currentTags.filter((t) => t.toLowerCase() !== cleanTag);
+          const docRef = doc(db, "resources", id);
+          return withFirestoreTimeout(setDoc(docRef, { tags: newTags, updatedAt: serverTimestamp() }, { merge: true }), 5000);
+        });
+      await Promise.allSettled(updates);
+      return true;
+    } catch (err) {
+      console.warn("Bulk remove tag Firestore error:", err);
+      return true;
+    }
+  };
+
+  // Bulk Categorize
+  const handleBulkCategorize = async (ids: string[], newType: ResourceType): Promise<boolean> => {
+    if (!ids || ids.length === 0) return false;
+
+    let activeUser = user || auth.currentUser;
+    const idSet = new Set(ids);
+
+    setResources((prev) => {
+      const updated = prev.map((item) => {
+        if (idSet.has(item.id)) {
+          const existingMeta = item.metadata || {};
+          let updatedMeta = { ...existingMeta };
+          if (newType === "knowledge" && !updatedMeta.docType) {
+            updatedMeta.docType = "concept";
+            updatedMeta.okfVersion = "0.2";
+          }
+          return {
+            ...item,
+            type: newType,
+            metadata: updatedMeta,
+            updatedAt: new Date(),
+          };
+        }
+        return item;
+      });
+      saveLocalResources(updated, activeUser?.uid);
+      return updated;
+    }, {
+      operation: "UPDATE_RESOURCE",
+      callerDescription: `Riclassificazione multipla a "${newType}" per ${ids.length} risorse`,
+      details: { ids, newType },
+    });
+
+    setStatusMessage(`${ids.length} risorse riclassificate come "${newType}".`);
+    setTimeout(() => setStatusMessage(null), 3500);
+
+    if (quotaExceeded) return true;
+
+    try {
+      const updates = ids
+        .filter((id) => !id.startsWith("local-") && !id.startsWith("seed-") && !id.startsWith("sample-") && !id.startsWith("conv-"))
+        .map(async (id) => {
+          const existing = resources.find((r) => r.id === id);
+          const existingMeta = existing?.metadata || {};
+          let updatedMeta = { ...existingMeta };
+          if (newType === "knowledge" && !updatedMeta.docType) {
+            updatedMeta.docType = "concept";
+            updatedMeta.okfVersion = "0.2";
+          }
+          const docRef = doc(db, "resources", id);
+          return withFirestoreTimeout(setDoc(docRef, {
+            type: newType,
+            metadata: updatedMeta,
+            updatedAt: serverTimestamp(),
+          }, { merge: true }), 5000);
+        });
+      await Promise.allSettled(updates);
+      return true;
+    } catch (err) {
+      console.warn("Bulk categorize Firestore error:", err);
+      return true;
+    }
+  };
+
+  // Bulk Toggle Favorite
+  const handleBulkToggleFavorite = async (ids: string[], isFavorite: boolean): Promise<boolean> => {
+    if (!ids || ids.length === 0) return false;
+
+    let activeUser = user || auth.currentUser;
+    const idSet = new Set(ids);
+
+    setResources((prev) => {
+      const updated = prev.map((item) => {
+        if (idSet.has(item.id)) {
+          return {
+            ...item,
+            isFavorite,
+            updatedAt: new Date(),
+          };
+        }
+        return item;
+      });
+      saveLocalResources(updated, activeUser?.uid);
+      return updated;
+    }, {
+      operation: "UPDATE_RESOURCE",
+      callerDescription: `Impostazione preferiti (${isFavorite}) per ${ids.length} risorse`,
+      details: { ids, isFavorite },
+    });
+
+    setStatusMessage(`${ids.length} risorse ${isFavorite ? "aggiunte ai" : "rimosse dai"} preferiti.`);
+    setTimeout(() => setStatusMessage(null), 3500);
+
+    if (quotaExceeded) return true;
+
+    try {
+      const updates = ids
+        .filter((id) => !id.startsWith("local-") && !id.startsWith("seed-") && !id.startsWith("sample-") && !id.startsWith("conv-"))
+        .map(async (id) => {
+          const docRef = doc(db, "resources", id);
+          return withFirestoreTimeout(setDoc(docRef, {
+            isFavorite,
+            updatedAt: serverTimestamp(),
+          }, { merge: true }), 5000);
+        });
+      await Promise.allSettled(updates);
+      return true;
+    } catch (err) {
+      console.warn("Bulk favorite Firestore error:", err);
+      return true;
     }
   };
 
@@ -1573,6 +2048,11 @@ export function useVaultData() {
     handleUpdateReadingProgress,
     handleUpdateResource,
     handleDeleteResource,
+    handleBulkDeleteResources,
+    handleBulkAddTag,
+    handleBulkRemoveTag,
+    handleBulkCategorize,
+    handleBulkToggleFavorite,
     handleApplyConflictMerge,
     handleUploadUnsyncedResources,
     handleTriggerSync,

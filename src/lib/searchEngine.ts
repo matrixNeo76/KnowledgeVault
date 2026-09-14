@@ -1,4 +1,5 @@
 import { ResourceItem, ResourceType, NavCategory } from "../types";
+import { isReadLaterResource } from "./readLaterUtils";
 
 /**
  * Normalizes text for search indexing:
@@ -408,16 +409,26 @@ export function filterAndRankResources(
   query: string,
   category: NavCategory,
   selectedTag: string | null,
-  sortBy: string
+  sortBy: string,
+  hideReadLater: boolean = false
 ): ResourceItem[] {
   const parsed = parseSearchQuery(query);
 
   const matchedItems: { item: ResourceItem; result: SearchMatchResult }[] = [];
 
   for (const item of resources) {
+    const isReadLater = isReadLaterResource(item);
+
+    // Keep primary view focused on active projects by excluding items queued for later
+    if (category !== "read_later" && hideReadLater && isReadLater) {
+      continue;
+    }
+
     // 1. Category Filter
     if (category === "favorites" && !item.isFavorite) continue;
-    if (category !== "all" && category !== "favorites" && item.type !== category) {
+    if (category === "read_later") {
+      if (!isReadLater) continue;
+    } else if (category !== "all" && category !== "favorites" && item.type !== category) {
       continue;
     }
 

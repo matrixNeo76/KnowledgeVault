@@ -37,6 +37,7 @@ export interface GeminiCallRecord {
 
 export const geminiCallHistory: GeminiCallRecord[] = [];
 export const modelUsageCounts: Record<string, number> = {
+  "gemini-3.8-flash": 0,
   "gemini-3.7-flash": 0,
   "gemini-flash-latest": 0,
   "gemini-3.1-flash-lite": 0,
@@ -45,6 +46,25 @@ export let quota429Count = 0;
 export let error503Count = 0;
 let lastResetDateUtc = new Date().toISOString().slice(0, 10);
 export let dailyRequestsCount = 0;
+
+// Circuit Breaker: prevents hammering the API during active 429 quota exhaustion
+let quotaCooldownUntil = 0;
+
+export function isGeminiQuotaInCooldown(): boolean {
+  return Date.now() < quotaCooldownUntil;
+}
+
+export function getGeminiQuotaCooldownRemainingMs(): number {
+  return Math.max(0, quotaCooldownUntil - Date.now());
+}
+
+export function triggerGeminiQuotaCooldown(durationMs = 60000) {
+  quotaCooldownUntil = Math.max(quotaCooldownUntil, Date.now() + durationMs);
+}
+
+export function resetGeminiQuotaCooldown() {
+  quotaCooldownUntil = 0;
+}
 
 export interface RollingEntry {
   timestamp: number;
@@ -116,6 +136,7 @@ export function trackCall(model: string, latencyMs: number, success: boolean, er
 // Candidate Model Hierarchy & Generation Helpers
 // ----------------------------------------------------------------------
 export const CANDIDATE_MODELS = [
+  "gemini-3.8-flash",
   "gemini-3.7-flash",
   "gemini-flash-latest",
   "gemini-3.1-flash-lite",
@@ -135,6 +156,13 @@ export async function generateWithGeminiFallback(
 ): Promise<{ text: string; modelUsed: string } | null> {
   const ai = getGenAI();
   if (!ai) return null;
+
+  if (isGeminiQuotaInCooldown()) {
+    console.log(
+      `[Gemini] API quota cooldown active (${Math.ceil(getGeminiQuotaCooldownRemainingMs() / 1000)}s remaining) - using local heuristic fallback immediately`
+    );
+    return null;
+  }
 
   const timeoutMs = typeof options === "number" ? options : (options.timeoutMs ?? 6000);
   const endpoint = typeof options === "number" ? endpointFallback : (options.endpoint ?? endpointFallback);
@@ -199,11 +227,15 @@ export async function generateWithGeminiFallback(
       });
 
       if (isQuota) {
-        console.warn(`[Gemini] ${modelName} quota limit reached (429 RESOURCE_EXHAUSTED), attempting next model...`);
+        triggerGeminiQuotaCooldown(60000);
+        console.log(
+          `[Gemini] API quota limit reached (429 RESOURCE_EXHAUSTED). Entering 60s cooldown; switching to local rule-based heuristic parser.`
+        );
+        break; // Stop attempting other models under the same project quota
       } else if (isUnavailable) {
-        console.warn(`[Gemini] ${modelName} temporarily busy (503 high demand), attempting next model...`);
+        console.log(`[Gemini] ${modelName} temporarily busy (503 high demand), attempting next model...`);
       } else {
-        console.warn(`[Gemini] ${modelName} generation issue: ${err?.message || "unknown"}`);
+        console.log(`[Gemini] ${modelName} generation issue: ${err?.message || "unknown"}`);
       }
     }
   }
@@ -219,6 +251,13 @@ export async function generateMultimodalWithGeminiFallback(
 ): Promise<{ text: string; modelUsed: string } | null> {
   const ai = getGenAI();
   if (!ai) return null;
+
+  if (isGeminiQuotaInCooldown()) {
+    console.log(
+      `[Gemini Multimodal] API quota cooldown active (${Math.ceil(getGeminiQuotaCooldownRemainingMs() / 1000)}s remaining) - skipping remote calls`
+    );
+    return null;
+  }
 
   for (const modelName of CANDIDATE_MODELS) {
     const callStart = Date.now();
@@ -272,11 +311,11 @@ export async function generateMultimodalWithGeminiFallback(
       });
 
       if (isQuota) {
-        console.warn(`[Gemini Multimodal] ${modelName} quota limit reached (429), attempting fallback...`);
-      } else if (isUnavailable) {
-        console.warn(`[Gemini Multimodal] ${modelName} service busy (503), attempting fallback...`);
-      } else {
-        console.warn(`[Gemini Multimodal] ${modelName} attempt error:`, err?.message || "error");
+        triggerGeminiQuotaCooldown(60000);
+        console.log(
+          `[Gemini Multimodal] API quota reached (429 RESOURCE_EXHAUSTED). Entering 60s cooldown.`
+        );
+        break;
       }
     }
   }

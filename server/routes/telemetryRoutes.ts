@@ -11,6 +11,10 @@ import {
   dailyRequestsCount,
   rollingMinuteRequests,
   CANDIDATE_MODELS,
+  isGeminiQuotaInCooldown,
+  getGeminiQuotaCooldownRemainingMs,
+  triggerGeminiQuotaCooldown,
+  resetGeminiQuotaCooldown,
 } from "../gemini/client";
 
 export const telemetryRouter = Router();
@@ -26,11 +30,12 @@ telemetryRouter.get("/telemetry/gemini-stats", (_req, res) => {
   const requestsLastMinute = rollingMinuteRequests.length;
   const tokensLastMinute = rollingMinuteRequests.reduce((sum, item) => sum + item.tokens, 0);
 
+  const inCooldown = isGeminiQuotaInCooldown();
   let status: "OPERATIONAL" | "RATE_LIMITED" | "EXHAUSTED" | "UNAVAILABLE" = "OPERATIONAL";
-  if (quota429Count > 0 && requestsLastMinute >= 14) {
-    status = "RATE_LIMITED";
-  } else if (dailyRequestsCount >= 1500) {
+  if (inCooldown || dailyRequestsCount >= 1500) {
     status = "EXHAUSTED";
+  } else if (quota429Count > 0 && requestsLastMinute >= 14) {
+    status = "RATE_LIMITED";
   } else if (error503Count > 3) {
     status = "UNAVAILABLE";
   }
@@ -44,6 +49,8 @@ telemetryRouter.get("/telemetry/gemini-stats", (_req, res) => {
     tpmLimit: 1000000,
     quota429Count,
     error503Count,
+    quotaCooldownActive: inCooldown,
+    cooldownRemainingSeconds: Math.ceil(getGeminiQuotaCooldownRemainingMs() / 1000),
     modelCounts: modelUsageCounts,
     recentCalls: geminiCallHistory.slice(0, 35),
     status,
@@ -75,10 +82,16 @@ telemetryRouter.post("/telemetry/test-gemini", async (_req, res) => {
         if (response && response.text) {
           succeeded = true;
           usedModel = model;
+          resetGeminiQuotaCooldown();
           break;
         }
       } catch (err: any) {
         lastErr = err;
+        const isQuota = err?.status === "RESOURCE_EXHAUSTED" || err?.message?.includes("quota") || err?.message?.includes("429");
+        if (isQuota) {
+          triggerGeminiQuotaCooldown(60000);
+          break; // Project-wide quota reached, avoid hammering other candidate models
+        }
       }
     }
 

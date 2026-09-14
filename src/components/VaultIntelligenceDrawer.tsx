@@ -84,6 +84,8 @@ export interface ConversationMessage {
   userQuery: string;
   mode: "quick_synthesis" | "topological_analysis" | "deep_implementation";
   response?: AgenticQueryResponse;
+  liveTraces?: AgentTraceStep[];
+  livePlan?: string;
   error?: string;
   timestamp: string;
 }
@@ -258,6 +260,7 @@ export const VaultIntelligenceDrawer: React.FC<VaultIntelligenceDrawerProps> = (
       id: messageId,
       userQuery: textToSend,
       mode,
+      liveTraces: [],
       timestamp: new Date().toISOString(),
     };
 
@@ -285,26 +288,114 @@ export const VaultIntelligenceDrawer: React.FC<VaultIntelligenceDrawerProps> = (
         clientResources: resources.slice(0, 150),
       };
 
-      const response = await fetch("/api/vault/agentic-query", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      // Tenta prima la connessione in streaming Server-Sent Events (SSE)
+      let streamSucceeded = false;
+      try {
+        const streamResponse = await fetch("/api/vault/agentic-query-stream", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
 
-      if (!response.ok) {
-        const errJson = await response.json().catch(() => ({}));
-        throw new Error(errJson.error || `Errore server (${response.status})`);
+        if (streamResponse.ok && streamResponse.body) {
+          const reader = streamResponse.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+
+            // Parsing dei messaggi SSE (event / data)
+            const parts = buffer.split("\n\n");
+            buffer = parts.pop() || "";
+
+            for (const part of parts) {
+              const lines = part.split("\n");
+              let eventType = "message";
+              let dataStr = "";
+
+              for (const line of lines) {
+                if (line.startsWith("event: ")) {
+                  eventType = line.slice(7).trim();
+                } else if (line.startsWith("data: ")) {
+                  dataStr = line.slice(6).trim();
+                }
+              }
+
+              if (!dataStr) continue;
+
+              try {
+                const parsedData = JSON.parse(dataStr);
+                if (eventType === "plan_generated") {
+                  setConversation((prev) =>
+                    prev.map((msg) =>
+                      msg.id === messageId ? { ...msg, livePlan: parsedData.plan } : msg
+                    )
+                  );
+                } else if (eventType === "agent_trace_step") {
+                  setConversation((prev) =>
+                    prev.map((msg) => {
+                      if (msg.id !== messageId) return msg;
+                      const currentTraces = msg.liveTraces || [];
+                      return { ...msg, liveTraces: [...currentTraces, parsedData] };
+                    })
+                  );
+                  // Avanza la fase dell'indicatore visivo
+                  if (parsedData.agent === "graph_navigator") setActiveStageIndex(1);
+                  else if (parsedData.agent === "deep_analyst") setActiveStageIndex(2);
+                  else if (parsedData.agent === "code_specialist") setActiveStageIndex(3);
+                } else if (eventType === "grounding_check") {
+                  setActiveStageIndex(4);
+                  setConversation((prev) =>
+                    prev.map((msg) => {
+                      if (msg.id !== messageId) return msg;
+                      const currentTraces = msg.liveTraces || [];
+                      return { ...msg, liveTraces: [...currentTraces, parsedData] };
+                    })
+                  );
+                } else if (eventType === "completed") {
+                  streamSucceeded = true;
+                  setConversation((prev) =>
+                    prev.map((msg) =>
+                      msg.id === messageId ? { ...msg, response: parsedData } : msg
+                    )
+                  );
+                }
+              } catch (parseErr) {
+                console.warn("[SSE_PARSE_WARNING]", parseErr);
+              }
+            }
+          }
+        }
+      } catch (streamErr) {
+        console.warn("[SSE_STREAM_FAIL_FALLBACK_TO_REST]", streamErr);
       }
 
-      const data: AgenticQueryResponse = await response.json();
+      // Se lo streaming non è riuscito a completare la risposta, esegui fallback su REST classico
+      if (!streamSucceeded) {
+        const response = await fetch("/api/vault/agentic-query", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
 
-      setConversation((prev) =>
-        prev.map((msg) =>
-          msg.id === messageId
-            ? { ...msg, response: data }
-            : msg
-        )
-      );
+        if (!response.ok) {
+          const errJson = await response.json().catch(() => ({}));
+          throw new Error(errJson.error || `Errore server (${response.status})`);
+        }
+
+        const data: AgenticQueryResponse = await response.json();
+
+        setConversation((prev) =>
+          prev.map((msg) =>
+            msg.id === messageId
+              ? { ...msg, response: data }
+              : msg
+          )
+        );
+      }
     } catch (err: any) {
       console.error("[VAULT_INTELLIGENCE_CLIENT_ERROR]", err);
       setConversation((prev) =>
@@ -960,6 +1051,28 @@ export const VaultIntelligenceDrawer: React.FC<VaultIntelligenceDrawerProps> = (
                   </div>
                 ))}
               </div>
+
+              {/* Live Streaming Activity Feed */}
+              {(() => {
+                const lastMsg = conversation[conversation.length - 1];
+                const traces = lastMsg?.liveTraces || [];
+                if (traces.length === 0) return null;
+                return (
+                  <div className="mt-2 pt-2 border-t border-[#221A10] space-y-1">
+                    <div className="text-[10px] text-[#C5A059] uppercase tracking-wider font-mono flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                      Attività Agenti in Streaming SSE:
+                    </div>
+                    {traces.slice(-3).map((tr, i) => (
+                      <div key={i} className="text-[10.5px] text-[#BBB] font-mono flex items-center gap-1.5 truncate">
+                        <span className="text-emerald-400">⚡</span>
+                        <span className="text-[#C5A059] font-semibold">[{tr.agent}]</span>
+                        <span className="truncate text-[#DDD]">{tr.action}: {tr.description}</span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
             </div>
           )}
 

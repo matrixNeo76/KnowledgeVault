@@ -33,7 +33,8 @@ import {
   List,
   Network,
   ChevronDown,
-  GitBranch
+  GitBranch,
+  BookMarked
 } from "lucide-react";
 import { ResourceType, NavCategory, ViewMode } from "../types";
 import { User } from "firebase/auth";
@@ -56,6 +57,8 @@ interface SidebarProps {
     link?: number;
     favorites: number;
     raw_files?: number;
+    read_later?: number;
+    read_later_unread?: number;
   };
   user: User | null;
   onSignIn: () => void;
@@ -182,6 +185,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: "Preferiti",
       icon: <Star className="w-4 h-4 text-[#E5C170] fill-[#E5C170]/20" />,
       count: counts.favorites,
+    },
+    {
+      id: "read_later" as NavCategory,
+      label: "Read-It-Later",
+      icon: <BookMarked className="w-4 h-4 text-[#38BDF8]" />,
+      count: counts.read_later || 0,
+      badgeText: counts.read_later_unread && counts.read_later_unread > 0 ? `${counts.read_later_unread} nuovi` : undefined,
     },
     ...((counts.raw_files ?? 0) > 0
       ? [

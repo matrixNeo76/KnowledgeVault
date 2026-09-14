@@ -1,4 +1,9 @@
-import { getGenAI, recordGeminiCall } from "../gemini/client";
+import {
+  getGenAI,
+  recordGeminiCall,
+  isGeminiQuotaInCooldown,
+  triggerGeminiQuotaCooldown,
+} from "../gemini/client";
 
 export interface GroundedSearchResult {
   groundedText: string;
@@ -20,7 +25,16 @@ export async function performSearchGroundedSynthesis(
   const ai = getGenAI();
   if (!ai || !query || query.trim().length === 0) return null;
 
-  const candidateModels = ["gemini-3.7-flash", "gemini-flash-latest"];
+  // Circuit breaker: If Gemini API quota is in cooldown, return null immediately
+  if (isGeminiQuotaInCooldown()) {
+    return null;
+  }
+
+  const candidateModels = [
+    "gemini-3.8-flash",
+    "gemini-3.7-flash",
+    "gemini-flash-latest",
+  ];
   const prompt = `Perform a live web search to gather authoritative, up-to-date facts, official documentation, architectural context, repository URLs, and technical specifications for the following user topic or inquiry:
 """
 ${query}
@@ -85,15 +99,38 @@ Provide a rich, factual, and detailed technical brief with key entities, feature
       }
     } catch (err: any) {
       const latencyMs = Date.now() - startMs;
-      console.warn(`[SearchGrounding] ${model} search failed:`, err?.message || err);
+      const isQuota =
+        err?.status === "RESOURCE_EXHAUSTED" ||
+        err?.code === 429 ||
+        err?.message?.includes("quota") ||
+        err?.message?.includes("429") ||
+        err?.message?.includes("RESOURCE_EXHAUSTED");
+      const isOverloaded =
+        err?.status === "UNAVAILABLE" ||
+        err?.code === 503 ||
+        err?.message?.includes("overloaded") ||
+        err?.message?.includes("high demand");
+
       recordGeminiCall({
         endpoint: "search-grounding",
         model,
         latencyMs,
-        status: "error",
-        statusCode: 500,
-        errorMessage: err?.message,
+        status: isQuota ? "quota_exceeded" : isOverloaded ? "unavailable" : "error",
+        statusCode: isQuota ? 429 : isOverloaded ? 503 : 500,
+        errorMessage: isQuota ? "429 RESOURCE_EXHAUSTED" : err?.message,
       });
+
+      if (isQuota) {
+        triggerGeminiQuotaCooldown(60000);
+        console.log(
+          `[SearchGrounding] Quota limit reached (429 RESOURCE_EXHAUSTED). Entering 60s cooldown; skipping remaining candidate models.`
+        );
+        break; // Stop attempting other models under the same project quota
+      } else if (isOverloaded) {
+        console.log(`[SearchGrounding] ${model} temporarily overloaded (503). Trying next fallback model...`);
+      } else {
+        console.log(`[SearchGrounding] ${model} search failed: ${err?.message || "error"}`);
+      }
     }
   }
 

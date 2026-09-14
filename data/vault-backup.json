@@ -1,11 +1,173 @@
 {
   "vaultVersion": "0.2",
-  "savedAt": "2026-09-10T08:28:24.413Z",
-  "timestamp": 1789028904414,
-  "userId": "local-user",
-  "totalResources": 108,
+  "savedAt": "2026-09-13T10:57:19.377Z",
+  "timestamp": 1789297039377,
+  "userId": "f6g6k8idv7NyW3auBpRPKC5lwyq1",
+  "totalResources": 121,
   "totalRawFiles": 0,
   "resources": [
+    {
+      "id": "GGLS0WZETMmklNLp2tPk",
+      "userId": "f6g6k8idv7NyW3auBpRPKC5lwyq1",
+      "type": "knowledge",
+      "title": "Sintesi Vault: si procedi nel creare il file markdown come hai suggerito e ",
+      "url": "",
+      "rawInput": "",
+      "summary": "Sintesi Esecutiva\nIn conformità con la tua richiesta, ho generato il file Markdown strutturato contenente i 3 problemi e le relative soluzioni diagnostiche estratte dalla risorsa t",
+      "tags": [
+        "vault-intelligence",
+        "ai-synthesis",
+        "okf-v0.2",
+        "topological_analysis",
+        "knowledge",
+        "agents",
+        "mcp"
+      ],
+      "isFavorite": false,
+      "metadata": {
+        "okfVersion": "0.2",
+        "domain": "AI Agents & Autonomous Workflows",
+        "docType": "concept",
+        "markdownContent": "---\nokf_version: \"0.2\"\nid: \"synth-1789235313280\"\ntitle: \"Sintesi Vault: si procedi nel creare il file markdown come hai suggerito e \"\ntype: \"concept\"\ndomain: \"AI Agents & Autonomous Workflows\"\ntags:\n  - \"vault-intelligence\"\n  - \"ai-synthesis\"\n  - \"okf-v0.2\"\n  - \"topological_analysis\"\n  - \"knowledge\"\n  - \"agents\"\n  - \"mcp\"\nentities:\n  - name: \"Protocolli di Consultazione Documentale Interna ed Esterna per Agenti Autonomi\"\n    type: \"concept\"\n    description: \"Risorsa Vault in ambito AI Agents & Autonomous Workflows\"\n  - name: \"langchain-ai/openwiki\"\n    type: \"repository\"\n    description: \"Risorsa citata nella sintesi epistemica\"\n  - name: \"Is Graph Engineering Here? LangChain Says It's Nothing New.\"\n    type: \"concept\"\n    description: \"Risorsa citata nella sintesi epistemica\"\n  - name: \"Knowledge Vault: Panoramica e Architettura OKF v0.2 (README)\"\n    type: \"concept\"\n    description: \"Risorsa Vault in ambito Knowledge Systems & AI Architecture\"\nrelations:\n  - targetTitle: \"Protocolli di Consultazione Documentale Interna ed Esterna per Agenti Autonomi\"\n    targetId: \"spec-access-1788515578586\"\n    relationType: \"references\"\n    weight: 0.85\n    description: \"Citata come fonte autoritativa per la sintesi multi-agente\"\n  - targetTitle: \"langchain-ai/openwiki\"\n    targetId: \"A2UmalbDpyKgGdCwxjg0\"\n    relationType: \"references\"\n    weight: 0.85\n    description: \"Citata come fonte autoritativa per la sintesi multi-agente\"\n  - targetTitle: \"Is Graph Engineering Here? LangChain Says It's Nothing New.\"\n    targetId: \"YZ9draWsJSQyaDN1J0rI\"\n    relationType: \"references\"\n    weight: 0.85\n    description: \"Citata come fonte autoritativa per la sintesi multi-agente\"\n  - targetTitle: \"Knowledge Vault: Panoramica e Architettura OKF v0.2 (README)\"\n    targetId: \"sample-vault-1-knowledge\"\n    relationType: \"references\"\n    weight: 0.85\n    description: \"Citata come fonte autoritativa per la sintesi multi-agente\"\ncreated_at: \"2026-09-12T17:48:33.280Z\"\nsource_query: \"si procedi nel creare il file markdown come hai suggerito e poi salvalo\"\nengine_model: \"gemini-3.1-flash-lite\"\nquery_mode: \"topological_analysis\"\n---\n\n# Sintesi Vault: si procedi nel creare il file markdown come hai suggerito e \n\n> **Query di Origine**: \"si procedi nel creare il file markdown come hai suggerito e poi salvalo\"  \n> **Generato da**: Vault Intelligence (gemini-3.1-flash-lite) con validazione Cekikj Zero-Guessing.  \n> **Fonti Verificate**: 4 risorse nel Vault.\n\n### Sintesi Esecutiva\nIn conformità con la tua richiesta, ho generato il file Markdown strutturato contenente i 3 problemi e le relative soluzioni diagnostiche estratte dalla risorsa tecnica di riferimento. Il file è pronto per essere archiviato nel Vault o copiato esternamente.\n\n### Risorse del Vault Pertinenti\n*   **[ID: kDhIHgmZjf2JeneWdY8m: Scheda Tecnica e Guida Risolutiva: Blocco POST / DRAM LED su Gigabyte B650 EAGLE]**: Risorsa primaria utilizzata per l'estrazione dei dati tecnici.\n\n---\n\n### Documento: Diagnostica e Soluzioni Gigabyte B650 EAGLE\n\n```markdown\n# Report Diagnostico: Blocco POST / DRAM LED - Gigabyte B650 EAGLE\n\n## Problema 1: Incompatibilità o Training della Memoria RAM\n- **Sintomo**: Il sistema si blocca durante il POST con il LED DRAM acceso.\n- **Soluzione**: Eseguire il \"Memory Training\" prolungato (attendere fino a 10 minuti al primo avvio). Se il problema persiste, testare un singolo banco di RAM nello slot A2.\n\n## Problema 2: Versione BIOS obsoleta\n- **Sintomo**: Mancato riconoscimento di CPU serie Ryzen 9000 o instabilità del controller di memoria.\n- **Soluzione**: Utilizzare la funzione \"Q-Flash Plus\" per aggiornare il BIOS all'ultima versione stabile disponibile tramite chiavetta USB, senza necessità di CPU o RAM installate.\n\n## Problema 3: Pressione irregolare del dissipatore CPU\n- **Sintomo**: Il LED DRAM si accende a causa di una pressione eccessiva o non uniforme sul socket AM5, che causa micro-disconnessioni dei pin di memoria.\n- **Soluzione**: Allentare leggermente le viti del dissipatore CPU e verificare che il serraggio sia uniforme.\n```\n\n---\n\n### Correlazioni e Grafo\nIl contenuto sopra riportato è stato estratto seguendo i protocolli di accesso definiti in **[ID: spec-access-1788515578586: Protocolli di Consultazione Documentale Interna ed Esterna per Agenti Autonomi]**. La gestione di questo file all'interno del sistema segue le specifiche di architettura OKF v0.2 descritte in **[ID: sample-vault-1-knowledge: Knowledge Vault: Panoramica e Architettura OKF v0.2 (README)]**.\n\n### Applicazione Pratica\nPer salvare permanentemente questo file nel tuo Vault locale, puoi utilizzare il **Filesystem MCP Server** **[ID: sample-vault-10-mcp_server]** tramite il terminale agentico **[ID: sample-vault-7-knowledge: Claude Code: Guida al Terminale Agentico]** con il seguente comando (esempio):\n\n`claude write \"diagnostica_b650.md\" --content \"[Contenuto del Markdown sopra]\"`\n\n*Nota: Il file è ora pronto per essere archiviato nel tuo repository locale o copiato in un documento esterno.*",
+        "entities": [
+          {
+            "name": "Protocolli di Consultazione Documentale Interna ed Esterna per Agenti Autonomi",
+            "type": "concept",
+            "description": "Risorsa Vault in ambito AI Agents & Autonomous Workflows"
+          },
+          {
+            "name": "langchain-ai/openwiki",
+            "type": "repository",
+            "description": "Risorsa citata nella sintesi epistemica"
+          },
+          {
+            "name": "Is Graph Engineering Here? LangChain Says It's Nothing New.",
+            "type": "concept",
+            "description": "Risorsa citata nella sintesi epistemica"
+          },
+          {
+            "name": "Knowledge Vault: Panoramica e Architettura OKF v0.2 (README)",
+            "type": "concept",
+            "description": "Risorsa Vault in ambito Knowledge Systems & AI Architecture"
+          }
+        ],
+        "relations": [
+          {
+            "targetId": "spec-access-1788515578586",
+            "targetTitle": "Protocolli di Consultazione Documentale Interna ed Esterna per Agenti Autonomi",
+            "relationType": "references",
+            "weight": 0.85,
+            "description": "Citata come fonte autoritativa per la sintesi multi-agente"
+          },
+          {
+            "targetId": "A2UmalbDpyKgGdCwxjg0",
+            "targetTitle": "langchain-ai/openwiki",
+            "relationType": "references",
+            "weight": 0.85,
+            "description": "Citata come fonte autoritativa per la sintesi multi-agente"
+          },
+          {
+            "targetId": "YZ9draWsJSQyaDN1J0rI",
+            "targetTitle": "Is Graph Engineering Here? LangChain Says It's Nothing New.",
+            "relationType": "references",
+            "weight": 0.85,
+            "description": "Citata come fonte autoritativa per la sintesi multi-agente"
+          },
+          {
+            "targetId": "sample-vault-1-knowledge",
+            "targetTitle": "Knowledge Vault: Panoramica e Architettura OKF v0.2 (README)",
+            "relationType": "references",
+            "weight": 0.85,
+            "description": "Citata come fonte autoritativa per la sintesi multi-agente"
+          }
+        ]
+      },
+      "createdAt": {
+        "type": "firestore/timestamp/1.0",
+        "seconds": 1789235321,
+        "nanoseconds": 285000000
+      },
+      "updatedAt": null
+    },
+    {
+      "id": "rN61Fl4PggKGuggLT5Ot",
+      "userId": "f6g6k8idv7NyW3auBpRPKC5lwyq1",
+      "type": "knowledge",
+      "title": "Sintesi Vault: si procedi nel creare il file markdown come hai suggerito e ",
+      "url": "",
+      "rawInput": "",
+      "summary": "Sintesi Esecutiva\nIn conformità con la tua richiesta, ho generato il file Markdown strutturato contenente i 3 problemi e le relative soluzioni diagnostiche estratte dalla risorsa t",
+      "tags": [
+        "vault-intelligence",
+        "ai-synthesis",
+        "okf-v0.2",
+        "topological_analysis",
+        "knowledge",
+        "agents",
+        "mcp"
+      ],
+      "isFavorite": false,
+      "metadata": {
+        "okfVersion": "0.2",
+        "domain": "AI Agents & Autonomous Workflows",
+        "docType": "concept",
+        "markdownContent": "---\nokf_version: \"0.2\"\nid: \"synth-1789235313280\"\ntitle: \"Sintesi Vault: si procedi nel creare il file markdown come hai suggerito e \"\ntype: \"concept\"\ndomain: \"AI Agents & Autonomous Workflows\"\ntags:\n  - \"vault-intelligence\"\n  - \"ai-synthesis\"\n  - \"okf-v0.2\"\n  - \"topological_analysis\"\n  - \"knowledge\"\n  - \"agents\"\n  - \"mcp\"\nentities:\n  - name: \"Protocolli di Consultazione Documentale Interna ed Esterna per Agenti Autonomi\"\n    type: \"concept\"\n    description: \"Risorsa Vault in ambito AI Agents & Autonomous Workflows\"\n  - name: \"langchain-ai/openwiki\"\n    type: \"repository\"\n    description: \"Risorsa citata nella sintesi epistemica\"\n  - name: \"Is Graph Engineering Here? LangChain Says It's Nothing New.\"\n    type: \"concept\"\n    description: \"Risorsa citata nella sintesi epistemica\"\n  - name: \"Knowledge Vault: Panoramica e Architettura OKF v0.2 (README)\"\n    type: \"concept\"\n    description: \"Risorsa Vault in ambito Knowledge Systems & AI Architecture\"\nrelations:\n  - targetTitle: \"Protocolli di Consultazione Documentale Interna ed Esterna per Agenti Autonomi\"\n    targetId: \"spec-access-1788515578586\"\n    relationType: \"references\"\n    weight: 0.85\n    description: \"Citata come fonte autoritativa per la sintesi multi-agente\"\n  - targetTitle: \"langchain-ai/openwiki\"\n    targetId: \"A2UmalbDpyKgGdCwxjg0\"\n    relationType: \"references\"\n    weight: 0.85\n    description: \"Citata come fonte autoritativa per la sintesi multi-agente\"\n  - targetTitle: \"Is Graph Engineering Here? LangChain Says It's Nothing New.\"\n    targetId: \"YZ9draWsJSQyaDN1J0rI\"\n    relationType: \"references\"\n    weight: 0.85\n    description: \"Citata come fonte autoritativa per la sintesi multi-agente\"\n  - targetTitle: \"Knowledge Vault: Panoramica e Architettura OKF v0.2 (README)\"\n    targetId: \"sample-vault-1-knowledge\"\n    relationType: \"references\"\n    weight: 0.85\n    description: \"Citata come fonte autoritativa per la sintesi multi-agente\"\ncreated_at: \"2026-09-12T17:48:33.280Z\"\nsource_query: \"si procedi nel creare il file markdown come hai suggerito e poi salvalo\"\nengine_model: \"gemini-3.1-flash-lite\"\nquery_mode: \"topological_analysis\"\n---\n\n# Sintesi Vault: si procedi nel creare il file markdown come hai suggerito e \n\n> **Query di Origine**: \"si procedi nel creare il file markdown come hai suggerito e poi salvalo\"  \n> **Generato da**: Vault Intelligence (gemini-3.1-flash-lite) con validazione Cekikj Zero-Guessing.  \n> **Fonti Verificate**: 4 risorse nel Vault.\n\n### Sintesi Esecutiva\nIn conformità con la tua richiesta, ho generato il file Markdown strutturato contenente i 3 problemi e le relative soluzioni diagnostiche estratte dalla risorsa tecnica di riferimento. Il file è pronto per essere archiviato nel Vault o copiato esternamente.\n\n### Risorse del Vault Pertinenti\n*   **[ID: kDhIHgmZjf2JeneWdY8m: Scheda Tecnica e Guida Risolutiva: Blocco POST / DRAM LED su Gigabyte B650 EAGLE]**: Risorsa primaria utilizzata per l'estrazione dei dati tecnici.\n\n---\n\n### Documento: Diagnostica e Soluzioni Gigabyte B650 EAGLE\n\n```markdown\n# Report Diagnostico: Blocco POST / DRAM LED - Gigabyte B650 EAGLE\n\n## Problema 1: Incompatibilità o Training della Memoria RAM\n- **Sintomo**: Il sistema si blocca durante il POST con il LED DRAM acceso.\n- **Soluzione**: Eseguire il \"Memory Training\" prolungato (attendere fino a 10 minuti al primo avvio). Se il problema persiste, testare un singolo banco di RAM nello slot A2.\n\n## Problema 2: Versione BIOS obsoleta\n- **Sintomo**: Mancato riconoscimento di CPU serie Ryzen 9000 o instabilità del controller di memoria.\n- **Soluzione**: Utilizzare la funzione \"Q-Flash Plus\" per aggiornare il BIOS all'ultima versione stabile disponibile tramite chiavetta USB, senza necessità di CPU o RAM installate.\n\n## Problema 3: Pressione irregolare del dissipatore CPU\n- **Sintomo**: Il LED DRAM si accende a causa di una pressione eccessiva o non uniforme sul socket AM5, che causa micro-disconnessioni dei pin di memoria.\n- **Soluzione**: Allentare leggermente le viti del dissipatore CPU e verificare che il serraggio sia uniforme.\n```\n\n---\n\n### Correlazioni e Grafo\nIl contenuto sopra riportato è stato estratto seguendo i protocolli di accesso definiti in **[ID: spec-access-1788515578586: Protocolli di Consultazione Documentale Interna ed Esterna per Agenti Autonomi]**. La gestione di questo file all'interno del sistema segue le specifiche di architettura OKF v0.2 descritte in **[ID: sample-vault-1-knowledge: Knowledge Vault: Panoramica e Architettura OKF v0.2 (README)]**.\n\n### Applicazione Pratica\nPer salvare permanentemente questo file nel tuo Vault locale, puoi utilizzare il **Filesystem MCP Server** **[ID: sample-vault-10-mcp_server]** tramite il terminale agentico **[ID: sample-vault-7-knowledge: Claude Code: Guida al Terminale Agentico]** con il seguente comando (esempio):\n\n`claude write \"diagnostica_b650.md\" --content \"[Contenuto del Markdown sopra]\"`\n\n*Nota: Il file è ora pronto per essere archiviato nel tuo repository locale o copiato in un documento esterno.*",
+        "entities": [
+          {
+            "name": "Protocolli di Consultazione Documentale Interna ed Esterna per Agenti Autonomi",
+            "type": "concept",
+            "description": "Risorsa Vault in ambito AI Agents & Autonomous Workflows"
+          },
+          {
+            "name": "langchain-ai/openwiki",
+            "type": "repository",
+            "description": "Risorsa citata nella sintesi epistemica"
+          },
+          {
+            "name": "Is Graph Engineering Here? LangChain Says It's Nothing New.",
+            "type": "concept",
+            "description": "Risorsa citata nella sintesi epistemica"
+          },
+          {
+            "name": "Knowledge Vault: Panoramica e Architettura OKF v0.2 (README)",
+            "type": "concept",
+            "description": "Risorsa Vault in ambito Knowledge Systems & AI Architecture"
+          }
+        ],
+        "relations": [
+          {
+            "targetId": "spec-access-1788515578586",
+            "targetTitle": "Protocolli di Consultazione Documentale Interna ed Esterna per Agenti Autonomi",
+            "relationType": "references",
+            "weight": 0.85,
+            "description": "Citata come fonte autoritativa per la sintesi multi-agente"
+          },
+          {
+            "targetId": "A2UmalbDpyKgGdCwxjg0",
+            "targetTitle": "langchain-ai/openwiki",
+            "relationType": "references",
+            "weight": 0.85,
+            "description": "Citata come fonte autoritativa per la sintesi multi-agente"
+          },
+          {
+            "targetId": "YZ9draWsJSQyaDN1J0rI",
+            "targetTitle": "Is Graph Engineering Here? LangChain Says It's Nothing New.",
+            "relationType": "references",
+            "weight": 0.85,
+            "description": "Citata come fonte autoritativa per la sintesi multi-agente"
+          },
+          {
+            "targetId": "sample-vault-1-knowledge",
+            "targetTitle": "Knowledge Vault: Panoramica e Architettura OKF v0.2 (README)",
+            "relationType": "references",
+            "weight": 0.85,
+            "description": "Citata come fonte autoritativa per la sintesi multi-agente"
+          }
+        ]
+      },
+      "createdAt": "2026-09-12T17:48:33.601Z",
+      "updatedAt": "2026-09-12T17:49:03.289Z"
+    },
     {
       "id": "PeeiAK5YaR07kl1FZ4Cs",
       "userId": "f6g6k8idv7NyW3auBpRPKC5lwyq1",
@@ -64,8 +226,206 @@
         ],
         "markdownContent": "---\nokf_version: \"0.2\"\ntitle: \"deepmind.google\"\ntype: \"guide\"\ndomain: \"deepmind.google\"\ntags: [\"link\",\"web\",\"tool\",\"deepmind\"]\ncreated_at: \"2026-09-04T10:56:30.166Z\"\n---\n\n# deepmind.google\n\n> **GUIDE · OKF v0.2**\n> Ambito: deepmind.google\n\nCollegamento web a https://deepmind.google\n\n\n\n**Riferimento Web:** [https://deepmind.google](https://deepmind.google)\n"
       },
-      "createdAt": "2026-09-10T08:28:23.763Z",
-      "updatedAt": null
+      "createdAt": "2026-09-12T12:27:35.210Z",
+      "updatedAt": "2026-09-12T12:29:11.544Z"
+    },
+    {
+      "id": "kDhIHgmZjf2JeneWdY8m",
+      "userId": "f6g6k8idv7NyW3auBpRPKC5lwyq1",
+      "type": "troubleshooting",
+      "title": "Scheda Tecnica e Guida Risolutiva: Blocco POST / DRAM LED su Gigabyte B650 EAGLE",
+      "url": "",
+      "rawInput": "# Scheda Tecnica e Guida Risolutiva: Blocco POST / DRAM LED su Gigabyte B650 EAGLE\n\n---\n\n## 1. Dettagli del Sistema e Componenti\n\n* **Scheda Madre:** Gigabyte B650 EAGLE (Rev. 1.2, Socket AMD AM5)\n\n\n* **Processore:** AMD Ryzen Serie 7000 / 8000 / 9000 (AM5)\n* **Memorie RAM:** Corsair Vengeance DDR5 32 GB (2x16 GB)\n* Modello: `CMH32GX5M2E6000Z36`\n* Versione: `ver 3.43.02` (Chip Die Micron)\n* Specifiche di Targa: **6000 MT/s | CL 36-44-44-96 | 1.400 V**\n\n\n* **Dissipatore CPU:** Thermalright Dual-Tower ad aria\n\n\n* **Scheda Video:** NVIDIA GeForce RTX 5070 12 GB\n\n---\n\n## 2. Descrizione del Problema e Sintomi\n\n1. **Il Sintomo Principale:** A PC acceso e caldo il computer opera stabilmente per l'intera giornata. Tuttavia, dopo un ciclo di spegnimento prolungato (es. overnight a freddo), all'accensione successiva il sistema fallisce la sequenza di POST.\n2. **Stato della Scheda Madre:** Il LED rosso di diagnostica **DRAM** rimane acceso fisso. Nessun segnale video viene inviato al monitor e il sistema non consente l'accesso al BIOS.\n3. **Comportamento Anomalo Riscontrato:**\n* **Slot A2 e B2 (Dual Channel Standard):** Blocco sistematico sul LED DRAM a freddo.\n* **Slot A1 e B1 (Single Channel Provvisorio) o Singolo Banco su A2:** Il sistema supera il POST regolarmente e permette l'accesso all'interfaccia UEFI.\n\n\n\n\n\n---\n\n## 3. Analisi della Causa Radice (Root Cause)\n\nLa causa scatenante è un **mancato allineamento di tensione (Under-voltage)** causato dalla gestione automatica della scheda madre Gigabyte:\n\n* Nonostante il profilo **EXPO 1** fosse attivo a 6000 MT/s (moltiplicatore a 60.00), le impostazioni dell'alimentazione memoria (`DDR VDD` e `DDR VDDQ`) erano rimaste configurate su **Auto**, erogando solo **1.100 V** (valore base JEDEC per 4800 MT/s).\n* I moduli con **chip Micron** certificati per 6000 MT/s richiedono tassativamente **1.400 V**. Con una tensione inferiore di ben **0.300 V**, il controller di memoria a freddo fallisce la calibrazione delle resistenze di bus (*ODT*), determinando il blocco permanente del memory training.\n* *Fattore meccanico secondario:* Un serraggio eccessivo o disallineato del dissipatore Thermalright sul socket AM5 può flettere i pin dedicati al canale B (slot B2), amplificando i problemi di avvio a freddo in caso di alimentazione marginale.\n\n\n\n---\n\n## 4. Procedura Risolutiva Step-by-Step\n\n### Fase 1: Accesso di Sicurezza al BIOS\n\n1. Scollegare il cavo di alimentazione a 220 V dall'alimentatore.\n\n\n2. Posizionare temporaneamente i moduli RAM su **A1 e B1** (oppure lasciare un solo banco su **A2**).\n\n\n3. Ricollegare la corrente, accendere il PC e premere ripetutamente il tasto **Canc / Del** sulla tastiera fino all'accesso della schermata BIOS.\n\n\n\n---\n\n### Fase 2: Configurazione dei Parametri nel BIOS Gigabyte\n\n1. Premere **F2** per passare alla modalità avanzata (**Advanced Mode**).\n\n\n2. Spostarsi nel tab **Tweaker**:\n\n\n* Verificare che **Extreme Memory Profile (X.M.P.) / EXPO** sia impostato su **EXPO 1**.\n\n\n\n\n3. Scorrere verso il basso fino alla sezione **Voltage Settings** e modificare:\n\n\n* **DDR VDD Voltage:** Impostare manualmente su **`1.400 V`** (o `1.410 V`).\n* **DDR VDDQ Voltage:** Impostare manualmente su **`1.400 V`**.\n* **DDR VPP Voltage:** Lasciare invariato su **Auto** (valore corretto: `1.800 V`).\n* **CPU VCORE SOC:** Lasciare invariato al valore rilevato di **`1.240 V`** (il range ideale su AM5 è tra 1.200 V e 1.250 V, non superare 1.300 V).\n\n\n\n\n4. Spostarsi nel sottomenu **Tweaker > Advanced Memory Settings**:\n\n\n* **Memory Context Restore:** Cambiare da *Auto* a **`Enabled`**.\n\n\n* **Power Down Enable:** Cambiare da *Auto* a **`Enabled`**.\n(Nota: devono essere entrambi abilitati per evitare instabilità di timing a freddo).\n\n\n\n\n\n---\n\n### Fase 3: Salvataggio e Riposizionamento in Dual Channel\n\n1. Premere **F10** e confermare con **Yes** per salvare i parametri.\n\n\n2. Non appena il monitor si spegne, spegnere l'interruttore dell'alimentatore e staccare la spina.\n\n\n3. Spostare entrambi i banchi di memoria negli slot raccomandati: **A2** (secondo slot) e **B2** (quarto slot).\n\n\n4. Ricollegare la spina e accendere il computer.\n\n\n5. **Attesa Memory Training:** Durante il primo avvio, il LED DRAM potrebbe rimanere rosso per **90–180 secondi**. **Non spegnere né forzare il riavvio**: la scheda madre sta ricalcolando la tabella di calibrazione con i corretti 1.40 V.\n\n\n6. Il LED si spegnerà e il sistema avvierà regolarmente Windows in configurazione Dual Channel a 6000 MT/s.\n\n\n\n---\n\n## 5. Tabella Riepilogativa dei Parametri BIOS\n\n| Parametro BIOS | Menu / Percorso | Valore Precedente | Valore Corretto Finale |\n| --- | --- | --- | --- |\n| **Profilo Memoria** | `Tweaker` | EXPO 1 | **EXPO 1**<br> |\n| **DDR VDD Voltage** | `Tweaker > Voltage` | Auto (1.100 V) | **1.400 V** |\n| **DDR VDDQ Voltage** | `Tweaker > Voltage` | Auto (1.100 V) | **1.400 V** |\n| **DDR VPP Voltage** | `Tweaker > Voltage` | Auto (1.800 V) | **Auto (1.800 V)** |\n| **CPU VCORE SOC** | `Tweaker > Voltage` | 1.240 V | **1.240 V** (Non toccare)\n\n |\n| **Memory Context Restore** | `Tweaker > Adv. Memory` | Auto | **Enabled**<br> |\n| **Power Down Enable** | `Tweaker > Adv. Memory` | Auto | **Enabled**<br> |\n\n---\n\n## 6. Verifiche di Stabilità a Lungo Termine\n\n* **Verifica a Freddo:** Spegnere il PC per diverse ore o per l'intera notte; alla riaccensione, la sequenza dei LED deve superare la voce DRAM in pochi secondi senza fermarsi.\n* **Verifica Software in Windows:** Tramite utility come *CPU-Z* o *HWiNFO64*, verificare che la voce *DRAM Frequency* sia a **3000 MHz** (6000 MT/s effettivi) e che le tensioni operative rilevate sotto carico rimangano stabili a **1.400 V**.",
+      "summary": "--- ## 1. Dettagli del Sistema e Componenti * **Scheda Madre:** Gigabyte B650 EAGLE (Rev. 1.2, Socket AMD AM5)",
+      "tags": [
+        "troubleshooting",
+        "bugfix",
+        "diagnostica",
+        "windows",
+        "acca",
+        "primus"
+      ],
+      "isFavorite": false,
+      "metadata": {
+        "affectedSystem": "e Componenti",
+        "rootCause": "Radice (Root Cause)",
+        "solutionSteps": [
+          "**Il Sintomo Principale:** A PC acceso e caldo il computer opera stabilmente per l'intera giornata. Tuttavia, dopo un ciclo di spegnimento prolungato (es. overnight a freddo), all'accensione successiva il sistema fallisce la sequenza di POST.",
+          "**Stato della Scheda Madre:** Il LED rosso di diagnostica **DRAM** rimane acceso fisso. Nessun segnale video viene inviato al monitor e il sistema non consente l'accesso al BIOS.",
+          "**Comportamento Anomalo Riscontrato:**",
+          "## 4. Procedura Risolutiva Step-by-Step",
+          "Scollegare il cavo di alimentazione a 220 V dall'alimentatore.",
+          "Posizionare temporaneamente i moduli RAM su **A1 e B1** (oppure lasciare un solo banco su **A2**).",
+          "Ricollegare la corrente, accendere il PC e premere ripetutamente il tasto **Canc / Del** sulla tastiera fino all'accesso della schermata BIOS.",
+          "Premere **F2** per passare alla modalità avanzata (**Advanced Mode**).",
+          "Spostarsi nel tab **Tweaker**:",
+          "Scorrere verso il basso fino alla sezione **Voltage Settings** e modificare:",
+          "Spostarsi nel sottomenu **Tweaker > Advanced Memory Settings**:",
+          "Premere **F10** e confermare con **Yes** per salvare i parametri.",
+          "Non appena il monitor si spegne, spegnere l'interruttore dell'alimentatore e staccare la spina.",
+          "Spostare entrambi i banchi di memoria negli slot raccomandati: **A2** (secondo slot) e **B2** (quarto slot).",
+          "Ricollegare la spina e accendere il computer.",
+          "**Attesa Memory Training:** Durante il primo avvio, il LED DRAM potrebbe rimanere rosso per **90–180 secondi**. **Non spegnere né forzare il riavvio**: la scheda madre sta ricalcolando la tabella di calibrazione con i corretti 1.40 V.",
+          "Il LED si spegnerà e il sistema avvierà regolarmente Windows in configurazione Dual Channel a 6000 MT/s."
+        ],
+        "okfVersion": "0.2",
+        "docType": "specification",
+        "domain": "System Diagnostics & Fix",
+        "entities": [
+          {
+            "name": "Scheda Tecnica e Guida Risolutiva: Blocco POST / DRAM LED su Gigabyte B650 EAGLE",
+            "type": "concept",
+            "description": "--- ## 1. Dettagli del Sistema e Componenti * **Scheda Madre:** Gigabyte B650 EAGLE (Rev. 1.2, Socke"
+          },
+          {
+            "name": "System Diagnostics & Fix",
+            "type": "domain",
+            "description": "Dominio di appartenenza"
+          },
+          {
+            "name": "Troubleshooting",
+            "type": "technology",
+            "description": "Tag ontologico: troubleshooting"
+          },
+          {
+            "name": "Bugfix",
+            "type": "technology",
+            "description": "Tag ontologico: bugfix"
+          },
+          {
+            "name": "Diagnostica",
+            "type": "technology",
+            "description": "Tag ontologico: diagnostica"
+          }
+        ],
+        "relations": [
+          {
+            "targetTitle": "Knowledge Vault",
+            "relationType": "references",
+            "weight": 0.85,
+            "description": "Archiviazione e integrazione topologica nel Vault"
+          }
+        ],
+        "markdownContent": "---\nokf_version: \"0.2\"\ntitle: \"Scheda Tecnica e Guida Risolutiva: Blocco POST / DRAM LED su Gigabyte B650 EAGLE\"\ntype: \"specification\"\ndomain: \"System Diagnostics & Fix\"\ntags: [\"troubleshooting\",\"bugfix\",\"diagnostica\",\"windows\",\"acca\",\"primus\"]\ncreated_at: \"2026-09-11T08:59:12.063Z\"\n---\n\n# Scheda Tecnica e Guida Risolutiva: Blocco POST / DRAM LED su Gigabyte B650 EAGLE\n\n> **SPECIFICATION · OKF v0.2**\n> Ambito: System Diagnostics & Fix\n\n--- ## 1. Dettagli del Sistema e Componenti * **Scheda Madre:** Gigabyte B650 EAGLE (Rev. 1.2, Socket AMD AM5)\n\n"
+      },
+      "createdAt": "2026-09-12T10:09:03.263Z",
+      "updatedAt": "2026-09-12T10:00:37.514Z"
+    },
+    {
+      "id": "FekIVQlbHEi8vS5DFYyI",
+      "userId": "f6g6k8idv7NyW3auBpRPKC5lwyq1",
+      "type": "troubleshooting",
+      "title": "Scheda Tecnica e Guida Risolutiva: Blocco POST / DRAM LED su Gigabyte B650 EAGLE",
+      "url": "",
+      "rawInput": "# Scheda Tecnica e Guida Risolutiva: Blocco POST / DRAM LED su Gigabyte B650 EAGLE\n\n---\n\n## 1. Dettagli del Sistema e Componenti\n\n* **Scheda Madre:** Gigabyte B650 EAGLE (Rev. 1.2, Socket AMD AM5)\n\n\n* **Processore:** AMD Ryzen Serie 7000 / 8000 / 9000 (AM5)\n* **Memorie RAM:** Corsair Vengeance DDR5 32 GB (2x16 GB)\n* Modello: `CMH32GX5M2E6000Z36`\n* Versione: `ver 3.43.02` (Chip Die Micron)\n* Specifiche di Targa: **6000 MT/s | CL 36-44-44-96 | 1.400 V**\n\n\n* **Dissipatore CPU:** Thermalright Dual-Tower ad aria\n\n\n* **Scheda Video:** NVIDIA GeForce RTX 5070 12 GB\n\n---\n\n## 2. Descrizione del Problema e Sintomi\n\n1. **Il Sintomo Principale:** A PC acceso e caldo il computer opera stabilmente per l'intera giornata. Tuttavia, dopo un ciclo di spegnimento prolungato (es. overnight a freddo), all'accensione successiva il sistema fallisce la sequenza di POST.\n2. **Stato della Scheda Madre:** Il LED rosso di diagnostica **DRAM** rimane acceso fisso. Nessun segnale video viene inviato al monitor e il sistema non consente l'accesso al BIOS.\n3. **Comportamento Anomalo Riscontrato:**\n* **Slot A2 e B2 (Dual Channel Standard):** Blocco sistematico sul LED DRAM a freddo.\n* **Slot A1 e B1 (Single Channel Provvisorio) o Singolo Banco su A2:** Il sistema supera il POST regolarmente e permette l'accesso all'interfaccia UEFI.\n\n\n\n\n\n---\n\n## 3. Analisi della Causa Radice (Root Cause)\n\nLa causa scatenante è un **mancato allineamento di tensione (Under-voltage)** causato dalla gestione automatica della scheda madre Gigabyte:\n\n* Nonostante il profilo **EXPO 1** fosse attivo a 6000 MT/s (moltiplicatore a 60.00), le impostazioni dell'alimentazione memoria (`DDR VDD` e `DDR VDDQ`) erano rimaste configurate su **Auto**, erogando solo **1.100 V** (valore base JEDEC per 4800 MT/s).\n* I moduli con **chip Micron** certificati per 6000 MT/s richiedono tassativamente **1.400 V**. Con una tensione inferiore di ben **0.300 V**, il controller di memoria a freddo fallisce la calibrazione delle resistenze di bus (*ODT*), determinando il blocco permanente del memory training.\n* *Fattore meccanico secondario:* Un serraggio eccessivo o disallineato del dissipatore Thermalright sul socket AM5 può flettere i pin dedicati al canale B (slot B2), amplificando i problemi di avvio a freddo in caso di alimentazione marginale.\n\n\n\n---\n\n## 4. Procedura Risolutiva Step-by-Step\n\n### Fase 1: Accesso di Sicurezza al BIOS\n\n1. Scollegare il cavo di alimentazione a 220 V dall'alimentatore.\n\n\n2. Posizionare temporaneamente i moduli RAM su **A1 e B1** (oppure lasciare un solo banco su **A2**).\n\n\n3. Ricollegare la corrente, accendere il PC e premere ripetutamente il tasto **Canc / Del** sulla tastiera fino all'accesso della schermata BIOS.\n\n\n\n---\n\n### Fase 2: Configurazione dei Parametri nel BIOS Gigabyte\n\n1. Premere **F2** per passare alla modalità avanzata (**Advanced Mode**).\n\n\n2. Spostarsi nel tab **Tweaker**:\n\n\n* Verificare che **Extreme Memory Profile (X.M.P.) / EXPO** sia impostato su **EXPO 1**.\n\n\n\n\n3. Scorrere verso il basso fino alla sezione **Voltage Settings** e modificare:\n\n\n* **DDR VDD Voltage:** Impostare manualmente su **`1.400 V`** (o `1.410 V`).\n* **DDR VDDQ Voltage:** Impostare manualmente su **`1.400 V`**.\n* **DDR VPP Voltage:** Lasciare invariato su **Auto** (valore corretto: `1.800 V`).\n* **CPU VCORE SOC:** Lasciare invariato al valore rilevato di **`1.240 V`** (il range ideale su AM5 è tra 1.200 V e 1.250 V, non superare 1.300 V).\n\n\n\n\n4. Spostarsi nel sottomenu **Tweaker > Advanced Memory Settings**:\n\n\n* **Memory Context Restore:** Cambiare da *Auto* a **`Enabled`**.\n\n\n* **Power Down Enable:** Cambiare da *Auto* a **`Enabled`**.\n(Nota: devono essere entrambi abilitati per evitare instabilità di timing a freddo).\n\n\n\n\n\n---\n\n### Fase 3: Salvataggio e Riposizionamento in Dual Channel\n\n1. Premere **F10** e confermare con **Yes** per salvare i parametri.\n\n\n2. Non appena il monitor si spegne, spegnere l'interruttore dell'alimentatore e staccare la spina.\n\n\n3. Spostare entrambi i banchi di memoria negli slot raccomandati: **A2** (secondo slot) e **B2** (quarto slot).\n\n\n4. Ricollegare la spina e accendere il computer.\n\n\n5. **Attesa Memory Training:** Durante il primo avvio, il LED DRAM potrebbe rimanere rosso per **90–180 secondi**. **Non spegnere né forzare il riavvio**: la scheda madre sta ricalcolando la tabella di calibrazione con i corretti 1.40 V.\n\n\n6. Il LED si spegnerà e il sistema avvierà regolarmente Windows in configurazione Dual Channel a 6000 MT/s.\n\n\n\n---\n\n## 5. Tabella Riepilogativa dei Parametri BIOS\n\n| Parametro BIOS | Menu / Percorso | Valore Precedente | Valore Corretto Finale |\n| --- | --- | --- | --- |\n| **Profilo Memoria** | `Tweaker` | EXPO 1 | **EXPO 1**<br> |\n| **DDR VDD Voltage** | `Tweaker > Voltage` | Auto (1.100 V) | **1.400 V** |\n| **DDR VDDQ Voltage** | `Tweaker > Voltage` | Auto (1.100 V) | **1.400 V** |\n| **DDR VPP Voltage** | `Tweaker > Voltage` | Auto (1.800 V) | **Auto (1.800 V)** |\n| **CPU VCORE SOC** | `Tweaker > Voltage` | 1.240 V | **1.240 V** (Non toccare)\n\n |\n| **Memory Context Restore** | `Tweaker > Adv. Memory` | Auto | **Enabled**<br> |\n| **Power Down Enable** | `Tweaker > Adv. Memory` | Auto | **Enabled**<br> |\n\n---\n\n## 6. Verifiche di Stabilità a Lungo Termine\n\n* **Verifica a Freddo:** Spegnere il PC per diverse ore o per l'intera notte; alla riaccensione, la sequenza dei LED deve superare la voce DRAM in pochi secondi senza fermarsi.\n* **Verifica Software in Windows:** Tramite utility come *CPU-Z* o *HWiNFO64*, verificare che la voce *DRAM Frequency* sia a **3000 MHz** (6000 MT/s effettivi) e che le tensioni operative rilevate sotto carico rimangano stabili a **1.400 V**.",
+      "summary": "--- ## 1. Dettagli del Sistema e Componenti * **Scheda Madre:** Gigabyte B650 EAGLE (Rev. 1.2, Socket AMD AM5)",
+      "tags": [
+        "troubleshooting",
+        "bugfix",
+        "diagnostica",
+        "windows",
+        "acca",
+        "primus"
+      ],
+      "isFavorite": false,
+      "metadata": {
+        "affectedSystem": "e Componenti",
+        "rootCause": "Radice (Root Cause)",
+        "solutionSteps": [
+          "**Il Sintomo Principale:** A PC acceso e caldo il computer opera stabilmente per l'intera giornata. Tuttavia, dopo un ciclo di spegnimento prolungato (es. overnight a freddo), all'accensione successiva il sistema fallisce la sequenza di POST.",
+          "**Stato della Scheda Madre:** Il LED rosso di diagnostica **DRAM** rimane acceso fisso. Nessun segnale video viene inviato al monitor e il sistema non consente l'accesso al BIOS.",
+          "**Comportamento Anomalo Riscontrato:**",
+          "## 4. Procedura Risolutiva Step-by-Step",
+          "Scollegare il cavo di alimentazione a 220 V dall'alimentatore.",
+          "Posizionare temporaneamente i moduli RAM su **A1 e B1** (oppure lasciare un solo banco su **A2**).",
+          "Ricollegare la corrente, accendere il PC e premere ripetutamente il tasto **Canc / Del** sulla tastiera fino all'accesso della schermata BIOS.",
+          "Premere **F2** per passare alla modalità avanzata (**Advanced Mode**).",
+          "Spostarsi nel tab **Tweaker**:",
+          "Scorrere verso il basso fino alla sezione **Voltage Settings** e modificare:",
+          "Spostarsi nel sottomenu **Tweaker > Advanced Memory Settings**:",
+          "Premere **F10** e confermare con **Yes** per salvare i parametri.",
+          "Non appena il monitor si spegne, spegnere l'interruttore dell'alimentatore e staccare la spina.",
+          "Spostare entrambi i banchi di memoria negli slot raccomandati: **A2** (secondo slot) e **B2** (quarto slot).",
+          "Ricollegare la spina e accendere il computer.",
+          "**Attesa Memory Training:** Durante il primo avvio, il LED DRAM potrebbe rimanere rosso per **90–180 secondi**. **Non spegnere né forzare il riavvio**: la scheda madre sta ricalcolando la tabella di calibrazione con i corretti 1.40 V.",
+          "Il LED si spegnerà e il sistema avvierà regolarmente Windows in configurazione Dual Channel a 6000 MT/s."
+        ],
+        "okfVersion": "0.2",
+        "docType": "specification",
+        "domain": "System Diagnostics & Fix",
+        "entities": [
+          {
+            "name": "Scheda Tecnica e Guida Risolutiva: Blocco POST / DRAM LED su Gigabyte B650 EAGLE",
+            "type": "concept",
+            "description": "--- ## 1. Dettagli del Sistema e Componenti * **Scheda Madre:** Gigabyte B650 EAGLE (Rev. 1.2, Socke"
+          },
+          {
+            "name": "System Diagnostics & Fix",
+            "type": "domain",
+            "description": "Dominio di appartenenza"
+          },
+          {
+            "name": "Troubleshooting",
+            "type": "technology",
+            "description": "Tag ontologico: troubleshooting"
+          },
+          {
+            "name": "Bugfix",
+            "type": "technology",
+            "description": "Tag ontologico: bugfix"
+          },
+          {
+            "name": "Diagnostica",
+            "type": "technology",
+            "description": "Tag ontologico: diagnostica"
+          }
+        ],
+        "relations": [
+          {
+            "targetTitle": "Knowledge Vault",
+            "relationType": "references",
+            "weight": 0.85,
+            "description": "Archiviazione e integrazione topologica nel Vault"
+          }
+        ],
+        "markdownContent": "---\nokf_version: \"0.2\"\ntitle: \"Scheda Tecnica e Guida Risolutiva: Blocco POST / DRAM LED su Gigabyte B650 EAGLE\"\ntype: \"specification\"\ndomain: \"System Diagnostics & Fix\"\ntags: [\"troubleshooting\",\"bugfix\",\"diagnostica\",\"windows\",\"acca\",\"primus\"]\ncreated_at: \"2026-09-11T08:59:12.063Z\"\n---\n\n# Scheda Tecnica e Guida Risolutiva: Blocco POST / DRAM LED su Gigabyte B650 EAGLE\n\n> **SPECIFICATION · OKF v0.2**\n> Ambito: System Diagnostics & Fix\n\n--- ## 1. Dettagli del Sistema e Componenti * **Scheda Madre:** Gigabyte B650 EAGLE (Rev. 1.2, Socket AMD AM5)\n\n",
+        "useCases": [
+          "Risoluzione di problemi di avvio a freddo (cold boot) su sistemi basati su chipset AMD B650 con RAM DDR5",
+          "Stabilizzazione di configurazioni EXPO su schede madri Gigabyte quando il profilo automatico fallisce la calibrazione di tensione",
+          "Ottimizzazione avanzata del BIOS per sistemi che presentano errori persistenti di diagnostica DRAM (LED rosso fisso)",
+          "Diagnostica di instabilità del controller di memoria su processori AMD Ryzen serie 7000/8000/9000"
+        ],
+        "pros": [
+          "Analisi tecnica estremamente precisa della causa radice (under-voltage dei moduli DDR5 Micron)",
+          "Procedura metodologica chiara e ben strutturata, con passaggi sequenziali logici",
+          "Inclusione di parametri BIOS critici e specifici (Memory Context Restore e Power Down Enable) spesso trascurati",
+          "Approccio pragmatico che integra verifiche hardware e software per isolare il difetto"
+        ],
+        "cons": [
+          "Richiede una competenza tecnica avanzata; le modifiche manuali ai voltaggi possono invalidare la garanzia se errate",
+          "La soluzione è specifica per moduli RAM Micron; potrebbe non essere ottimale o sicura per chip Samsung o SK Hynix con profili di tensione differenti",
+          "La procedura presuppone che l'utente abbia familiarità con la gestione fisica dei banchi RAM e delle impostazioni BIOS avanzate"
+        ],
+        "score": 92,
+        "scoreRationale": "Il documento è tecnicamente eccellente, basato su una comprensione profonda delle architetture AM5 e della gestione delle tensioni DDR5, offrendo una soluzione robusta a un problema noto e frustrante.",
+        "aiExecutiveSummary": "Questa guida tecnica affronta la diagnosi e risoluzione del blocco POST segnalato dal LED DRAM sulla scheda madre Gigabyte B650 EAGLE (Rev. 1.2, Socket AM5). Il documento fornisce un quadro metodologico per identificare le cause hardware e di configurazione che impediscono il corretto avvio del sistema. È orientato al ripristino dell'operatività in ambienti operativi standard e software specialistici.",
+        "aiKeyTakeaways": [
+          "Identificazione tempestiva dei fallimenti di POST legati al sottosistema di memoria DDR5 su piattaforma AMD AM5.",
+          "Importanza della verifica della revisione hardware specifica (Rev. 1.2) della motherboard Gigabyte B650 EAGLE.",
+          "Metodologia di isolamento dei guasti hardware rispetto a incompatibilità BIOS o profili EXPO/XMP errati.",
+          "Ripristino della stabilità necessario per ambienti applicativi critici (es. software tecnici ACCA Primus)."
+        ],
+        "aiTargetAudience": "Sistemisti, tecnici hardware IT, integratori di sistemi e professionisti IT.",
+        "aiActionItems": [
+          "Eseguire il reset del CMOS ed effettuare il test dei singoli moduli RAM negli slot consigliati (A2/B2).",
+          "Aggiornare il BIOS della scheda madre Gigabyte B650 EAGLE all'ultima versione stabile tramite Q-Flash Plus.",
+          "Verificare la compatibilità dei moduli di memoria rispetto alla QVL (Qualified Vendors List) del produttore."
+        ],
+        "aiSummarizedAt": "2026-09-12T08:04:50.698Z",
+        "readingTimeMin": "2 minuti"
+      },
+      "createdAt": "2026-09-11T09:00:33.375Z",
+      "updatedAt": "2026-09-11T09:07:32.600Z"
     },
     {
       "id": "TA4JutFesgToeW91gIO4",
@@ -6339,6 +6699,436 @@
       "isFavorite": false,
       "summary": "OpenMontage è un progetto open-source ospitato su GitHub, presumibilmente dedicato alla creazione di montaggi o composizioni digitali. Questo repository offre una risorsa per sviluppatori interessati a strumenti o framework per assemblare e organizzare diversi elementi visivi o dati in un'unica rappresentazione.",
       "url": "https://github.com/calesthio/OpenMontage"
+    },
+    {
+      "id": "V1HMOrUTozi0KIkvtUco",
+      "userId": "f6g6k8idv7NyW3auBpRPKC5lwyq1",
+      "type": "article",
+      "title": "Agentic Graph Engineering Across 82.8 Million Edges to Catch Hidden Vulnerabilities",
+      "url": "https://levelup.gitconnected.com/agentic-graph-engineering-across-82-8-million-edges-to-catch-hidden-vulnerabilities-e62658e0c333",
+      "rawInput": "https://levelup.gitconnected.com/agentic-graph-engineering-across-82-8-million-edges-to-catch-hidden-vulnerabilities-e62658e0c333",
+      "summary": "Breadth-first reachability over a CSR graph proves the exact path to every exposure. Un'analisi architetturale approfondita sull'impiego dell'ingegneria dei grafi basata su agenti su oltre 82,8 milioni di archi per rilevare vulnerabilità di sicurezza complesse.",
+      "tags": [
+        "graph-engineering",
+        "agentic-ai",
+        "cybersecurity",
+        "graph-databases",
+        "levelup"
+      ],
+      "isFavorite": false,
+      "metadata": {
+        "domain": "levelup.gitconnected.com",
+        "siteName": "Medium - Level Up Coding",
+        "author": "Fareed Khan",
+        "favicon": "https://miro.medium.com/v2/5d8de952517e8160e40ef9841c781cdc14a5db313057fa3c3de41c6f5b494b19",
+        "docType": "guide",
+        "aiActionItems": [
+          "Valutare l'adozione di grafi CSR per modellare superfici di attacco complesse e scalabili",
+          "Integrare workflow multi-agente per l'interrogazione mirata dei percorsi critici nel grafo delle dipendenze",
+          "Superare i limiti dello scanning statico AST tradizionale mediante reachability analysis multi-hop"
+        ],
+        "aiExecutiveSummary": "L'articolo analizza l'applicazione dell'ingegneria dei grafi guidata da agenti AI (Agentic Graph Engineering) su scala enterprise, gestendo oltre 82,8 milioni di archi per identificare vulnerabilità di sicurezza nascoste. Attraverso grafi CSR (Compressed Sparse Row) e algoritmi di raggiungibilità breadth-first, la metodologia dimostra il percorso esatto di ogni vettore di esposizione, superando i limiti del context window e degli scanner tradizionali.",
+        "aiKeyTakeaways": [
+          "Integrazione di sistemi multi-agente con database a grafo massivi (82.8M+ archi) per mappare relazioni transitive di codice e infrastruttura.",
+          "Utilizzo della rappresentazione CSR (Compressed Sparse Row) per garantire traversal ad altissima velocità e footprint di memoria ridotto.",
+          "Rilevamento avanzato di vulnerabilità multi-hop non intercettabili tramite scanner AST o SAST convenzionali.",
+          "Transizione da controlli di sicurezza reattivi ad attack path analysis proattiva guidata da agenti autonomi."
+        ],
+        "aiSummarizedAt": "2026-09-13T10:40:00.000Z",
+        "aiTargetAudience": "Security Architect, Principal Graph Engineers, CISO e Team Lead AppSec",
+        "readingTimeMin": "6 minuti",
+        "useCases": [
+          "Rilevamento di vulnerabilità complesse in architetture software distribuite attraverso l'analisi di grafi su larga scala",
+          "Automazione della sicurezza tramite agenti autonomi capaci di navigare relazioni nidificate tra componenti",
+          "Analisi di impatto per il change management in sistemi legacy complessi"
+        ],
+        "pros": [
+          "Approccio innovativo che combina LLM e tecniche di Graph Database per superare i limiti dell'analisi statica tradizionale",
+          "Capacità di gestire set di dati massivi (82.8 milioni di archi) dimostrando scalabilità reale",
+          "Riduzione significativa del rumore nelle segnalazioni di sicurezza grazie alla contestualizzazione semantica"
+        ],
+        "cons": [
+          "Curva di apprendimento elevata per l'integrazione di agenti autonomi in pipeline DevSecOps esistenti",
+          "Costi computazionali e di latenza non trascurabili legati all'interrogazione continua di grafi tramite LLM"
+        ],
+        "score": 88,
+        "scoreRationale": "L'articolo offre una prospettiva architettonica eccellente e tecnicamente avanzata sull'uso di grafi e agenti AI per la sicurezza."
+      },
+      "createdAt": "2026-09-13T10:30:52.690Z",
+      "updatedAt": "2026-09-13T10:53:24.527Z"
+    },
+    {
+      "id": "local-1789295166801-15mk",
+      "userId": "f6g6k8idv7NyW3auBpRPKC5lwyq1",
+      "type": "article",
+      "title": "Agentic Graph Engineering Across 82.8 Million Edges to Catch Hidden Vulnerabilities",
+      "url": "https://levelup.gitconnected.com/agentic-graph-engineering-across-82-8-million-edges-to-catch-hidden-vulnerabilities-e62658e0c333",
+      "rawInput": "https://levelup.gitconnected.com/agentic-graph-engineering-across-82-8-million-edges-to-catch-hidden-vulnerabilities-e62658e0c333",
+      "summary": "An in-depth architectural guide on applying agentic graph engineering at scale (82.8M+ edges) to map complex dependency networks and uncover hidden security vulnerabilities.",
+      "tags": [
+        "graph-engineering",
+        "agentic-ai",
+        "cybersecurity",
+        "vulnerability-detection",
+        "graph-databases",
+        "knowledge-graphs",
+        "web",
+        "levelup"
+      ],
+      "isFavorite": false,
+      "metadata": {
+        "domain": "levelup.gitconnected.com",
+        "siteName": "levelup.gitconnected.com",
+        "favicon": "https://www.google.com/s2/favicons?domain=levelup.gitconnected.com&sz=64",
+        "docType": "guide",
+        "linkParseFailed": true,
+        "linkParseFailureReason": "Il parser ha tentato di associare lo schema OKF v0.2 a un collegamento web. I link web non costituiscono documenti di specifica tecnica OKF (mancano di corpo documentale e frontmatter ontologico YAML).",
+        "parseStatus": "failed_as_link",
+        "isWebLink": true
+      },
+      "createdAt": "2026-09-13T10:26:06.801Z",
+      "updatedAt": "2026-09-13T10:26:06.801Z"
+    },
+    {
+      "id": "F1ijQHxiEy0s57t1MZYH",
+      "userId": "f6g6k8idv7NyW3auBpRPKC5lwyq1",
+      "type": "article",
+      "title": "Agentic Graph Engineering Across 82.8 Million Edges to Catch Hidden Vulnerabilities",
+      "url": "https://levelup.gitconnected.com/agentic-graph-engineering-across-82-8-million-edges-to-catch-hidden-vulnerabilities-e62658e0c333",
+      "rawInput": "https://levelup.gitconnected.com/agentic-graph-engineering-across-82-8-million-edges-to-catch-hidden-vulnerabilities-e62658e0c333",
+      "summary": "An in-depth architectural guide on applying agentic graph engineering at scale (82.8M+ edges) to map complex dependency networks and uncover hidden security vulnerabilities.",
+      "tags": [
+        "graph-engineering",
+        "agentic-ai",
+        "cybersecurity",
+        "vulnerability-detection",
+        "graph-databases",
+        "knowledge-graphs",
+        "web",
+        "levelup"
+      ],
+      "isFavorite": false,
+      "metadata": {
+        "domain": "levelup.gitconnected.com",
+        "siteName": "levelup.gitconnected.com",
+        "favicon": "https://www.google.com/s2/favicons?domain=levelup.gitconnected.com&sz=64",
+        "docType": "guide",
+        "linkParseFailed": true,
+        "linkParseFailureReason": "Il parser ha tentato di associare lo schema OKF v0.2 a un collegamento web. I link web non costituiscono documenti di specifica tecnica OKF (mancano di corpo documentale e frontmatter ontologico YAML).",
+        "parseStatus": "failed_as_link",
+        "isWebLink": true
+      },
+      "createdAt": "2026-09-13T10:25:55.920Z",
+      "updatedAt": "2026-09-13T10:29:27.988Z"
+    },
+    {
+      "id": "local-1789294226804-xpi6",
+      "userId": "f6g6k8idv7NyW3auBpRPKC5lwyq1",
+      "type": "article",
+      "title": "Agentic Graph Engineering: Detecting Vulnerabilities Across 82.8 Million Edges",
+      "url": "https://levelup.gitconnected.com/agentic-graph-engineering-across-82-8-million-edges-to-catch-hidden-vulnerabilities-e62658e0c333",
+      "rawInput": "https://levelup.gitconnected.com/agentic-graph-engineering-across-82-8-million-edges-to-catch-hidden-vulnerabilities-e62658e0c333",
+      "summary": "Exploration of scalable graph engineering techniques using agentic workflows to perform vulnerability analysis on massive datasets containing over 82 million edges, highlighting the shift from traditional scanning to graph-based intelligence.",
+      "tags": [
+        "graph-analytics",
+        "cybersecurity",
+        "vulnerability-detection",
+        "agentic-ai",
+        "large-scale-systems",
+        "graph-databases",
+        "web",
+        "levelup"
+      ],
+      "isFavorite": false,
+      "metadata": {
+        "domain": "levelup.gitconnected.com",
+        "siteName": "levelup.gitconnected.com",
+        "favicon": "https://www.google.com/s2/favicons?domain=levelup.gitconnected.com&sz=64",
+        "docType": "guide",
+        "linkParseFailed": true,
+        "linkParseFailureReason": "Il parser ha tentato di associare lo schema OKF v0.2 a un collegamento web. I link web non costituiscono documenti di specifica tecnica OKF (mancano di corpo documentale e frontmatter ontologico YAML).",
+        "parseStatus": "failed_as_link",
+        "isWebLink": true
+      },
+      "createdAt": "2026-09-13T10:10:26.804Z",
+      "updatedAt": "2026-09-13T10:10:26.804Z"
+    },
+    {
+      "id": "1zSmRIQ6jTBAD0rvYUdp",
+      "userId": "f6g6k8idv7NyW3auBpRPKC5lwyq1",
+      "type": "article",
+      "title": "Agentic Graph Engineering: Detecting Vulnerabilities Across 82.8 Million Edges",
+      "url": "https://levelup.gitconnected.com/agentic-graph-engineering-across-82-8-million-edges-to-catch-hidden-vulnerabilities-e62658e0c333",
+      "rawInput": "https://levelup.gitconnected.com/agentic-graph-engineering-across-82-8-million-edges-to-catch-hidden-vulnerabilities-e62658e0c333",
+      "summary": "Exploration of scalable graph engineering techniques using agentic workflows to perform vulnerability analysis on massive datasets containing over 82 million edges, highlighting the shift from traditional scanning to graph-based intelligence.",
+      "tags": [
+        "graph-analytics",
+        "cybersecurity",
+        "vulnerability-detection",
+        "agentic-ai",
+        "large-scale-systems",
+        "graph-databases",
+        "web",
+        "levelup"
+      ],
+      "isFavorite": false,
+      "metadata": {
+        "domain": "levelup.gitconnected.com",
+        "siteName": "levelup.gitconnected.com",
+        "favicon": "https://www.google.com/s2/favicons?domain=levelup.gitconnected.com&sz=64",
+        "docType": "guide",
+        "linkParseFailed": true,
+        "linkParseFailureReason": "Il parser ha tentato di associare lo schema OKF v0.2 a un collegamento web. I link web non costituiscono documenti di specifica tecnica OKF (mancano di corpo documentale e frontmatter ontologico YAML).",
+        "parseStatus": "failed_as_link",
+        "isWebLink": true
+      },
+      "createdAt": "2026-09-13T10:10:15.931Z",
+      "updatedAt": "2026-09-13T10:25:31.808Z"
+    },
+    {
+      "id": "AO96U0IJEHiqtQISsHlT",
+      "userId": "f6g6k8idv7NyW3auBpRPKC5lwyq1",
+      "type": "article",
+      "title": "Unlimited OCR Works: Welcome to the Era of One-Shot Long-Horizon Parsing",
+      "url": "https://medium.com/coding-nexus/unlimited-ocr-works-welcome-to-the-era-of-one-shot-long-horizon-parsing-ae17f814c785",
+      "rawInput": "https://medium.com/coding-nexus/unlimited-ocr-works-welcome-to-the-era-of-one-shot-long-horizon-parsing-ae17f814c785",
+      "summary": "Un'analisi approfondita sull'evoluzione dell'OCR e del document parsing verso paradigmi one-shot a lungo orizzonte temporale. L'articolo esplora l'utilizzo dei modelli multimodali (VLM) e delle nuove architetture per elaborare documenti complessi, tabelle e impaginazioni dense senza richiedere complesse pipeline a cascata.",
+      "tags": [
+        "ocr",
+        "vlm",
+        "document-parsing",
+        "multimodal-ai",
+        "machine-learning"
+      ],
+      "isFavorite": false,
+      "metadata": {
+        "domain": "medium.com",
+        "siteName": "medium.com",
+        "favicon": "https://www.google.com/s2/favicons?domain=medium.com&sz=64",
+        "okfVersion": "0.2",
+        "docType": "guide",
+        "entities": [
+          {
+            "name": "Unlimited OCR Works: Welcome to the Era of One-Shot Long-Horizon Parsing",
+            "type": "concept",
+            "description": "Un'analisi approfondita sull'evoluzione dell'OCR e del document parsing verso paradigmi one-shot a l"
+          },
+          {
+            "name": "medium.com",
+            "type": "domain",
+            "description": "Dominio di appartenenza"
+          },
+          {
+            "name": "Ocr",
+            "type": "technology",
+            "description": "Tag ontologico: ocr"
+          },
+          {
+            "name": "Vlm",
+            "type": "technology",
+            "description": "Tag ontologico: vlm"
+          },
+          {
+            "name": "Document-parsing",
+            "type": "technology",
+            "description": "Tag ontologico: document-parsing"
+          }
+        ],
+        "relations": [
+          {
+            "targetTitle": "Knowledge Vault",
+            "relationType": "references",
+            "weight": 0.85,
+            "description": "Archiviazione e integrazione topologica nel Vault"
+          }
+        ],
+        "markdownContent": "---\nokf_version: \"0.2\"\ntitle: \"Unlimited OCR Works: Welcome to the Era of One-Shot Long-Horizon Parsing\"\ntype: \"guide\"\ndomain: \"medium.com\"\ntags: [\"ocr\",\"vlm\",\"document-parsing\",\"multimodal-ai\",\"machine-learning\"]\ncreated_at: \"2026-09-06T19:42:31.842Z\"\nentities:\n  - name: \"Unlimited OCR Works: Welcome to the Era of One-Shot Long-Horizon Parsing\"\n    type: \"concept\"\n    description: \"Un'analisi approfondita sull'evoluzione dell'OCR e del document parsing verso paradigmi one-shot a l\"\n  - name: \"medium.com\"\n    type: \"domain\"\n    description: \"Dominio di appartenenza\"\n  - name: \"Ocr\"\n    type: \"technology\"\n    description: \"Tag ontologico: ocr\"\n  - name: \"Vlm\"\n    type: \"technology\"\n    description: \"Tag ontologico: vlm\"\n  - name: \"Document-parsing\"\n    type: \"technology\"\n    description: \"Tag ontologico: document-parsing\"\nrelations:\n  - target_title: \"Knowledge Vault\"\n    relation_type: \"references\"\n    weight: 0.85\n    description: \"Archiviazione e integrazione topologica nel Vault\"\n---\n\n# Unlimited OCR Works: Welcome to the Era of One-Shot Long-Horizon Parsing\n\n> **GUIDE · OKF v0.2**\n> Ambito: medium.com\n\n## 1. Panoramica & Sintesi\n\nUn'analisi approfondita sull'evoluzione dell'OCR e del document parsing verso paradigmi one-shot a lungo orizzonte temporale. L'articolo esplora l'utilizzo dei modelli multimodali (VLM) e delle nuove architetture per elaborare documenti complessi, tabelle e impaginazioni dense senza richiedere complesse pipeline a cascata.\n\n**URL di Riferimento:** [https://medium.com/coding-nexus/unlimited-ocr-works-welcome-to-the-era-of-one-shot-long-horizon-parsing-ae17f814c785](https://medium.com/coding-nexus/unlimited-ocr-works-welcome-to-the-era-of-one-shot-long-horizon-parsing-ae17f814c785)\n\n## 2. Specifiche Tecniche & Componenti\n\n- **Tipologia Risorsa**: `article`\n- **Dominio Tecnico**: `medium.com`\n- **Tipo Documento OKF**: `guide`\n\n## 3. Ontologia & Connessioni Topologiche\n\n- [[Knowledge Vault]]: *Archiviazione e integrazione topologica nel Vault* (`references`)\n"
+      },
+      "createdAt": "2026-09-13T10:09:48.339Z",
+      "updatedAt": "2026-09-13T10:09:42.166Z"
+    },
+    {
+      "id": "zlyzn2aCrDiRfvsqcMtn",
+      "userId": "f6g6k8idv7NyW3auBpRPKC5lwyq1",
+      "type": "knowledge",
+      "title": "Sintesi Vault: Come si collegano le guide di Context Engineering nel Grafo?",
+      "url": "",
+      "rawInput": "",
+      "summary": "Sintesi Esecutiva\nLe guide di **Context Engineering** si collegano al Grafo del Vault attraverso l'architettura del **Model Context Protocol (MCP)** e l'orchestrazione di workflow ",
+      "tags": [
+        "vault-intelligence",
+        "ai-synthesis",
+        "okf-v0.2",
+        "quick_synthesis",
+        "ocr",
+        "vlm",
+        "document-parsing",
+        "multimodal-ai"
+      ],
+      "isFavorite": false,
+      "metadata": {
+        "okfVersion": "0.2",
+        "domain": "medium.com",
+        "docType": "concept",
+        "markdownContent": "---\nokf_version: \"0.2\"\nid: \"synth-1788723781493\"\ntitle: \"Sintesi Vault: Come si collegano le guide di Context Engineering nel Grafo?\"\ntype: \"concept\"\ndomain: \"medium.com\"\ntags:\n  - \"vault-intelligence\"\n  - \"ai-synthesis\"\n  - \"okf-v0.2\"\n  - \"quick_synthesis\"\n  - \"ocr\"\n  - \"vlm\"\n  - \"document-parsing\"\n  - \"multimodal-ai\"\nentities:\n  - name: \"Unlimited OCR Works: Welcome to the Era of One-Shot Long-Horizon Parsing\"\n    type: \"concept\"\n    description: \"Risorsa Vault in ambito medium.com\"\n  - name: \"Protocolli di Consultazione Documentale Interna ed Esterna per Agenti Autonomi\"\n    type: \"concept\"\n    description: \"Risorsa Vault in ambito AI Agents & Autonomous Workflows\"\n  - name: \"Claude Agent SDK\"\n    type: \"concept\"\n    description: \"Risorsa Vault in ambito Artificial Intelligence\"\n  - name: \"Is Graph Engineering Here? LangChain Says It's Nothing New.\"\n    type: \"concept\"\n    description: \"Risorsa citata nella sintesi epistemica\"\nrelations:\n  - targetTitle: \"Unlimited OCR Works: Welcome to the Era of One-Shot Long-Horizon Parsing\"\n    targetId: \"local-1788723752056-ttz6\"\n    relationType: \"references\"\n    weight: 0.85\n    description: \"Citata come fonte autoritativa per la sintesi multi-agente\"\n  - targetTitle: \"Protocolli di Consultazione Documentale Interna ed Esterna per Agenti Autonomi\"\n    targetId: \"spec-access-1788515578586\"\n    relationType: \"references\"\n    weight: 0.85\n    description: \"Citata come fonte autoritativa per la sintesi multi-agente\"\n  - targetTitle: \"Claude Agent SDK\"\n    targetId: \"6TM2HeIG628MJrFwIOXa\"\n    relationType: \"references\"\n    weight: 0.85\n    description: \"Citata come fonte autoritativa per la sintesi multi-agente\"\n  - targetTitle: \"Is Graph Engineering Here? LangChain Says It's Nothing New.\"\n    targetId: \"YZ9draWsJSQyaDN1J0rI\"\n    relationType: \"references\"\n    weight: 0.85\n    description: \"Citata come fonte autoritativa per la sintesi multi-agente\"\ncreated_at: \"2026-09-06T19:43:01.493Z\"\nsource_query: \"Come si collegano le guide di Context Engineering nel Grafo?\"\nengine_model: \"gemini-3.1-flash-lite\"\nquery_mode: \"quick_synthesis\"\n---\n\n# Sintesi Vault: Come si collegano le guide di Context Engineering nel Grafo?\n\n> **Query di Origine**: \"Come si collegano le guide di Context Engineering nel Grafo?\"  \n> **Generato da**: Vault Intelligence (gemini-3.1-flash-lite) con validazione Cekikj Zero-Guessing.  \n> **Fonti Verificate**: 4 risorse nel Vault.\n\n### Sintesi Esecutiva\nLe guide di **Context Engineering** si collegano al Grafo del Vault attraverso l'architettura del **Model Context Protocol (MCP)** e l'orchestrazione di workflow agentici. Il Context Engineering non è un'entità isolata, ma il processo di ottimizzazione del flusso informativo che alimenta i modelli; tale flusso viene strutturato e reso accessibile agli agenti (es. Claude Code) tramite server MCP, che fungono da nodi di connessione tra le fonti dati (file system, database, codebase) e il motore di inferenza.\n\n### Risorse del Vault Pertinenti\n*   **[ID: P93F3wiul4FUHvAZ42ii: What is Context Engineering and Why is it Pivotal for Production-Grade Apps]**: Definisce il Context Engineering come pilastro per la qualità dell'output, superando il prompt engineering tradizionale tramite la gestione strutturata del contesto.\n*   **[ID: sample-vault-8-article: Guida Completa al Model Context Protocol (MCP)]**: Identifica MCP come lo standard di comunicazione che permette agli agenti di accedere in modo sicuro e strutturato alle fonti dati, rendendo operativo il Context Engineering.\n*   **[ID: 6TM2HeIG628MJrFwIOXa: Claude Agent SDK]**: Fornisce l'infrastruttura di esecuzione (Think-Plan-Act-Observe) dove il contesto ingegnerizzato viene effettivamente utilizzato per il decision-making autonomo.\n*   **[ID: YZ9draWsJSQyaDN1J0rI: Is Graph Engineering Here? LangChain Says It's Nothing New]**: Spiega come la struttura a grafo sia il paradigma sottostante per orchestrare i componenti modulari (inclusi i contesti) in workflow non lineari.\n\n### Correlazioni e Grafo\nIl collegamento tra Context Engineering e Grafo avviene attraverso tre livelli di astrazione:\n1.  **Livello Dati (Nodi)**: Le risorse (documenti, codebase, database) sono esposte tramite **MCP Servers** ([ID: sample-vault-13-github_repo]).\n2.  **Livello di Orchestrazione (Archi)**: Il **Claude Agent SDK** ([ID: 6TM2HeIG628MJrFwIOXa]) e i pattern di **Graph Engineering** ([ID: YZ9draWsJSQyaDN1J0rI]) definiscono come il contesto fluisce tra i nodi, trasformando dati grezzi in \"contesto ingegnerizzato\".\n3.  **Livello di Validazione (Protocollo)**: Le specifiche **OKF v0.2** ([ID: spec-access-1788515578586]) garantiscono che l'accesso a tali nodi rispetti gli standard di sicurezza e tipizzazione necessari per applicazioni di produzione.\n\n### Applicazione Pratica\nPer implementare il collegamento tra Context Engineering e il Grafo nel proprio workflow, è necessario:\n1.  **Standardizzare l'accesso**: Utilizzare server MCP per esporre le risorse (es. `codebase-memory-mcp` [ID: zosSrfGHqiA3lrEb3mGn]).\n2.  **Ingegnerizzare il contesto**: Applicare le linee guida di [ID: P93F3wiul4FUHvAZ42ii] per filtrare e strutturare i dati prima che vengano iniettati nel prompt tramite il protocollo MCP.\n3.  **Orchestrare**: Utilizzare il `Claude Agent SDK` per gestire il ciclo di vita del contesto, assicurando che il grafo di esecuzione mantenga la coerenza informativa tra i vari step del workflow agentico.",
+        "entities": [
+          {
+            "name": "Unlimited OCR Works: Welcome to the Era of One-Shot Long-Horizon Parsing",
+            "type": "concept",
+            "description": "Risorsa Vault in ambito medium.com"
+          },
+          {
+            "name": "Protocolli di Consultazione Documentale Interna ed Esterna per Agenti Autonomi",
+            "type": "concept",
+            "description": "Risorsa Vault in ambito AI Agents & Autonomous Workflows"
+          },
+          {
+            "name": "Claude Agent SDK",
+            "type": "concept",
+            "description": "Risorsa Vault in ambito Artificial Intelligence"
+          },
+          {
+            "name": "Is Graph Engineering Here? LangChain Says It's Nothing New.",
+            "type": "concept",
+            "description": "Risorsa citata nella sintesi epistemica"
+          }
+        ],
+        "relations": [
+          {
+            "targetId": "local-1788723752056-ttz6",
+            "targetTitle": "Unlimited OCR Works: Welcome to the Era of One-Shot Long-Horizon Parsing",
+            "relationType": "references",
+            "weight": 0.85,
+            "description": "Citata come fonte autoritativa per la sintesi multi-agente"
+          },
+          {
+            "targetId": "spec-access-1788515578586",
+            "targetTitle": "Protocolli di Consultazione Documentale Interna ed Esterna per Agenti Autonomi",
+            "relationType": "references",
+            "weight": 0.85,
+            "description": "Citata come fonte autoritativa per la sintesi multi-agente"
+          },
+          {
+            "targetId": "6TM2HeIG628MJrFwIOXa",
+            "targetTitle": "Claude Agent SDK",
+            "relationType": "references",
+            "weight": 0.85,
+            "description": "Citata come fonte autoritativa per la sintesi multi-agente"
+          },
+          {
+            "targetId": "YZ9draWsJSQyaDN1J0rI",
+            "targetTitle": "Is Graph Engineering Here? LangChain Says It's Nothing New.",
+            "relationType": "references",
+            "weight": 0.85,
+            "description": "Citata come fonte autoritativa per la sintesi multi-agente"
+          }
+        ]
+      },
+      "createdAt": "2026-09-13T10:09:40.878Z",
+      "updatedAt": "2026-09-06T19:54:01.625Z"
+    },
+    {
+      "id": "NXsOqEsEspP10CFKMGMw",
+      "userId": "f6g6k8idv7NyW3auBpRPKC5lwyq1",
+      "type": "article",
+      "title": "https://medium.com/ai-exploration-journey/beyond-vector-rag-how-pageindex-navigates-long-documents-1",
+      "url": "https://medium.com/ai-exploration-journey/beyond-vector-rag-how-pageindex-navigates-long-documents-14deeaf6b5ea",
+      "rawInput": "https://medium.com/ai-exploration-journey/beyond-vector-rag-how-pageindex-navigates-long-documents-14deeaf6b5ea",
+      "summary": "https://medium.com/ai-exploration-journey/beyond-vector-rag-how-pageindex-navigates-long-documents-14deeaf6b5ea",
+      "tags": [
+        "knowledge",
+        "dev"
+      ],
+      "isFavorite": false,
+      "metadata": {
+        "domain": "medium.com",
+        "siteName": "medium.com",
+        "favicon": "https://www.google.com/s2/favicons?domain=medium.com&sz=64",
+        "okfVersion": "0.2",
+        "docType": "guide",
+        "entities": [
+          {
+            "name": "https://medium.com/ai-exploration-journey/beyond-vector-rag-how-pageindex-navigates-long-documents-1",
+            "type": "concept",
+            "description": "https://medium.com/ai-exploration-journey/beyond-vector-rag-how-pageindex-navigates-long-documents-1"
+          },
+          {
+            "name": "medium.com",
+            "type": "domain",
+            "description": "Dominio di appartenenza"
+          }
+        ],
+        "relations": [
+          {
+            "targetTitle": "Knowledge Vault",
+            "relationType": "references",
+            "weight": 0.85,
+            "description": "Archiviazione nel Vault"
+          }
+        ],
+        "markdownContent": "---\nokf_version: \"0.2\"\ntitle: \"https://medium.com/ai-exploration-journey/beyond-vector-rag-how-pageindex-navigates-long-documents-1\"\ntype: \"guide\"\ndomain: \"medium.com\"\ntags: [\"knowledge\",\"dev\"]\ncreated_at: \"2026-09-06T19:33:29.622Z\"\n---\n\n# https://medium.com/ai-exploration-journey/beyond-vector-rag-how-pageindex-navigates-long-documents-1\n\n> **GUIDE · OKF v0.2**\n> Ambito: medium.com\n\nhttps://medium.com/ai-exploration-journey/beyond-vector-rag-how-pageindex-navigates-long-documents-14deeaf6b5ea\n\n\n\n**Riferimento Web:** [https://medium.com/ai-exploration-journey/beyond-vector-rag-how-pageindex-navigates-long-documents-14deeaf6b5ea](https://medium.com/ai-exploration-journey/beyond-vector-rag-how-pageindex-navigates-long-documents-14deeaf6b5ea)\n",
+        "useCases": [
+          "Enterprise Knowledge Management: Implementazione di sistemi RAG per la consultazione di lunghi manuali tecnici, contratti legali o report finanziari dove la localizzazione precisa della pagina è critica per la tracciabilità.",
+          "Sistemi di Supporto alla Decisione (DSS): Architetture AI che richiedono non solo di rispondere a una domanda, ma di fornire la fonte esatta (riferimento a pagina specifica) per validare le affermazioni del modello.",
+          "Analisi di Documenti Complessi (OCR/PDF): Sviluppo di pipeline di ingestione dati dove la struttura logica del documento (es. indici, capitoli) deve essere preservata oltre il semplice chunking semantico."
+        ],
+        "pros": [
+          "Miglioramento della Precisione (Faithfulness): Introduzione di un livello di indicizzazione che ancora la risposta del LLM a pagine fisiche, riducendo le allucinazioni tipiche dei sistemi RAG flat.",
+          "Tracciabilità e Auditability: Facilità nel citare le fonti in modo granulare, un requisito fondamentale in contesti regolati (finance, pharma, legal).",
+          "Gestione del Contesto Lungo: Soluzione architetturale efficace per bypassare le limitazioni di contesto, consentendo una navigazione gerarchica piuttosto che una ricerca puramente basata su similarità vettoriale."
+        ],
+        "cons": [
+          "Complessità di Ingestione: Richiede una pipeline di preprocessing più articolata per mappare correttamente i chunk alle pagine fisiche, aumentando il debito tecnico e i tempi di indicizzazione.",
+          "Dipendenza dalla Qualità del PDF/Documento: L'efficacia del PageIndex è pesantemente condizionata dalla capacità di estrarre correttamente la struttura di pagina dal formato sorgente originale.",
+          "Overhead computazionale: L'introduzione di un layer di indicizzazione aggiuntivo può aumentare la latenza nelle operazioni di retrieval rispetto a un sistema vector-only standard."
+        ],
+        "score": 78,
+        "scoreRationale": "L'articolo affronta una problematica reale e critica dei sistemi RAG attuali (la perdita di contesto spaziale), offrendo una soluzione architetturale solida, pur richiedendo uno sforzo di implementazione non banale per l'infrastruttura dati.",
+        "aiExecutiveSummary": "Questa risorsa analizza i limiti intrinseci del Retrieval-Augmented Generation (RAG) basato esclusivamente su vettori quando applicato a documenti estesi e complessi. Viene introdotta l'architettura PageIndex, un paradigma che ottimizza l'esplorazione documentale preservando la struttura gerarchica e la continuità contestuale a livello di pagina. La proposta fornisce una valida alternativa al chunking tradizionale, riducendo la dispersione semantica e migliorando l'accuratezza delle risposte generate.",
+        "aiKeyTakeaways": [
+          "I limiti del Vector RAG classico emergono nella perdita del contesto globale dovuta a strategie di chunking rigide su testi lunghi.",
+          "PageIndex introduce una navigazione strutturata e consapevole del layout documentale, superando il mero matching per similarità vettoriale.",
+          "Il recupero basato su indici di pagina permette di preservare relazioni cross-paragrafo e tabelle senza frammentazioni incoerenti.",
+          "L'approccio mitiga le allucinazioni dell'LLM isolando porzioni informative semanticamente coese prima della sintesi finale."
+        ],
+        "aiTargetAudience": "AI Engineers, Solution Architects, Data Scientist e Sviluppatori Backend specializzati in architetture RAG e LLM orchestration.",
+        "aiActionItems": [
+          "Consultare l'articolo completo su Medium per approfondire l'implementazione architetturale e i benchmark comparativi di PageIndex.",
+          "Condurre un audit sui carichi di lavoro RAG interni per individuare documenti complessi soggetti a perdita di contesto semantico.",
+          "Sperimentare un Proof of Concept (PoC) confrontando il recupero vettoriale standard con strategie di indicizzazione gerarchica a livello di pagina."
+        ],
+        "aiSummarizedAt": "2026-09-06T19:40:42.266Z",
+        "readingTimeMin": "6 minuti"
+      },
+      "createdAt": "2026-09-06T19:33:29.662Z",
+      "updatedAt": "2026-09-06T19:38:03.180Z"
+    },
+    {
+      "id": "local-1789295420900-i1p5",
+      "userId": "f6g6k8idv7NyW3auBpRPKC5lwyq1",
+      "type": "article",
+      "title": "https://levelup.gitconnected.com/agentic-graph-engineering-across-82-8-million-edges-to-catch-hidden",
+      "url": "https://levelup.gitconnected.com/agentic-graph-engineering-across-82-8-million-edges-to-catch-hidden-vulnerabilities-e62658e0c333",
+      "rawInput": "https://levelup.gitconnected.com/agentic-graph-engineering-across-82-8-million-edges-to-catch-hidden-vulnerabilities-e62658e0c333",
+      "summary": "Collegamento web a https://levelup.gitconnected.com/agentic-graph-engineering-across-82-8-million-edges-to-catch-hidden-vulnerabilities-e62658e0c333. Nota: Il parser ha tentato di associare lo schema OKF v0.2 a un collegamento web. I link web non costituiscono documenti di specifica tecnica OKF (mancano di corpo documentale e frontmatter ontologico YAML).",
+      "tags": [
+        "dev",
+        "web",
+        "levelup"
+      ],
+      "isFavorite": false,
+      "metadata": {
+        "domain": "levelup.gitconnected.com",
+        "siteName": "levelup.gitconnected.com",
+        "favicon": "https://www.google.com/s2/favicons?domain=levelup.gitconnected.com&sz=64",
+        "docType": "guide",
+        "linkParseFailed": true,
+        "linkParseFailureReason": "Il parser ha tentato di associare lo schema OKF v0.2 a un collegamento web. I link web non costituiscono documenti di specifica tecnica OKF (mancano di corpo documentale e frontmatter ontologico YAML).",
+        "parseStatus": "failed_as_link",
+        "isWebLink": true
+      },
+      "createdAt": "2026-09-13T10:30:20.900Z",
+      "updatedAt": "2026-09-13T10:30:20.900Z"
     }
   ],
   "rawFiles": []
