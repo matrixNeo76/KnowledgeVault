@@ -319,6 +319,7 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
   const displayDate = formatDate(resource.createdAt) || formatDate(resource.updatedAt) || formatDate(new Date());
 
   const score = typeof resource.metadata?.score === "number" ? resource.metadata.score : null;
+  const scoreRationale = resource.metadata?.scoreRationale || "";
 
   // Analysis & Content Completion Flags (scannable indicators instead of cognitive text walls)
   const hasExecutiveSummary = Boolean(resource.metadata?.aiExecutiveSummary);
@@ -800,6 +801,67 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
               <Terminal className="w-3 h-3 text-[#C5A059] shrink-0" />
               <span className="truncate">{resource.metadata.command}</span>
             </div>
+          </div>
+        )}
+
+        {/* AI Evaluation & Score Visual Card */}
+        {(score !== null || hasEvaluation) && (
+          <div className="mb-3 bg-[#0E0C06] border border-[#C5A059]/30 rounded-lg p-2.5 text-xs">
+            <div className="flex items-center justify-between gap-2 mb-1.5">
+              <div className="flex items-center gap-1.5">
+                <Award className="w-3.5 h-3.5 text-[#C5A059]" />
+                <span className="text-[11px] font-mono font-medium text-[#E5C170]">Valutazione AI</span>
+              </div>
+              {score !== null && (
+                <div className="flex items-center gap-1.5">
+                  <div className="w-16 h-1.5 bg-[#222] rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-300 ${
+                        score >= 80 ? "bg-emerald-500" : score >= 60 ? "bg-[#C5A059]" : "bg-rose-500"
+                      }`}
+                      style={{ width: `${Math.min(100, Math.max(0, score))}%` }}
+                    />
+                  </div>
+                  <span
+                    className={`text-[11px] font-mono font-bold ${
+                      score >= 80 ? "text-emerald-400" : score >= 60 ? "text-[#E5C170]" : "text-rose-400"
+                    }`}
+                  >
+                    {score}/100
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Score Rationale */}
+            {scoreRationale ? (
+              <p className="text-[11px] text-[#A89874] italic leading-snug line-clamp-2 mb-1.5 font-sans">
+                &ldquo;{scoreRationale}&rdquo;
+              </p>
+            ) : null}
+
+            {/* Pros / Cons / Use Cases Highlights */}
+            {(prosCount > 0 || consCount > 0 || (resource.metadata?.useCases && resource.metadata.useCases.length > 0)) && (
+              <div className="flex flex-wrap gap-1 mt-1 text-[10px] font-mono">
+                {prosCount > 0 && (
+                  <span className="inline-flex items-center gap-1 text-emerald-400/90 bg-emerald-950/40 border border-emerald-900/40 px-1.5 py-0.5 rounded">
+                    <Check className="w-2.5 h-2.5" />
+                    <span>{prosCount} Punti di Forza</span>
+                  </span>
+                )}
+                {consCount > 0 && (
+                  <span className="inline-flex items-center gap-1 text-rose-400/90 bg-rose-950/40 border border-rose-900/40 px-1.5 py-0.5 rounded">
+                    <span>{consCount} Limiti</span>
+                  </span>
+                )}
+                {resource.metadata?.useCases && resource.metadata.useCases.length > 0 && (
+                  <span className="inline-flex items-center gap-1 text-[#C5A059] bg-[#C5A059]/10 border border-[#C5A059]/30 px-1.5 py-0.5 rounded truncate max-w-[200px]" title={resource.metadata.useCases[0]}>
+                    <Target className="w-2.5 h-2.5 shrink-0" />
+                    <span className="truncate">{resource.metadata.useCases[0]}</span>
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         )}
 

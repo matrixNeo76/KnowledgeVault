@@ -55,20 +55,19 @@ export function analyzeResourceConflicts(
   const remoteMap = new Map<string, ResourceItem>();
 
   // Helper function to create a canonical resource signature
-  // Note: Only merge temp local IDs with remote items when there is an exact, unambiguous match on both URL and title, or a specific unique title
+  // Note: Local temp IDs are reconciled with remote items when there is an exact URL match, or an unambiguous title match
   const getResourceSignature = (item: ResourceItem): string => {
-    const cleanUrl = item.url && item.url.trim().length > 3 ? item.url.trim().toLowerCase().replace(/\/$/, "") : "";
+    const cleanUrl = item.url && item.url.trim().length > 3 ? item.url.trim().toLowerCase().replace(/\/$/, "").split("?")[0] : "";
     const cleanTitle = (item.title || "").trim().toLowerCase();
-    if (cleanUrl && cleanTitle) {
-      return `both:${item.type}:${cleanUrl}::${cleanTitle}`;
-    }
-    if (cleanUrl) {
-      return `url:${item.type}:${cleanUrl}`;
+    
+    // An absolute URL with domain and path is globally unique to the resource
+    if (cleanUrl && cleanUrl.length > 12 && (cleanUrl.startsWith("http://") || cleanUrl.startsWith("https://"))) {
+      return `url:${cleanUrl}`;
     }
     // Prevent generic titles from falsely colliding
-    const genericTitles = new Set(["readme", "documento", "note", "nota", "nuova risorsa", "untitled", "senza titolo", "appunti"]);
+    const genericTitles = new Set(["readme", "documento", "note", "nota", "nuova risorsa", "untitled", "senza titolo", "appunti", "collegamento web"]);
     if (cleanTitle.length > 8 && !genericTitles.has(cleanTitle)) {
-      return `title:${item.type}:${cleanTitle}`;
+      return `title:${cleanTitle}`;
     }
     // For short/generic titles without URL, keep strictly isolated by ID
     return `isolated:${item.id}`;
@@ -306,8 +305,65 @@ export function analyzeResourceConflicts(
     }
   });
 
+  // Canonical deduplication pass: collapse multiple duplicate URLs or identical long titles across sources
+  const isBetterTitle = (candidate?: string, current?: string): boolean => {
+    if (!candidate) return false;
+    if (!current) return true;
+    const candIsUrl = candidate.startsWith("http");
+    const currIsUrl = current.startsWith("http");
+    if (currIsUrl && !candIsUrl) return true;
+    if (!currIsUrl && candIsUrl) return false;
+    return candidate.length > current.length;
+  };
+
+  const dedupedMerged: ResourceItem[] = [];
+  const canonicalUrlIndex = new Map<string, ResourceItem>();
+  const canonicalTitleIndex = new Map<string, ResourceItem>();
+
+  Array.from(mergedMap.values()).forEach((item) => {
+    const cleanUrl = (item.url || "").trim().toLowerCase().replace(/\/$/, "").split("?")[0];
+    const cleanTitle = (item.title || "").trim().toLowerCase();
+
+    let matched: ResourceItem | null = null;
+    if (cleanUrl && cleanUrl.length > 12) {
+      matched = canonicalUrlIndex.get(cleanUrl) || null;
+    }
+    if (!matched && cleanTitle && cleanTitle.length > 8 && !["nuova risorsa", "readme", "documento", "collegamento web"].includes(cleanTitle)) {
+      matched = canonicalTitleIndex.get(cleanTitle) || null;
+    }
+
+    if (matched) {
+      // Merge into canonical document
+      if (isBetterTitle(item.title, matched.title)) {
+        matched.title = item.title;
+      }
+      if (item.summary && (!matched.summary || matched.summary.length < item.summary.length)) {
+        matched.summary = item.summary;
+      }
+      if (item.tags && item.tags.length > 0) {
+        matched.tags = Array.from(new Set([...(matched.tags || []), ...item.tags]));
+      }
+      if (item.metadata) {
+        matched.metadata = { ...(matched.metadata || {}), ...item.metadata };
+      }
+    } else {
+      const canonical: ResourceItem = {
+        ...item,
+        tags: [...(item.tags || [])],
+        metadata: { ...(item.metadata || {}) },
+      };
+      dedupedMerged.push(canonical);
+      if (cleanUrl && cleanUrl.length > 12) {
+        canonicalUrlIndex.set(cleanUrl, canonical);
+      }
+      if (cleanTitle && cleanTitle.length > 8) {
+        canonicalTitleIndex.set(cleanTitle, canonical);
+      }
+    }
+  });
+
   // Sort merged resources by createdAt descending
-  const mergedResources = Array.from(mergedMap.values()).sort((a, b) => {
+  const mergedResources = dedupedMerged.sort((a, b) => {
     const timeA = getTimestampMillis(a.createdAt);
     const timeB = getTimestampMillis(b.createdAt);
     return timeB - timeA;

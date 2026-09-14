@@ -268,38 +268,58 @@ export async function performDeepRecoveryScan(currentVaultResources: ResourceIte
   // We deduplicate by unique resource ID, or combination of normalized title, URL, and type
   const uniqueMap = new Map<string, ResourceItem>();
 
-  allFoundResources.forEach((item) => {
-    // Determine unique key based on item.id or combined title + url + type
-    const titleKey = (item.title || "").trim().toLowerCase();
-    const urlKey = item.url ? item.url.trim().toLowerCase().replace(/\/$/, "") : "";
-    const primaryKey = item.id ? `id:${item.id}` : `comp:${item.type}:${titleKey}__${urlKey}`;
+  const isBetterTitle = (candidate?: string, current?: string): boolean => {
+    if (!candidate) return false;
+    if (!current) return true;
+    const candIsUrl = candidate.startsWith("http");
+    const currIsUrl = current.startsWith("http");
+    if (currIsUrl && !candIsUrl) return true;
+    if (!currIsUrl && candIsUrl) return false;
+    return candidate.length > current.length;
+  };
 
-    if (!uniqueMap.has(primaryKey)) {
-      // Only merge if an existing item has both matching non-empty ID or exact same title AND same URL
-      let foundExactDuplicate = false;
+  allFoundResources.forEach((item) => {
+    const titleKey = (item.title || "").trim().toLowerCase();
+    const urlKey = item.url ? item.url.trim().toLowerCase().replace(/\/$/, "").split("?")[0] : "";
+    
+    // Check if duplicate already exists in uniqueMap by ID, canonical URL, or unique title
+    let foundExisting: ResourceItem | null = null;
+    if (item.id && uniqueMap.has(item.id)) {
+      foundExisting = uniqueMap.get(item.id)!;
+    } else {
       for (const [_, existing] of uniqueMap.entries()) {
         const existTitle = (existing.title || "").trim().toLowerCase();
-        const existUrl = existing.url ? existing.url.trim().toLowerCase().replace(/\/$/, "") : "";
+        const existUrl = existing.url ? existing.url.trim().toLowerCase().replace(/\/$/, "").split("?")[0] : "";
         
-        // Exact duplicate only when title AND url match, or item IDs match
-        if (
-          (item.id && existing.id && item.id === existing.id) ||
-          (existTitle === titleKey && titleKey.length > 3 && existUrl === urlKey)
-        ) {
-          foundExactDuplicate = true;
-          // Merge metadata / tags if new item has more details
-          if ((item.tags?.length || 0) > (existing.tags?.length || 0)) {
-            existing.tags = Array.from(new Set([...(existing.tags || []), ...(item.tags || [])]));
-          }
-          if (item.metadata && (!existing.metadata || Object.keys(item.metadata).length > Object.keys(existing.metadata).length)) {
-            existing.metadata = { ...existing.metadata, ...item.metadata };
-          }
+        const isSameUrl = urlKey && existUrl && urlKey.length > 12 && existUrl === urlKey;
+        const isSameTitle = titleKey && existTitle && titleKey.length > 8 && !["nuova risorsa", "readme", "documento", "collegamento web"].includes(titleKey) && existTitle === titleKey;
+        
+        if (isSameUrl || isSameTitle) {
+          foundExisting = existing;
           break;
         }
       }
-      if (!foundExactDuplicate) {
-        uniqueMap.set(primaryKey, item);
+    }
+
+    if (foundExisting) {
+      if (isBetterTitle(item.title, foundExisting.title)) {
+        foundExisting.title = item.title;
       }
+      if (item.summary && (!foundExisting.summary || foundExisting.summary.length < item.summary.length)) {
+        foundExisting.summary = item.summary;
+      }
+      if (item.tags && item.tags.length > 0) {
+        foundExisting.tags = Array.from(new Set([...(foundExisting.tags || []), ...item.tags]));
+      }
+      if (item.metadata) {
+        foundExisting.metadata = { ...(foundExisting.metadata || {}), ...item.metadata };
+      }
+    } else {
+      uniqueMap.set(item.id || `gen-${Math.random()}`, {
+        ...item,
+        tags: [...(item.tags || [])],
+        metadata: { ...(item.metadata || {}) },
+      });
     }
   });
 

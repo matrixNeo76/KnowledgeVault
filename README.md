@@ -1,3 +1,35 @@
+---
+okf_version: "0.2"
+id: "doc-vault-readme-hub"
+title: "Knowledge Vault (OKF v0.2) - Repository di Conoscenza Ontologica"
+type: "architecture"
+domain: "Knowledge Architecture & Ontological Systems"
+tags: ["okf", "readme", "vault", "d3", "firestore", "express", "vite", "gemini-3.7-flash", "cekikj"]
+entities:
+  - name: "Knowledge Vault"
+    type: "technology"
+    description: "Repository di conoscenza ontologica, schemi di prompt, toolchain MCP e grafo topologico"
+  - name: "Open Knowledge Format v0.2"
+    type: "specification"
+    description: "Standard aperto per la serializzazione di documentazione tecnica per LLM ed agenti"
+  - name: "Cekikj Epistemic Architecture"
+    type: "framework"
+    description: "Architettura a doppio livello con Typed Tools deterministici e Contradiction Gate"
+relations:
+  - targetTitle: "Specifica Formale Ufficiale dello Standard OKF v0.2 (OKF_v0.2_SPECIFICATION)"
+    relationType: "documents"
+    weight: 1.0
+    description: "Documenta lo standard fondante del repository"
+  - targetTitle: "Architettura di Sistema del Knowledge Vault (SYSTEM_ARCHITECTURE_OKF)"
+    relationType: "implements"
+    weight: 1.0
+    description: "Espone l'architettura tecnica e i componenti dell'applicativo"
+  - targetTitle: "Guida alla Replicazione Completa del Vault per LLM e Sviluppatori (SYSTEM_REPLICATION_GUIDE)"
+    relationType: "references"
+    weight: 0.95
+    description: "Indica i passi operativi per replicare o clonare il sistema"
+---
+
 # Knowledge Vault (OKF v0.2)
 
 > **Repository di Conoscenza Ontologica, Schemi di Prompt, Toolchain MCP e Grafo Topologico Semantico per Sviluppatori ed Agenti IA Autonomi**
@@ -9,6 +41,19 @@
 [![Google Gemini](https://img.shields.io/badge/AI%20Engine-Gemini%203.7%20%2F%202.5%20Flash-8E75B2.svg)](https://ai.google.dev/)
 [![Firebase](https://img.shields.io/badge/Database-Cloud%20Firestore-FFCA28.svg)](https://firebase.google.com/)
 [![Persistenza Multi-Livello](https://img.shields.io/badge/Storage-3--Layer%20Resilient-2E7D32.svg)](#6--architettura-di-persistenza-continua-a-3-livelli)
+
+---
+
+## 🤖 Guida di Riferimento per LLM ed Agenti Autonomi Esterni
+
+> ⚡ **Prompt di Avvio Rapido**: Per innescare qualsiasi agente o LLM esterno con le istruzioni perfette di lettura e vincoli non negoziabili, copia il prompt pronto all'uso in **[`PROMPT_AGENT_ESTERNO.md`](PROMPT_AGENT_ESTERNO.md)**.
+
+Se sei un modello linguistico (Claude, GPT, Gemini, DeepSeek o agente autonomo) che sta analizzando questo repository per **comprenderlo al 100%, estenderlo o replicarlo**, consulta direttamente i 4 documenti canonici redatti secondo lo standard **OKF v0.2**:
+
+1. 📜 **[`docs/OKF_v0.2_SPECIFICATION.md`](docs/OKF_v0.2_SPECIFICATION.md)**: La specifica formale, lo schema YAML normativo, la tassonomia dei 6 tipi e le regole di normalizzazione.
+2. 🏛️ **[`docs/SYSTEM_ARCHITECTURE_OKF.md`](docs/SYSTEM_ARCHITECTURE_OKF.md)**: Il blueprint completo: architettura a 3 livelli di storage, motore fisico D3.js a 5 forze e layer epistemico Cekikj.
+3. ⚡ **[`docs/INGESTION_PIPELINE_SPEC.md`](docs/INGESTION_PIPELINE_SPEC.md)**: Pipeline di cattura a 5 stadi, estrazione OpenGraph, Gemini 3.7 Flash Structured Output e de-duplicazione con `conflictResolver`.
+4. 🛠️ **[`docs/SYSTEM_REPLICATION_GUIDE.md`](docs/SYSTEM_REPLICATION_GUIDE.md)**: Guida passo-passo per il bootstrap, dipendenze, variabili d'ambiente e comandi di build.
 
 ---
 

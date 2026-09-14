@@ -1904,11 +1904,12 @@ export function useVaultCapture({
         analyzed = localFallbackAnalyzeResource(input, explicitType);
       }
 
-      let resolvedType = analyzed.type || explicitType || (inputClassification.isWebLink ? "link" : "article");
+      let resolvedType = explicitType || analyzed.type || (inputClassification.isWebLink ? "link" : "article");
       if (
         (input.includes("github.com/") || (analyzed.url && analyzed.url.includes("github.com/")) || inputClassification.classification === "github_repo") &&
         explicitType !== "mcp_server" &&
         explicitType !== "knowledge" &&
+        explicitType !== "article" &&
         resolvedType !== "mcp_server"
       ) {
         resolvedType = "github_repo";
@@ -1929,6 +1930,10 @@ export function useVaultCapture({
         ...(analyzed.metadata || {}),
         ...(extraMetadata || {})
       };
+
+      if ((!analyzed.title || analyzed.title.startsWith("http://") || analyzed.title.startsWith("https://") || analyzed.title === "Nuova Risorsa" || analyzed.title.toLowerCase() === "collegamento web") && mergedMetadata.ogTitle) {
+        analyzed.title = mergedMetadata.ogTitle;
+      }
 
       // ========================================================================
       // VALIDAZIONE FASE 2: VERIFICA PARSING LINK WEB & LOG MOTIVO SPECIFICO
@@ -2224,9 +2229,11 @@ export function useVaultCapture({
       // GitHub Repo, OKF Document o OKF Bozza (Draft) prima di essere salvata.
       // ========================================================================
       let detectedTransformCategory: TransformationCategory = "okf_document";
-      if (resolvedType === "github_repo" || inputClassification.classification === "github_repo") {
+      if (resolvedType === "article" || explicitType === "article") {
+        detectedTransformCategory = "article";
+      } else if (resolvedType === "github_repo" || inputClassification.classification === "github_repo") {
         detectedTransformCategory = "github_repo";
-      } else if (isLinkOrExternalWeb || resolvedType === "link" || resolvedType === "article") {
+      } else if (isLinkOrExternalWeb || resolvedType === "link") {
         detectedTransformCategory = "web_link";
       } else if (mergedMetadata.status === "draft" || mergedMetadata.isDraft) {
         detectedTransformCategory = "okf_draft";
@@ -2235,7 +2242,9 @@ export function useVaultCapture({
       }
 
       const categoryDisplayLabel = 
-        detectedTransformCategory === "web_link" 
+        detectedTransformCategory === "article"
+          ? "Articolo & Guida"
+          : detectedTransformCategory === "web_link" 
           ? "Web Link" 
           : detectedTransformCategory === "github_repo" 
           ? "GitHub Repo" 
@@ -2256,10 +2265,22 @@ export function useVaultCapture({
       // l'indicatore visivo di categorizzazione (Web Link, GitHub Repo o OKF Document) prima del commit allo storage
       await new Promise((resolve) => setTimeout(resolve, 850));
 
-      // Controllo duplicati pre-flight rispetto alle risorse esistenti
+      // Controllo duplicati pre-flight rispetto alle risorse esistenti (URL canonico normalizzato o titolo lungo corrispondente)
+      const cleanInputUrl = resolvedUrl ? resolvedUrl.trim().toLowerCase().replace(/\/$/, "").split("?")[0] : "";
+      const cleanInputTitle = (analyzed.title || "").trim().toLowerCase();
+
       const potentialDuplicate = resources.find((r) => {
-        if (resolvedUrl && r.url && r.url.toLowerCase() === resolvedUrl.toLowerCase()) return true;
-        if (r.title && analyzed.title && r.title.trim().toLowerCase() === analyzed.title.trim().toLowerCase()) return true;
+        if (cleanInputUrl && r.url) {
+          const rUrl = r.url.trim().toLowerCase().replace(/\/$/, "").split("?")[0];
+          if (rUrl === cleanInputUrl) return true;
+        }
+        if (cleanInputTitle && r.title && cleanInputTitle.length > 8 && !["nuova risorsa", "readme", "documento", "collegamento web"].includes(cleanInputTitle)) {
+          const rTitle = r.title.trim().toLowerCase();
+          if (rTitle === cleanInputTitle) return true;
+          if (cleanInputTitle.length > 25 && rTitle.length > 25 && (rTitle.includes(cleanInputTitle) || cleanInputTitle.includes(rTitle))) {
+            return true;
+          }
+        }
         return false;
       });
 
@@ -2269,7 +2290,7 @@ export function useVaultCapture({
         resourceType: resolvedType,
         status: potentialDuplicate ? "warn" : "info",
         message: potentialDuplicate
-          ? `[Cattura ${captureSessionId}] Dati trasformati in ${resolvedType} (${categoryDisplayLabel}): possibile duplicato esistente ("${potentialDuplicate.title}", ID: "${potentialDuplicate.id}")`
+          ? `[Cattura ${captureSessionId}] Dati trasformati in ${resolvedType} (${categoryDisplayLabel}): duplicato rilevato ("${potentialDuplicate.title}", ID: "${potentialDuplicate.id}"). Aggiornamento della scheda esistente per evitare duplicazioni.`
           : `[Cattura ${captureSessionId}] Dati trasformati in risorsa standard (${resolvedType} - ${categoryDisplayLabel}, ${sanitizedTags.length} tag, dominio: "${mergedMetadata.domain || 'Generale'}")`,
         details: {
           captureSessionId,
@@ -2293,6 +2314,70 @@ export function useVaultCapture({
           potentialDuplicate: potentialDuplicate ? { id: potentialDuplicate.id, title: potentialDuplicate.title, type: potentialDuplicate.type } : null,
         },
       });
+
+      // Se la risorsa è già presente, arricchiamo la scheda esistente invece di creare un duplicato
+      if (potentialDuplicate) {
+        addLog("info", "FIRESTORE", `[${captureSessionId}] Risorsa già esistente ("${potentialDuplicate.title}", ID: ${potentialDuplicate.id}). Aggiornamento ed arricchimento metadati senza duplicare...`);
+
+        const mergedTags = Array.from(new Set([...(potentialDuplicate.tags || []), ...sanitizedTags]));
+        const enrichedMetadata = {
+          ...(potentialDuplicate.metadata || {}),
+          ...mergedMetadata,
+        };
+
+        const updateData: Partial<ResourceItem> = {
+          tags: mergedTags,
+          metadata: enrichedMetadata,
+          updatedAt: new Date(),
+        };
+
+        if (
+          (!potentialDuplicate.title || potentialDuplicate.title.startsWith("http") || potentialDuplicate.title.length < (analyzed.title || "").length) &&
+          analyzed.title &&
+          !analyzed.title.startsWith("http")
+        ) {
+          updateData.title = analyzed.title;
+        }
+
+        try {
+          if (potentialDuplicate.id && !potentialDuplicate.id.startsWith("local-")) {
+            await withFirestoreTimeout(
+              setDoc(doc(db, "resources", potentialDuplicate.id), sanitizeForFirestore(updateData), { merge: true }),
+              8000
+            );
+          }
+        } catch (err) {
+          console.warn("[Capture] Aggiornamento risorsa remota duplicata fallito:", err);
+        }
+
+        setResources((prev) => {
+          const updated = prev.map((r) => (r.id === potentialDuplicate.id ? { ...r, ...updateData } : r));
+          saveLocalResources(updated, activeUser.uid);
+          return updated;
+        });
+
+        recordLifecycleEvent({
+          stage: "RESOURCE_COLLAPSED_DEDUPED",
+          resourceId: potentialDuplicate.id,
+          resourceTitle: updateData.title || potentialDuplicate.title,
+          resourceType: potentialDuplicate.type,
+          status: "success",
+          message: `[Cattura ${captureSessionId}] Duplicato prevenuto con successo: aggiornata ed arricchita la risorsa già presente ("${potentialDuplicate.title}", ID: "${potentialDuplicate.id}")`,
+          details: { captureSessionId, existingId: potentialDuplicate.id },
+        });
+
+        setCaptureStage("success");
+        setCaptureStageMessage("Già presente - Scheda Aggiornata!");
+        setStatusMessage(`Risorsa già presente nel Vault! Scheda "${updateData.title || potentialDuplicate.title}" arricchita e aggiornata.`);
+        setTimeout(() => setStatusMessage(null), 4000);
+
+        if (currentCategory !== "all" && currentCategory !== potentialDuplicate.type) {
+          setCurrentCategory(potentialDuplicate.type);
+        }
+        setSelectedTag(null);
+        setSearchQuery("");
+        return true;
+      }
 
       setCaptureStage("saving");
       setCaptureStageMessage("Salvataggio nel Vault...");
@@ -2379,7 +2464,7 @@ export function useVaultCapture({
 
       const writeStart = Date.now();
       try {
-        const docRef = await withFirestoreTimeout(addDoc(collection(db, "resources"), sanitizeForFirestore(rawData)), 10000);
+        const docRef = await withFirestoreTimeout(addDoc(collection(db, "resources"), sanitizeForFirestore(rawData)), 20000);
         const writeDuration = Date.now() - writeStart;
         addLog("success", "FIRESTORE", `[${captureSessionId}] Risorsa salvata con successo con ID: ${docRef.id} in ${writeDuration}ms`);
 
@@ -2425,42 +2510,72 @@ export function useVaultCapture({
         checkAndLogFilterVisibility(savedItem, captureSessionId, "Scrittura Firestore");
       } catch (firestoreErr: any) {
         console.warn("[handleCapture] Firestore write failed or timed out, using multi-layer local backup:", firestoreErr);
-        const localId = "local-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
-        const localItem: ResourceItem = {
-          id: localId,
-          ...rawData,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        } as ResourceItem;
-
-        if (isQuotaError(firestoreErr)) {
-          setQuotaExceeded(true);
-          wasQuotaExceededRef.current = true;
-          saveQuotaExceededStatus(true);
-          disableNetwork(db).catch(() => {});
-        }
-
-        let countBefore = 0;
-        let countAfter = 0;
+        
+        // Before creating a duplicate local- item, check if this resource URL or title already exists in the Vault (e.g. from onSnapshot)
+        const checkUrl = rawData.url ? rawData.url.trim().toLowerCase().replace(/\/$/, "").split("?")[0] : "";
+        const checkTitle = (rawData.title || "").trim().toLowerCase();
+        let alreadyPresentItem: ResourceItem | null = null;
+        
         setResources((prev) => {
-          countBefore = prev.length;
-          const updated = [localItem, ...prev];
-          countAfter = updated.length;
-          saveLocalResources(updated, activeUser.uid);
-          return updated;
+          const found = prev.find((r) => {
+            if (checkUrl && r.url) {
+              const rUrl = r.url.trim().toLowerCase().replace(/\/$/, "").split("?")[0];
+              if (rUrl === checkUrl) return true;
+            }
+            if (checkTitle && r.title && checkTitle.length > 8 && r.title.trim().toLowerCase() === checkTitle) {
+              return true;
+            }
+            return false;
+          });
+          if (found) {
+            alreadyPresentItem = found;
+          }
+          return prev;
         });
 
-        recordLifecycleEvent({
-          stage: "FIRESTORE_WRITE_FAIL",
-          resourceId: localId,
-          resourceTitle: localItem.title,
-          resourceType: resolvedType,
-          status: "warn",
-          message: `[Cattura ${captureSessionId}] Scrittura Firestore fallita (${firestoreErr?.message || "timeout"}), preservata con ID locale "${localId}" (conteggio: ${countBefore} -> ${countAfter})`,
-          details: { captureSessionId, localId, error: firestoreErr?.message, countBefore, countAfter },
-        });
+        if (alreadyPresentItem) {
+          addLog("info", "FIRESTORE", `[${captureSessionId}] Risorsa già presente o sincronizzata con ID "${(alreadyPresentItem as ResourceItem).id}". Creazione duplicato locale prevenuta.`);
+        } else {
+          const localId = "local-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
+          const localItem: ResourceItem = {
+            id: localId,
+            ...rawData,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          } as ResourceItem;
 
-        checkAndLogFilterVisibility(localItem, captureSessionId, "Fallback Firestore");
+          if (isQuotaError(firestoreErr)) {
+            setQuotaExceeded(true);
+            wasQuotaExceededRef.current = true;
+            saveQuotaExceededStatus(true);
+            disableNetwork(db).catch(() => {});
+          }
+
+          let countBefore = 0;
+          let countAfter = 0;
+          setResources((prev) => {
+            if (checkUrl && prev.some((r) => r.url && r.url.trim().toLowerCase().replace(/\/$/, "").split("?")[0] === checkUrl)) {
+              return prev;
+            }
+            countBefore = prev.length;
+            const updated = [localItem, ...prev];
+            countAfter = updated.length;
+            saveLocalResources(updated, activeUser.uid);
+            return updated;
+          });
+
+          recordLifecycleEvent({
+            stage: "FIRESTORE_WRITE_FAIL",
+            resourceId: localId,
+            resourceTitle: localItem.title,
+            resourceType: resolvedType,
+            status: "warn",
+            message: `[Cattura ${captureSessionId}] Scrittura Firestore fallita (${firestoreErr?.message || "timeout"}), preservata con ID locale "${localId}" (conteggio: ${countBefore} -> ${countAfter})`,
+            details: { captureSessionId, localId, error: firestoreErr?.message, countBefore, countAfter },
+          });
+
+          checkAndLogFilterVisibility(localItem, captureSessionId, "Fallback Firestore");
+        }
       }
 
       setCaptureStage("success");

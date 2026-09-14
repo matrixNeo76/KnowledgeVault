@@ -370,7 +370,7 @@ export interface GraphData {
 
 export type CaptureStage = 'idle' | 'sending' | 'analyzing' | 'transforming' | 'saving' | 'success';
 
-export type TransformationCategory = 'web_link' | 'github_repo' | 'okf_document' | 'okf_draft';
+export type TransformationCategory = 'web_link' | 'github_repo' | 'okf_document' | 'okf_draft' | 'article';
 
 // ============================================================================
 // CEKIKJ EPISTEMIC ARCHITECTURE TYPES (Zero-Guessing Knowledge Layer)

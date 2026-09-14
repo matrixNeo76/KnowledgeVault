@@ -290,6 +290,7 @@ export const CaptureBar: React.FC<CaptureBarProps> = ({
       case "analyzing":
         return "Elaborazione AI...";
       case "transforming":
+        if (transformationCategory === "article") return "Data Transformation: Articolo & Guida...";
         if (transformationCategory === "web_link") return "Data Transformation: Web Link...";
         if (transformationCategory === "github_repo") return "Data Transformation: GitHub Repo...";
         if (transformationCategory === "okf_draft") return "Data Transformation: OKF Bozza (Draft)...";

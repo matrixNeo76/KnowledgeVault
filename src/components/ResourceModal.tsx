@@ -252,45 +252,81 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
   };
 
   // Synchronize form when resource changes
+  const prevResourceIdRef = React.useRef<string | null>(null);
   React.useEffect(() => {
     if (resource) {
-      setTitle(resource.title || "");
-      setUrl(resource.url || "");
-      setSummary(resource.summary || "");
-      setTagsStr((resource.tags || []).join(", "));
-      setType(resource.type || "article");
-      setMcpConfig(resource.metadata?.configSnippet || "");
-      setSystemPrompt(resource.metadata?.systemPrompt || "");
-      setInstallCommand(resource.metadata?.installCommand || "");
-      setAffectedSystem(resource.metadata?.affectedSystem || "");
-      setRootCause(resource.metadata?.rootCause || "");
-      setAttemptedFixesStr((resource.metadata?.attemptedFixes || []).join("\n"));
-      setSolutionStepsStr((resource.metadata?.solutionSteps || []).join("\n"));
-      setMarkdownContent(resource.metadata?.markdownContent || "");
-      setReadingProgress(resource.metadata?.readingProgress ?? (resource as any)?.readingProgress ?? 0);
-      setUseCasesStr((resource.metadata?.useCases || []).join("\n"));
-      setProsStr((resource.metadata?.pros || []).join("\n"));
-      setConsStr((resource.metadata?.cons || []).join("\n"));
-      setScore(resource.metadata?.score ?? 0);
-      setScoreRationale(resource.metadata?.scoreRationale || "");
-      setTranslatedTitle(resource.metadata?.translatedTitle || "");
-      setTranslatedSummary(resource.metadata?.translatedSummary || "");
-      setTranslatedContent(resource.metadata?.translatedContent || "");
-      setAiExecutiveSummary(resource.metadata?.aiExecutiveSummary || "");
-      setAiKeyTakeawaysStr((resource.metadata?.aiKeyTakeaways || []).join("\n"));
-      setAiTargetAudience(resource.metadata?.aiTargetAudience || "");
-      setAiActionItemsStr((resource.metadata?.aiActionItems || []).join("\n"));
-      setUserNotes(resource.metadata?.userNotes || "");
-      setIsEditing(Boolean(initialEdit));
-      setInsightMessage(null);
-      setTranslationMessage(null);
-      setSummaryMessage(null);
+      const isSwitchingResource = prevResourceIdRef.current !== resource.id;
+      prevResourceIdRef.current = resource.id;
 
-      // If translation is already available, default view to Italian if preferred, otherwise original
-      if (resource.metadata?.translatedSummary || resource.metadata?.translatedContent) {
-        setViewLanguage("italian");
+      if (isSwitchingResource) {
+        setTitle(resource.title || "");
+        setUrl(resource.url || "");
+        setSummary(resource.summary || "");
+        setTagsStr((resource.tags || []).join(", "));
+        setType(resource.type || "article");
+        setMcpConfig(resource.metadata?.configSnippet || "");
+        setSystemPrompt(resource.metadata?.systemPrompt || "");
+        setInstallCommand(resource.metadata?.installCommand || "");
+        setAffectedSystem(resource.metadata?.affectedSystem || "");
+        setRootCause(resource.metadata?.rootCause || "");
+        setAttemptedFixesStr((resource.metadata?.attemptedFixes || []).join("\n"));
+        setSolutionStepsStr((resource.metadata?.solutionSteps || []).join("\n"));
+        setMarkdownContent(resource.metadata?.markdownContent || "");
+        setReadingProgress(resource.metadata?.readingProgress ?? (resource as any)?.readingProgress ?? 0);
+        setUseCasesStr((resource.metadata?.useCases || []).join("\n"));
+        setProsStr((resource.metadata?.pros || []).join("\n"));
+        setConsStr((resource.metadata?.cons || []).join("\n"));
+        setScore(resource.metadata?.score ?? 0);
+        setScoreRationale(resource.metadata?.scoreRationale || "");
+        setTranslatedTitle(resource.metadata?.translatedTitle || "");
+        setTranslatedSummary(resource.metadata?.translatedSummary || "");
+        setTranslatedContent(resource.metadata?.translatedContent || "");
+        setAiExecutiveSummary(resource.metadata?.aiExecutiveSummary || "");
+        setAiKeyTakeawaysStr((resource.metadata?.aiKeyTakeaways || []).join("\n"));
+        setAiTargetAudience(resource.metadata?.aiTargetAudience || "");
+        setAiActionItemsStr((resource.metadata?.aiActionItems || []).join("\n"));
+        setUserNotes(resource.metadata?.userNotes || "");
+        setIsEditing(Boolean(initialEdit));
+        setInsightMessage(null);
+        setTranslationMessage(null);
+        setSummaryMessage(null);
+
+        // If translation is already available, default view to Italian if preferred, otherwise original
+        if (resource.metadata?.translatedSummary || resource.metadata?.translatedContent) {
+          setViewLanguage("italian");
+        } else {
+          setViewLanguage("original");
+        }
       } else {
-        setViewLanguage("original");
+        // Same resource: merge incoming updates selectively without clobbering active state
+        if (resource.title) setTitle(resource.title);
+        if (resource.url) setUrl(resource.url);
+        if (resource.summary) setSummary(resource.summary);
+        if (resource.tags && resource.tags.length > 0) setTagsStr(resource.tags.join(", "));
+        if (resource.type) setType(resource.type);
+        if (resource.metadata?.markdownContent) setMarkdownContent(resource.metadata.markdownContent);
+        if (resource.metadata?.score !== undefined && resource.metadata.score !== null && resource.metadata.score > 0) {
+          setScore(resource.metadata.score);
+        }
+        if (resource.metadata?.scoreRationale) setScoreRationale(resource.metadata.scoreRationale);
+        if (resource.metadata?.useCases && resource.metadata.useCases.length > 0) {
+          setUseCasesStr(resource.metadata.useCases.join("\n"));
+        }
+        if (resource.metadata?.pros && resource.metadata.pros.length > 0) {
+          setProsStr(resource.metadata.pros.join("\n"));
+        }
+        if (resource.metadata?.cons && resource.metadata.cons.length > 0) {
+          setConsStr(resource.metadata.cons.join("\n"));
+        }
+        if (resource.metadata?.aiExecutiveSummary) setAiExecutiveSummary(resource.metadata.aiExecutiveSummary);
+        if (resource.metadata?.aiKeyTakeaways && resource.metadata.aiKeyTakeaways.length > 0) {
+          setAiKeyTakeawaysStr(resource.metadata.aiKeyTakeaways.join("\n"));
+        }
+        if (resource.metadata?.translatedSummary || resource.metadata?.translatedContent) {
+          if (resource.metadata.translatedTitle) setTranslatedTitle(resource.metadata.translatedTitle);
+          if (resource.metadata.translatedSummary) setTranslatedSummary(resource.metadata.translatedSummary);
+          if (resource.metadata.translatedContent) setTranslatedContent(resource.metadata.translatedContent);
+        }
       }
     }
   }, [resource, initialEdit]);
@@ -464,12 +500,24 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
       if (data && data.insights) {
         const { useCases = [], pros = [], cons = [], score: s = 85, scoreRationale: sRationale = "" } = data.insights;
         
+        // 1. Update component local state immediately
         setUseCasesStr(useCases.join("\n"));
         setProsStr(pros.join("\n"));
         setConsStr(cons.join("\n"));
         setScore(s);
         setScoreRationale(sRationale);
 
+        // 2. Mutate resource object reference in-place immediately for instant consistency
+        if (!resource.metadata) {
+          resource.metadata = {};
+        }
+        resource.metadata.useCases = useCases;
+        resource.metadata.pros = pros;
+        resource.metadata.cons = cons;
+        resource.metadata.score = s;
+        resource.metadata.scoreRationale = sRationale;
+
+        // 3. Persist update to parent / Firestore
         await onUpdate(resource.id, {
           metadata: {
             ...resource.metadata,
@@ -696,6 +744,231 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
   );
 
   const hasExecutiveSummary = !!(displayExecutiveSummary || (displayKeyTakeaways && displayKeyTakeaways.length > 0));
+
+  // Evaluation & Insights computed states (reactive to local state first, fallback to resource metadata)
+  const metaScore = (typeof score === "number" && score > 0)
+    ? score
+    : (typeof resource.metadata?.score === "number" && resource.metadata.score > 0 ? resource.metadata.score : 0);
+
+  const metaRationale = (scoreRationale && scoreRationale.trim().length > 0)
+    ? scoreRationale.trim()
+    : (resource.metadata?.scoreRationale || "");
+
+  const metaUseCases: string[] = (() => {
+    if (useCasesStr && useCasesStr.trim().length > 0) {
+      return useCasesStr.split("\n").map((s) => s.trim().replace(/^[-*•\d.]\s*/, "")).filter(Boolean);
+    }
+    return Array.isArray(resource.metadata?.useCases) ? resource.metadata.useCases : [];
+  })();
+
+  const metaPros: string[] = (() => {
+    if (prosStr && prosStr.trim().length > 0) {
+      return prosStr.split("\n").map((s) => s.trim().replace(/^[-*•]\s*/, "")).filter(Boolean);
+    }
+    return Array.isArray(resource.metadata?.pros) ? resource.metadata.pros : [];
+  })();
+
+  const metaCons: string[] = (() => {
+    if (consStr && consStr.trim().length > 0) {
+      return consStr.split("\n").map((s) => s.trim().replace(/^[-*•]\s*/, "")).filter(Boolean);
+    }
+    return Array.isArray(resource.metadata?.cons) ? resource.metadata.cons : [];
+  })();
+
+  const hasEvaluationScore = metaScore > 0;
+  const hasEvaluationUseCases = metaUseCases.length > 0;
+  const hasEvaluationPros = metaPros.length > 0;
+  const hasEvaluationCons = metaCons.length > 0;
+  const hasEvaluationInsights = hasEvaluationScore || hasEvaluationUseCases || hasEvaluationPros || hasEvaluationCons || Boolean(metaRationale);
+
+  const renderEvaluationCard = () => (
+    <div id="technical-evaluation-card" className="bg-[#0E0C08] border border-[#C5A059]/30 rounded-xl p-4 sm:p-5 space-y-4">
+      {/* Header with AI trigger */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2 text-xs font-mono text-[#C5A059] font-medium">
+          <Award className="w-4 h-4 text-[#C5A059]" />
+          <span>Analisi Tecnica & Valutazione AI</span>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleGenerateInsights}
+          disabled={isGeneratingInsights}
+          className="flex items-center gap-1.5 text-xs font-mono bg-[#221A0C] hover:bg-[#332610] text-[#E5C170] hover:text-white border border-[#C5A059]/40 px-3 py-1.5 rounded-lg transition-colors shadow-sm cursor-pointer"
+          title="Calcola o rigenera casi d'uso, pro, contro e voto tramite Google Gemini AI"
+        >
+          {isGeneratingInsights ? (
+            <>
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-[#C5A059]" />
+              <span>Elaborazione Gemini AI...</span>
+            </>
+          ) : (
+            <>
+              <Sparkles className="w-3.5 h-3.5 text-[#C5A059]" />
+              <span>{hasEvaluationInsights ? "Rigenera con AI" : "Calcola con AI"}</span>
+            </>
+          )}
+        </button>
+      </div>
+
+      {/* Status feedback message */}
+      {insightMessage && (
+        <div className="text-xs font-mono text-[#E5C170] bg-[#1E170A] border border-[#C5A059]/30 px-3 py-2 rounded-lg flex items-center gap-2">
+          <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
+          <span>{insightMessage}</span>
+        </div>
+      )}
+
+      {hasEvaluationInsights ? (
+        <div className="space-y-4">
+          {/* Score & Rationale Block */}
+          {hasEvaluationScore && (
+            <div className="bg-[#141009] border border-[#2B2110] rounded-lg p-3.5 space-y-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`text-sm px-2.5 py-0.5 rounded font-mono font-bold border ${
+                      metaScore >= 85
+                        ? "bg-emerald-950/80 text-emerald-300 border-emerald-700/60"
+                        : metaScore >= 70
+                        ? "bg-[#2A210F] text-[#E5C170] border-[#C5A059]/50"
+                        : "bg-[#1E1E1E] text-[#CCC] border-[#333]"
+                    }`}
+                  >
+                    {metaScore}/100
+                  </span>
+                  <span className="text-xs font-mono text-[#AAA]">
+                    {metaScore >= 85
+                      ? "Alta Utilità / Altamente Raccomandato"
+                      : metaScore >= 70
+                      ? "Molto Buono / Raccomandato"
+                      : metaScore >= 50
+                      ? "Utile per Scenari Specifici"
+                      : "Sperimentale / Da Valutare"}
+                  </span>
+                </div>
+
+                <span className="text-[11px] font-mono text-[#777]">Indice di Rilevanza</span>
+              </div>
+
+              {/* Score progress bar */}
+              <div className="h-2 w-full bg-[#0A0A0A] rounded-full overflow-hidden border border-[#221B0E]">
+                <div
+                  className={`h-full transition-all duration-500 rounded-full ${
+                    metaScore >= 85
+                      ? "bg-gradient-to-r from-emerald-600 to-emerald-400"
+                      : metaScore >= 70
+                      ? "bg-gradient-to-r from-[#B38F46] to-[#E3BE70]"
+                      : "bg-gradient-to-r from-[#666] to-[#999]"
+                  }`}
+                  style={{ width: `${metaScore}%` }}
+                />
+              </div>
+
+              {metaRationale && (
+                <p className="text-xs text-[#CCC] font-sans leading-relaxed italic border-l-2 border-[#C5A059]/40 pl-2.5 my-1">
+                  "{metaRationale}"
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Use Cases / Scenarios */}
+          {hasEvaluationUseCases && (
+            <div>
+              <div className="text-[11px] font-mono uppercase text-[#999] mb-2 flex items-center gap-1.5 tracking-wider">
+                <Target className="w-3.5 h-3.5 text-[#C5A059]" />
+                <span>Casi di Utilizzo & Scenari Applicativi:</span>
+              </div>
+              <div className="space-y-1.5">
+                {metaUseCases.map((useCase, idx) => (
+                  <div
+                    key={`modal-usecase-${resource.id || "res"}-${idx}`}
+                    className="bg-[#15120B] border border-[#2A2214] hover:border-[#3D301B] p-2.5 rounded-lg flex items-start gap-2 text-xs text-[#DDD] transition-colors"
+                  >
+                    <span className="text-[#C5A059] font-mono font-bold text-xs mt-0.5 shrink-0">
+                      0{idx + 1}.
+                    </span>
+                    <span className="leading-relaxed">{useCase}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Pros & Cons Columns */}
+          {(hasEvaluationPros || hasEvaluationCons) && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              {/* Pros Box */}
+              <div className="bg-[#0A140F] border border-emerald-900/40 rounded-lg p-3 space-y-2">
+                <div className="text-xs font-mono uppercase text-emerald-400 font-medium flex items-center gap-1.5">
+                  <ThumbsUp className="w-3.5 h-3.5" />
+                  <span>Punti di Forza (Pro)</span>
+                </div>
+                {hasEvaluationPros ? (
+                  <ul className="space-y-1.5 text-xs text-emerald-200/90 font-sans">
+                    {metaPros.map((pro, idx) => (
+                      <li key={`modal-pro-${resource.id || "res"}-${idx}`} className="flex items-start gap-1.5 leading-snug">
+                        <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                        <span>{pro}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-xs text-[#666] font-mono">Nessun pro registrato.</p>
+                )}
+              </div>
+
+              {/* Cons Box */}
+              <div className="bg-[#140F08] border border-[#C5A059]/25 rounded-lg p-3 space-y-2">
+                <div className="text-xs font-mono uppercase text-[#E5C170] font-medium flex items-center gap-1.5">
+                  <ThumbsDown className="w-3.5 h-3.5" />
+                  <span>Limiti / Considerazioni (Contro)</span>
+                </div>
+                {hasEvaluationCons ? (
+                  <ul className="space-y-1.5 text-xs text-[#DDD] font-sans">
+                    {metaCons.map((con, idx) => (
+                      <li key={`modal-con-${resource.id || "res"}-${idx}`} className="flex items-start gap-1.5 leading-snug">
+                        <span className="text-[#C5A059] font-bold text-xs shrink-0 mt-0.5">•</span>
+                        <span>{con}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-xs text-[#666] font-mono">Nessun contro registrato.</p>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        /* Empty State with CTA */
+        <div className="bg-[#141009] border border-[#281F0E] rounded-lg p-4 text-center space-y-2.5">
+          <p className="text-xs text-[#AAA] leading-relaxed max-w-lg mx-auto">
+            Nessuna analisi tecnica ancora registrata. Puoi inserire i casi d'uso, pro, contro e il voto in modalità <strong className="text-white">Modifica</strong> oppure cliccare sul pulsante qui sotto per calcolarli istantaneamente con Google Gemini.
+          </p>
+          <button
+            type="button"
+            onClick={handleGenerateInsights}
+            disabled={isGeneratingInsights}
+            className="inline-flex items-center gap-2 text-xs font-mono bg-[#C5A059] hover:bg-[#D5B069] text-black font-semibold px-4 py-2 rounded-lg transition-colors shadow-lg cursor-pointer"
+          >
+            {isGeneratingInsights ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin text-black" />
+                <span>Generazione in corso...</span>
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-4 h-4 text-black" />
+                <span>Genera Analisi Completa con AI</span>
+              </>
+            )}
+          </button>
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <div 
@@ -1252,9 +1525,9 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
             >
               <Award className="w-3.5 h-3.5 text-[#C5A059]" />
               <span>Valutazione & Score</span>
-              {typeof resource.metadata?.score === "number" && resource.metadata.score > 0 && (
+              {hasEvaluationScore && (
                 <span className="text-[10px] font-mono text-[#C5A059] bg-[#221A0C] px-1.5 py-0.2 rounded border border-[#C5A059]/40 font-bold">
-                  {resource.metadata.score}/100
+                  {metaScore}/100
                 </span>
               )}
             </button>
@@ -1799,8 +2072,81 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
             </div>
           ) : (
             /* ================= READONLY DETAIL VIEW ================= */
-            <>
-              {/* Language Switcher Bar (if translation is available) */}
+            activeModalTab === "evaluation" ? (
+              <div className="space-y-4 animate-in fade-in">
+                {/* Language Switcher Bar (if translation is available) */}
+                {hasTranslation && (
+                  <div className="bg-[#0D1510] border border-emerald-800/40 rounded-xl p-3 flex items-center justify-between gap-3 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <Languages className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span className="text-xs font-mono text-emerald-300 font-medium">
+                        Visualizzazione Lingua:
+                      </span>
+                      <div className="flex items-center bg-[#070B08] p-1 rounded-lg border border-emerald-900/60 gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setViewLanguage("italian")}
+                          className={`px-2.5 py-1 rounded-md text-xs font-mono transition-all ${
+                            viewLanguage === "italian"
+                              ? "bg-emerald-600 text-white font-bold shadow-sm"
+                              : "text-[#888] hover:text-white"
+                          }`}
+                        >
+                          🇮🇹 Italiano (AI)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setViewLanguage("original")}
+                          className={`px-2.5 py-1 rounded-md text-xs font-mono transition-all ${
+                            viewLanguage === "original"
+                              ? "bg-[#222] text-white font-bold shadow-sm"
+                              : "text-[#888] hover:text-white"
+                          }`}
+                        >
+                          🌐 Originale
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Focused Evaluation Header */}
+                <div className="bg-[#12100A] border border-[#C5A059]/30 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                  <div className="space-y-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#C5A059]/10 text-[#C5A059] border border-[#C5A059]/30 uppercase font-semibold">
+                        {resource.type}
+                      </span>
+                      {resource.metadata?.domain && (
+                        <span className="text-[11px] font-mono text-[#888]">
+                          {resource.metadata.domain}
+                        </span>
+                      )}
+                      {hasEvaluationScore && (
+                        <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/50 font-bold">
+                          Score: {metaScore}/100
+                        </span>
+                      )}
+                    </div>
+                    <h2 className="text-base sm:text-lg font-serif font-bold text-white tracking-wide truncate">
+                      {currentDisplayTitle}
+                    </h2>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveModalTab("overview")}
+                    className="text-xs font-mono text-[#AAA] hover:text-[#E5C170] flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#18150E] hover:bg-[#221C11] border border-[#2B2312] shrink-0 transition-colors cursor-pointer"
+                  >
+                    <BookOpen className="w-3.5 h-3.5 text-[#C5A059]" />
+                    <span>Torna alla Panoramica</span>
+                  </button>
+                </div>
+
+                {renderEvaluationCard()}
+              </div>
+            ) : (
+              <>
+                {/* Language Switcher Bar (if translation is available) */}
               {hasTranslation && (
                 <div className="bg-[#0D1510] border border-emerald-800/40 rounded-xl p-3 flex items-center justify-between gap-3 flex-wrap animate-in fade-in">
                   <div className="flex items-center gap-2">
@@ -2526,201 +2872,7 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
               )}
 
               {/* Technical Evaluation & Insights Card (Score, Use Cases, Pros, Cons) */}
-              {(() => {
-                const meta = resource.metadata || {};
-                const hasScore = typeof meta.score === "number" && meta.score > 0;
-                const hasUseCases = Array.isArray(meta.useCases) && meta.useCases.length > 0;
-                const hasPros = Array.isArray(meta.pros) && meta.pros.length > 0;
-                const hasCons = Array.isArray(meta.cons) && meta.cons.length > 0;
-                const hasInsights = hasScore || hasUseCases || hasPros || hasCons || meta.scoreRationale;
-
-                return (
-                  <div className="bg-[#0E0C08] border border-[#C5A059]/30 rounded-xl p-4 sm:p-5 space-y-4">
-                    {/* Header with AI trigger */}
-                    <div className="flex items-center justify-between gap-2 flex-wrap">
-                      <div className="flex items-center gap-2 text-xs font-mono text-[#C5A059] font-medium">
-                        <Award className="w-4 h-4 text-[#C5A059]" />
-                        <span>Analisi Tecnica & Valutazione AI</span>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={handleGenerateInsights}
-                        disabled={isGeneratingInsights}
-                        className="flex items-center gap-1.5 text-xs font-mono bg-[#221A0C] hover:bg-[#332610] text-[#E5C170] hover:text-white border border-[#C5A059]/40 px-3 py-1.5 rounded-lg transition-colors shadow-sm"
-                        title="Calcola o rigenera casi d'uso, pro, contro e voto tramite Google Gemini AI"
-                      >
-                        {isGeneratingInsights ? (
-                          <>
-                            <Loader2 className="w-3.5 h-3.5 animate-spin text-[#C5A059]" />
-                            <span>Elaborazione Gemini AI...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Sparkles className="w-3.5 h-3.5 text-[#C5A059]" />
-                            <span>{hasInsights ? "Rigenera con AI" : "Calcola con AI"}</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-
-                    {/* Status feedback message */}
-                    {insightMessage && (
-                      <div className="text-xs font-mono text-[#E5C170] bg-[#1E170A] border border-[#C5A059]/30 px-3 py-2 rounded-lg flex items-center gap-2">
-                        <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
-                        <span>{insightMessage}</span>
-                      </div>
-                    )}
-
-                    {hasInsights ? (
-                      <div className="space-y-4">
-                        {/* Score & Rationale Block */}
-                        {hasScore && (
-                          <div className="bg-[#141009] border border-[#2B2110] rounded-lg p-3.5 space-y-2.5">
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="flex items-center gap-2">
-                                <span className={`text-sm px-2.5 py-0.5 rounded font-mono font-bold border ${
-                                  meta.score! >= 85
-                                    ? "bg-emerald-950/80 text-emerald-300 border-emerald-700/60"
-                                    : meta.score! >= 70
-                                    ? "bg-[#2A210F] text-[#E5C170] border-[#C5A059]/50"
-                                    : "bg-[#1E1E1E] text-[#CCC] border-[#333]"
-                                }`}>
-                                  {meta.score}/100
-                                </span>
-                                <span className="text-xs font-mono text-[#AAA]">
-                                  {meta.score! >= 85
-                                    ? "Alta Utilità / Altamente Raccomandato"
-                                    : meta.score! >= 70
-                                    ? "Molto Buono / Raccomandato"
-                                    : meta.score! >= 50
-                                    ? "Utile per Scenari Specifici"
-                                    : "Sperimentale / Da Valutare"}
-                                </span>
-                              </div>
-
-                              <span className="text-[11px] font-mono text-[#777]">Indice di Rilevanza</span>
-                            </div>
-
-                            {/* Score progress bar */}
-                            <div className="h-2 w-full bg-[#0A0A0A] rounded-full overflow-hidden border border-[#221B0E]">
-                              <div
-                                className={`h-full transition-all duration-500 rounded-full ${
-                                  meta.score! >= 85
-                                    ? "bg-gradient-to-r from-emerald-600 to-emerald-400"
-                                    : meta.score! >= 70
-                                    ? "bg-gradient-to-r from-[#B38F46] to-[#E3BE70]"
-                                    : "bg-gradient-to-r from-[#666] to-[#999]"
-                                }`}
-                                style={{ width: `${meta.score}%` }}
-                              />
-                            </div>
-
-                            {meta.scoreRationale && (
-                              <p className="text-xs text-[#CCC] font-sans leading-relaxed italic border-l-2 border-[#C5A059]/40 pl-2.5 my-1">
-                                "{meta.scoreRationale}"
-                              </p>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Use Cases / Scenarios */}
-                        {hasUseCases && (
-                          <div>
-                            <div className="text-[11px] font-mono uppercase text-[#999] mb-2 flex items-center gap-1.5 tracking-wider">
-                              <Target className="w-3.5 h-3.5 text-[#C5A059]" />
-                              <span>Casi di Utilizzo & Scenari Applicativi:</span>
-                            </div>
-                            <div className="space-y-1.5">
-                              {meta.useCases!.map((useCase, idx) => (
-                                <div
-                                  key={`modal-usecase-${resource.id || 'res'}-${idx}`}
-                                  className="bg-[#15120B] border border-[#2A2214] hover:border-[#3D301B] p-2.5 rounded-lg flex items-start gap-2 text-xs text-[#DDD] transition-colors"
-                                >
-                                  <span className="text-[#C5A059] font-mono font-bold text-xs mt-0.5 shrink-0">
-                                    0{idx + 1}.
-                                  </span>
-                                  <span className="leading-relaxed">{useCase}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Pros & Cons Columns */}
-                        {(hasPros || hasCons) && (
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                            {/* Pros Box */}
-                            <div className="bg-[#0A140F] border border-emerald-900/40 rounded-lg p-3 space-y-2">
-                              <div className="text-xs font-mono uppercase text-emerald-400 font-medium flex items-center gap-1.5">
-                                <ThumbsUp className="w-3.5 h-3.5" />
-                                <span>Punti di Forza (Pro)</span>
-                              </div>
-                              {hasPros ? (
-                                <ul className="space-y-1.5 text-xs text-emerald-200/90 font-sans">
-                                  {meta.pros!.map((pro, idx) => (
-                                    <li key={`modal-pro-${resource.id || 'res'}-${idx}`} className="flex items-start gap-1.5 leading-snug">
-                                      <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
-                                      <span>{pro}</span>
-                                    </li>
-                                  ))}
-                                </ul>
-                              ) : (
-                                <p className="text-xs text-[#666] font-mono">Nessun pro registrato.</p>
-                              )}
-                            </div>
-
-                            {/* Cons Box */}
-                            <div className="bg-[#140F08] border border-[#C5A059]/25 rounded-lg p-3 space-y-2">
-                              <div className="text-xs font-mono uppercase text-[#E5C170] font-medium flex items-center gap-1.5">
-                                <ThumbsDown className="w-3.5 h-3.5" />
-                                <span>Limiti / Considerazioni (Contro)</span>
-                              </div>
-                              {hasCons ? (
-                                <ul className="space-y-1.5 text-xs text-[#DDD] font-sans">
-                                  {meta.cons!.map((con, idx) => (
-                                    <li key={`modal-con-${resource.id || 'res'}-${idx}`} className="flex items-start gap-1.5 leading-snug">
-                                      <span className="text-[#C5A059] font-bold text-xs shrink-0 mt-0.5">•</span>
-                                      <span>{con}</span>
-                                    </li>
-                                  ))}
-                                </ul>
-                              ) : (
-                                <p className="text-xs text-[#666] font-mono">Nessun contro registrato.</p>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      /* Empty State with CTA */
-                      <div className="bg-[#141009] border border-[#281F0E] rounded-lg p-4 text-center space-y-2.5">
-                        <p className="text-xs text-[#AAA] leading-relaxed max-w-lg mx-auto">
-                          Nessuna analisi tecnica ancora registrata. Puoi inserire i casi d'uso, pro, contro e il voto in modalità <strong className="text-white">Modifica</strong> oppure cliccare sul pulsante qui sotto per calcolarli istantaneamente con Google Gemini.
-                        </p>
-                        <button
-                          type="button"
-                          onClick={handleGenerateInsights}
-                          disabled={isGeneratingInsights}
-                          className="inline-flex items-center gap-2 text-xs font-mono bg-[#C5A059] hover:bg-[#D5B069] text-black font-semibold px-4 py-2 rounded-lg transition-colors shadow-lg"
-                        >
-                          {isGeneratingInsights ? (
-                            <>
-                              <Loader2 className="w-4 h-4 animate-spin text-black" />
-                              <span>Generazione in corso...</span>
-                            </>
-                          ) : (
-                            <>
-                              <Sparkles className="w-4 h-4 text-black" />
-                              <span>Genera Analisi Completa con AI</span>
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
+              {renderEvaluationCard()}
 
               {/* Markdown Content Viewer (OKF / Article / Full Web Doc) */}
               {currentDisplayMarkdown && (
@@ -3279,7 +3431,8 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
                   </div>
                 </div>
               )}
-            </>
+              </>
+            )
           )}
         </div>
 

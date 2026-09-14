@@ -1,6 +1,40 @@
+---
+okf_version: "0.2"
+id: "spec-agent-operational-protocols"
+title: "Protocolli Operativi per Agenti Autonomi (AGENTS.md)"
+type: "specification"
+domain: "Autonomous Agents & Governance"
+tags: ["okf", "specification", "agents", "protocols", "governance", "security", "cekikj"]
+entities:
+  - name: "Autonomous AI Agents"
+    type: "technology"
+    description: "Modelli ed agenti autonomi operanti nel contesto del Knowledge Vault"
+  - name: "Epistemic Guardrails"
+    type: "governance"
+    description: "Insieme di vincoli per il rifiuto delle congetture e rispetto dei contratti formali"
+relations:
+  - targetTitle: "Specifica Formale Ufficiale dello Standard OKF v0.2 (OKF_v0.2_SPECIFICATION)"
+    relationType: "governs"
+    weight: 1.0
+    description: "Impone le regole formali di serializzazione a tutti gli agenti"
+  - targetTitle: "Architettura di Sistema del Knowledge Vault (SYSTEM_ARCHITECTURE_OKF)"
+    relationType: "constrains"
+    weight: 0.95
+    description: "Vincola le operazioni degli agenti all'architettura a 3 livelli del Vault"
+  - targetTitle: "Pipeline di Ingestione e Intelligenza Estrattiva OKF v0.2 (INGESTION_PIPELINE_SPEC)"
+    relationType: "references"
+    weight: 0.9
+    description: "Fornisce il protocollo di chiamata per l'ingestione delle risorse"
+---
+
 # Protocolli Operativi per Agenti Autonomi (AGENTS.md)
 
-> **Regole di Ingaggio, Protocolli di Esecuzione e Vincoli di Sviluppo per Agenti AI nel Knowledge Vault**
+> **Regole di Ingaggio, Protocolli di Esecuzione e Vincoli di Sviluppo per Agenti AI nel Knowledge Vault**  
+> *Per la documentazione tecnica canonica e i contratti formali dettagliati, consultare i documenti nella cartella `/docs`:*  
+> 1. [`docs/OKF_v0.2_SPECIFICATION.md`](docs/OKF_v0.2_SPECIFICATION.md) — *Specifica Formale Ufficiale OKF v0.2*  
+> 2. [`docs/SYSTEM_ARCHITECTURE_OKF.md`](docs/SYSTEM_ARCHITECTURE_OKF.md) — *Blueprint Architetturale Dettagliato*  
+> 3. [`docs/INGESTION_PIPELINE_SPEC.md`](docs/INGESTION_PIPELINE_SPEC.md) — *Pipeline di Ingestione e Fallback Euristico*  
+> 4. [`docs/SYSTEM_REPLICATION_GUIDE.md`](docs/SYSTEM_REPLICATION_GUIDE.md) — *Guida Operativa alla Replicazione Completa*  
 
 ---
 

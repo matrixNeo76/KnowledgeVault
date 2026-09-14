@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { 
   ResourceItem, 
   NavCategory, 
@@ -110,6 +110,72 @@ export default function App() {
   const [isPrintDossierOpen, setIsPrintDossierOpen] = useState(false);
   const [isGoogleDriveOpen, setIsGoogleDriveOpen] = useState(false);
   const [googleDriveExportResource, setGoogleDriveExportResource] = useState<ResourceItem | null>(null);
+
+  // Derive fresh resource reference from resources array to maintain instant reactivity without wiping newer local metadata
+  const liveSelectedResourceForDetail = useMemo(() => {
+    if (!selectedResourceForDetail) return null;
+    const fresh = resources.find((r) => r.id === selectedResourceForDetail.id);
+    if (!fresh) return selectedResourceForDetail;
+    return {
+      ...fresh,
+      ...selectedResourceForDetail,
+      metadata: {
+        ...(fresh.metadata || {}),
+        ...(selectedResourceForDetail.metadata || {}),
+      },
+    };
+  }, [selectedResourceForDetail, resources]);
+
+  const liveSelectedKnowledgeForReader = useMemo(() => {
+    if (!selectedKnowledgeForReader) return null;
+    const fresh = resources.find((r) => r.id === selectedKnowledgeForReader.id);
+    if (!fresh) return selectedKnowledgeForReader;
+    return {
+      ...fresh,
+      ...selectedKnowledgeForReader,
+      metadata: {
+        ...(fresh.metadata || {}),
+        ...(selectedKnowledgeForReader.metadata || {}),
+      },
+    };
+  }, [selectedKnowledgeForReader, resources]);
+
+  // Synchronize modal state immediately whenever handleUpdateResource is called
+  const handleUpdateResourceWithModalSync = useCallback(
+    async (id: string, updatedData: Partial<ResourceItem>): Promise<boolean> => {
+      const success = await handleUpdateResource(id, updatedData);
+      if (success) {
+        setSelectedResourceForDetail((prev) => {
+          if (prev && prev.id === id) {
+            return {
+              ...prev,
+              ...updatedData,
+              metadata: {
+                ...(prev.metadata || {}),
+                ...(updatedData.metadata || {}),
+              },
+            };
+          }
+          return prev;
+        });
+        setSelectedKnowledgeForReader((prev) => {
+          if (prev && prev.id === id) {
+            return {
+              ...prev,
+              ...updatedData,
+              metadata: {
+                ...(prev.metadata || {}),
+                ...(updatedData.metadata || {}),
+              },
+            };
+          }
+          return prev;
+        });
+      }
+      return success;
+    },
+    [handleUpdateResource]
+  );
 
   // Secondary Dialog Booleans
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -916,16 +982,16 @@ export default function App() {
         setIsVaultHealthCheckOpen={setIsVaultHealthCheckOpen}
         isDiscrepancyInspectorOpen={isDiscrepancyInspectorOpen}
         setIsDiscrepancyInspectorOpen={setIsDiscrepancyInspectorOpen}
-        selectedResourceForDetail={selectedResourceForDetail}
+        selectedResourceForDetail={liveSelectedResourceForDetail}
         setSelectedResourceForDetail={setSelectedResourceForDetail}
         isInitialEditForDetail={isInitialEditForDetail}
         setIsInitialEditForDetail={setIsInitialEditForDetail}
         resources={resources}
-        handleUpdateResource={handleUpdateResource}
+        handleUpdateResource={handleUpdateResourceWithModalSync}
         handleDeleteResource={handleDeleteResource}
         handleToggleFavorite={handleToggleFavorite}
         onToggleReadLater={handleToggleReadLater}
-        selectedKnowledgeForReader={selectedKnowledgeForReader}
+        selectedKnowledgeForReader={liveSelectedKnowledgeForReader}
         setSelectedKnowledgeForReader={setSelectedKnowledgeForReader}
         printPreviewResource={printPreviewResource}
         setPrintPreviewResource={setPrintPreviewResource}

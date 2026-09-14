@@ -1149,6 +1149,14 @@ Return pure JSON matching this exact structure:
       if (!parsedJson.metadata.ogTitle && ogData.ogTitle) parsedJson.metadata.ogTitle = ogData.ogTitle;
       if (!parsedJson.metadata.ogImage && ogData.ogImage) parsedJson.metadata.ogImage = ogData.ogImage;
       if (!parsedJson.metadata.author && ogData.author) parsedJson.metadata.author = ogData.author;
+      
+      if (ogData.ogTitle && (!parsedJson.title || parsedJson.title.startsWith("http://") || parsedJson.title.startsWith("https://") || parsedJson.title === "Nuova Risorsa" || parsedJson.title.toLowerCase() === "collegamento web")) {
+        parsedJson.title = ogData.ogTitle;
+      }
+    }
+
+    if (explicitType && explicitType !== "link") {
+      parsedJson.type = explicitType;
     }
 
     const ghRegex = /(?:https?:\/\/)?(?:www\.)?github\.com\/([a-zA-Z0-9._-]+)\/([a-zA-Z0-9._-]+)/i;
