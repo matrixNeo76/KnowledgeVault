@@ -52,6 +52,8 @@ Non tentare di indovinarne la struttura da convenzioni generiche o template stan
    -> Comprendi il ciclo di cattura a 5 stadi (sending, analyzing, transforming, saving, success), l'estrazione OpenGraph, il parsing strutturato Gemini 3.7 Flash e la de-duplicazione con firma canonica in `conflictResolver.ts`.
 4. `docs/SYSTEM_REPLICATION_GUIDE.md`
    -> Comprendi la configurazione di runtime, dipendenze npm, variabili d'ambiente, albero dei file e comandi di build.
+5. `docs/PROJECT_STRUCTURE.md`
+   -> Consulta la mappa ragionata di tutte le cartelle, sottocartelle e file di `server/` e `src/` per sapere esattamente dove risiede ogni modulo senza esplorare alla cieca.
 
 ### FASE 2 — REGOLE ARCHITETTURALI E VINCOLI NON NEGOZIABILI:
 - **Porta Unica**: Il container espone SOLO la porta 3000. Il file `server.ts` unifica Express e il middleware Vite. Non creare dev-server o porte separate.

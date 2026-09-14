@@ -48,12 +48,13 @@ relations:
 
 > ⚡ **Prompt di Avvio Rapido**: Per innescare qualsiasi agente o LLM esterno con le istruzioni perfette di lettura e vincoli non negoziabili, copia il prompt pronto all'uso in **[`PROMPT_AGENT_ESTERNO.md`](PROMPT_AGENT_ESTERNO.md)**.
 
-Se sei un modello linguistico (Claude, GPT, Gemini, DeepSeek o agente autonomo) che sta analizzando questo repository per **comprenderlo al 100%, estenderlo o replicarlo**, consulta direttamente i 4 documenti canonici redatti secondo lo standard **OKF v0.2**:
+Se sei un modello linguistico (Claude, GPT, Gemini, DeepSeek o agente autonomo) che sta analizzando questo repository per **comprenderlo al 100%, estenderlo o replicarlo**, consulta direttamente i 5 documenti canonici redatti secondo lo standard **OKF v0.2**:
 
 1. 📜 **[`docs/OKF_v0.2_SPECIFICATION.md`](docs/OKF_v0.2_SPECIFICATION.md)**: La specifica formale, lo schema YAML normativo, la tassonomia dei 6 tipi e le regole di normalizzazione.
 2. 🏛️ **[`docs/SYSTEM_ARCHITECTURE_OKF.md`](docs/SYSTEM_ARCHITECTURE_OKF.md)**: Il blueprint completo: architettura a 3 livelli di storage, motore fisico D3.js a 5 forze e layer epistemico Cekikj.
 3. ⚡ **[`docs/INGESTION_PIPELINE_SPEC.md`](docs/INGESTION_PIPELINE_SPEC.md)**: Pipeline di cattura a 5 stadi, estrazione OpenGraph, Gemini 3.7 Flash Structured Output e de-duplicazione con `conflictResolver`.
 4. 🛠️ **[`docs/SYSTEM_REPLICATION_GUIDE.md`](docs/SYSTEM_REPLICATION_GUIDE.md)**: Guida passo-passo per il bootstrap, dipendenze, variabili d'ambiente e comandi di build.
+5. 🗺️ **[`docs/PROJECT_STRUCTURE.md`](docs/PROJECT_STRUCTURE.md)**: Mappa strutturale ragionata di tutte le cartelle, sottocartelle e file di backend e frontend con relative responsabilità.
 
 ---
 
