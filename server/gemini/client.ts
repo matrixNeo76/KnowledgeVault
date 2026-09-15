@@ -136,10 +136,11 @@ export function trackCall(model: string, latencyMs: number, success: boolean, er
 // Candidate Model Hierarchy & Generation Helpers
 // ----------------------------------------------------------------------
 export const CANDIDATE_MODELS = [
-  "gemini-3.8-flash",
+  "gemini-2.5-flash",
   "gemini-3.7-flash",
   "gemini-flash-latest",
   "gemini-3.1-flash-lite",
+  "gemini-3.8-flash",
 ];
 
 export interface GeminiGenerateOptions {
@@ -214,8 +215,20 @@ export async function generateWithGeminiFallback(
       }
     } catch (err: any) {
       const latencyMs = Date.now() - callStart;
-      const isQuota = err?.status === "RESOURCE_EXHAUSTED" || err?.message?.includes("quota") || err?.message?.includes("429");
-      const isUnavailable = err?.status === "UNAVAILABLE" || err?.code === 503 || err?.message?.includes("503") || err?.message?.includes("high demand");
+      const errMsg = (err?.message || "").toLowerCase();
+      const isQuota =
+        err?.status === "RESOURCE_EXHAUSTED" ||
+        err?.code === 429 ||
+        errMsg.includes("resource_exhausted") ||
+        errMsg.includes("quota") ||
+        errMsg.includes("429");
+      const isUnavailable =
+        err?.status === "UNAVAILABLE" ||
+        err?.code === 503 ||
+        errMsg.includes("503") ||
+        errMsg.includes("overloaded") ||
+        errMsg.includes("high demand") ||
+        errMsg.includes("unavailable");
 
       recordGeminiCall({
         endpoint,
@@ -227,13 +240,21 @@ export async function generateWithGeminiFallback(
       });
 
       if (isQuota) {
-        triggerGeminiQuotaCooldown(60000);
-        console.log(
-          `[Gemini] API quota limit reached (429 RESOURCE_EXHAUSTED). Entering 60s cooldown; switching to local rule-based heuristic parser.`
-        );
-        break; // Stop attempting other models under the same project quota
+        const isPerModelQuota = errMsg.includes("per_model") || errMsg.includes("per_model_per_day");
+        if (isPerModelQuota) {
+          console.log(
+            `[Gemini] Model ${modelName} daily quota exhausted. Attempting next candidate model...`
+          );
+          continue;
+        } else {
+          triggerGeminiQuotaCooldown(60000);
+          console.log(
+            `[Gemini] API quota limit reached (RESOURCE_EXHAUSTED/429). Entering 60s cooldown; switching seamlessly to heuristic fallback parser.`
+          );
+          break; // Stop attempting other models under the same exhausted project quota
+        }
       } else if (isUnavailable) {
-        console.log(`[Gemini] ${modelName} temporarily busy (503 high demand), attempting next model...`);
+        console.log(`[Gemini] ${modelName} temporarily overloaded/busy (503), attempting next candidate model...`);
       } else {
         console.log(`[Gemini] ${modelName} generation issue: ${err?.message || "unknown"}`);
       }
@@ -298,8 +319,20 @@ export async function generateMultimodalWithGeminiFallback(
       }
     } catch (err: any) {
       const latencyMs = Date.now() - callStart;
-      const isQuota = err?.status === "RESOURCE_EXHAUSTED" || err?.message?.includes("quota") || err?.message?.includes("429");
-      const isUnavailable = err?.status === "UNAVAILABLE" || err?.code === 503 || err?.message?.includes("503");
+      const errMsg = (err?.message || "").toLowerCase();
+      const isQuota =
+        err?.status === "RESOURCE_EXHAUSTED" ||
+        err?.code === 429 ||
+        errMsg.includes("resource_exhausted") ||
+        errMsg.includes("quota") ||
+        errMsg.includes("429");
+      const isUnavailable =
+        err?.status === "UNAVAILABLE" ||
+        err?.code === 503 ||
+        errMsg.includes("503") ||
+        errMsg.includes("overloaded") ||
+        errMsg.includes("high demand") ||
+        errMsg.includes("unavailable");
 
       recordGeminiCall({
         endpoint,
@@ -311,11 +344,19 @@ export async function generateMultimodalWithGeminiFallback(
       });
 
       if (isQuota) {
-        triggerGeminiQuotaCooldown(60000);
-        console.log(
-          `[Gemini Multimodal] API quota reached (429 RESOURCE_EXHAUSTED). Entering 60s cooldown.`
-        );
-        break;
+        const isPerModelQuota = errMsg.includes("per_model") || errMsg.includes("per_model_per_day");
+        if (isPerModelQuota) {
+          console.log(
+            `[Gemini Multimodal] Model ${modelName} daily quota exhausted. Attempting next candidate model...`
+          );
+          continue;
+        } else {
+          triggerGeminiQuotaCooldown(60000);
+          console.log(
+            `[Gemini Multimodal] API quota reached (RESOURCE_EXHAUSTED/429). Entering 60s cooldown.`
+          );
+          break;
+        }
       }
     }
   }

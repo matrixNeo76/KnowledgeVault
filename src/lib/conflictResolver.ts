@@ -2,6 +2,83 @@ import { ResourceItem } from "../types";
 import { parseDate, getTimestampMillis } from "./dateUtils";
 import { recordLifecycleEvent } from "./resourceLifecycleTracker";
 
+/**
+ * Normalizza e purifica un URL per il calcolo della firma canonica univoca (OP-05):
+ * - Rimuove differenze di protocollo (http vs https)
+ * - Rimuove prefissi 'www.' ridondanti
+ * - Rimuove trailing slash e frammenti hash (#...)
+ * - Filtra parametri di tracking/analytics (utm_*, ref, fbclid, gclid, etc.)
+ * - Preserva parametri funzionali (v per YouTube, id, path, etc.) ordinati deterministicamente
+ */
+export function getCanonicalUrl(rawUrl: string): string {
+  if (!rawUrl || typeof rawUrl !== "string") return "";
+  const trimmed = rawUrl.trim();
+  if (trimmed.length < 4) return "";
+
+  try {
+    const withProto = trimmed.startsWith("http://") || trimmed.startsWith("https://") ? trimmed : `https://${trimmed}`;
+    const urlObj = new URL(withProto);
+
+    let hostname = urlObj.hostname.toLowerCase();
+    if (hostname.startsWith("www.")) {
+      hostname = hostname.slice(4);
+    }
+
+    let pathname = urlObj.pathname.replace(/\/+/g, "/").replace(/\/$/, "");
+    if (!pathname) pathname = "";
+
+    const trackingParams = new Set([
+      "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
+      "ref", "ref_src", "ref_url", "fbclid", "gclid", "dclid", "msclkid",
+      "mc_cid", "mc_eid", "igshid", "si"
+    ]);
+
+    const cleanParams = new URLSearchParams();
+    urlObj.searchParams.forEach((val, key) => {
+      const lowerKey = key.toLowerCase();
+      if (!trackingParams.has(lowerKey) && !lowerKey.startsWith("utm_")) {
+        cleanParams.append(lowerKey, val);
+      }
+    });
+    cleanParams.sort();
+    const searchStr = cleanParams.toString();
+
+    return `${hostname}${pathname}${searchStr ? `?${searchStr}` : ""}`;
+  } catch {
+    return trimmed
+      .toLowerCase()
+      .replace(/^https?:\/\//, "")
+      .replace(/^www\./, "")
+      .replace(/\/$/, "")
+      .split("#")[0]
+      .split("?")[0];
+  }
+}
+
+/**
+ * Genera una firma canonica univoca per una risorsa per prevenire duplicati
+ * tra fonti locali e remote (Tri-Layer Storage Shield).
+ */
+export function getCanonicalSignature(item: ResourceItem): string {
+  const cleanUrl = item.url ? getCanonicalUrl(item.url) : "";
+  const cleanTitle = (item.title || "").trim().toLowerCase().replace(/\s+/g, " ");
+
+  if (cleanUrl && cleanUrl.length > 8) {
+    return `url:${cleanUrl}`;
+  }
+
+  const genericTitles = new Set([
+    "readme", "documento", "note", "nota", "nuova risorsa",
+    "untitled", "senza titolo", "appunti", "collegamento web", "risorsa senza titolo"
+  ]);
+
+  if (cleanTitle.length > 8 && !genericTitles.has(cleanTitle)) {
+    return `title:${cleanTitle}`;
+  }
+
+  return `isolated:${item.id || Math.random().toString(36).slice(2)}`;
+}
+
 export type ConflictStatus =
   | "local_newer"
   | "remote_newer"
@@ -54,31 +131,12 @@ export function analyzeResourceConflicts(
   const localMap = new Map<string, ResourceItem>();
   const remoteMap = new Map<string, ResourceItem>();
 
-  // Helper function to create a canonical resource signature
-  // Note: Local temp IDs are reconciled with remote items when there is an exact URL match, or an unambiguous title match
-  const getResourceSignature = (item: ResourceItem): string => {
-    const cleanUrl = item.url && item.url.trim().length > 3 ? item.url.trim().toLowerCase().replace(/\/$/, "").split("?")[0] : "";
-    const cleanTitle = (item.title || "").trim().toLowerCase();
-    
-    // An absolute URL with domain and path is globally unique to the resource
-    if (cleanUrl && cleanUrl.length > 12 && (cleanUrl.startsWith("http://") || cleanUrl.startsWith("https://"))) {
-      return `url:${cleanUrl}`;
-    }
-    // Prevent generic titles from falsely colliding
-    const genericTitles = new Set(["readme", "documento", "note", "nota", "nuova risorsa", "untitled", "senza titolo", "appunti", "collegamento web"]);
-    if (cleanTitle.length > 8 && !genericTitles.has(cleanTitle)) {
-      return `title:${cleanTitle}`;
-    }
-    // For short/generic titles without URL, keep strictly isolated by ID
-    return `isolated:${item.id}`;
-  };
-
-  // Build remote signature index to detect when a local-ID document is actually already on remote
+  // Build remote signature index to detect when a local-ID document is actually already on remote (OP-05)
   const remoteSigMap = new Map<string, ResourceItem>();
   remoteItems.forEach((item) => {
     if (item.id) {
       remoteMap.set(item.id, item);
-      const sig = getResourceSignature(item);
+      const sig = getCanonicalSignature(item);
       if (!sig.startsWith("isolated:")) {
         remoteSigMap.set(sig, item);
       }
@@ -98,7 +156,7 @@ export function analyzeResourceConflicts(
       item.id.startsWith("spec-");
 
     if (isTempId) {
-      const sig = getResourceSignature(item);
+      const sig = getCanonicalSignature(item);
       if (!sig.startsWith("isolated:")) {
         const matchedRemote = remoteSigMap.get(sig);
         if (matchedRemote) {
@@ -321,14 +379,18 @@ export function analyzeResourceConflicts(
   const canonicalTitleIndex = new Map<string, ResourceItem>();
 
   Array.from(mergedMap.values()).forEach((item) => {
-    const cleanUrl = (item.url || "").trim().toLowerCase().replace(/\/$/, "").split("?")[0];
-    const cleanTitle = (item.title || "").trim().toLowerCase();
+    const cleanUrl = item.url ? getCanonicalUrl(item.url) : "";
+    const cleanTitle = (item.title || "").trim().toLowerCase().replace(/\s+/g, " ");
 
     let matched: ResourceItem | null = null;
-    if (cleanUrl && cleanUrl.length > 12) {
+    if (cleanUrl && cleanUrl.length > 8) {
       matched = canonicalUrlIndex.get(cleanUrl) || null;
     }
-    if (!matched && cleanTitle && cleanTitle.length > 8 && !["nuova risorsa", "readme", "documento", "collegamento web"].includes(cleanTitle)) {
+    const genericTitles = new Set([
+      "nuova risorsa", "readme", "documento", "collegamento web",
+      "note", "nota", "untitled", "senza titolo", "appunti", "risorsa senza titolo"
+    ]);
+    if (!matched && cleanTitle && cleanTitle.length > 8 && !genericTitles.has(cleanTitle)) {
       matched = canonicalTitleIndex.get(cleanTitle) || null;
     }
 
@@ -353,10 +415,10 @@ export function analyzeResourceConflicts(
         metadata: { ...(item.metadata || {}) },
       };
       dedupedMerged.push(canonical);
-      if (cleanUrl && cleanUrl.length > 12) {
+      if (cleanUrl && cleanUrl.length > 8) {
         canonicalUrlIndex.set(cleanUrl, canonical);
       }
-      if (cleanTitle && cleanTitle.length > 8) {
+      if (cleanTitle && cleanTitle.length > 8 && !genericTitles.has(cleanTitle)) {
         canonicalTitleIndex.set(cleanTitle, canonical);
       }
     }

@@ -99,8 +99,18 @@ export const CaptureBar: React.FC<CaptureBarProps> = ({
     if (e) e.preventDefault();
     if (!input.trim() || isAnalyzing) return;
 
+    const rawInput = input.trim();
+    // Sanitize any duplicated or accidentally concatenated URLs (e.g. https://...https://...)
+    let cleanInput = rawInput;
+    if (rawInput.startsWith("http://") || rawInput.startsWith("https://")) {
+      const doubleMatch = rawInput.match(/(https?:\/\/[^\s]+?)(?=https?:\/\/|$)/i);
+      if (doubleMatch) {
+        cleanInput = doubleMatch[1];
+      }
+    }
+
     const success = await onCapture(
-      input.trim(), 
+      cleanInput, 
       selectedType === "auto" ? undefined : selectedType
     );
 

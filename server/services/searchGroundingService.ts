@@ -2,8 +2,18 @@ import {
   getGenAI,
   recordGeminiCall,
   isGeminiQuotaInCooldown,
-  triggerGeminiQuotaCooldown,
 } from "../gemini/client";
+
+// Dedicated Circuit Breaker for Google Search Grounding Tool
+let searchGroundingCooldownUntil = 0;
+
+export function isSearchGroundingInCooldown(): boolean {
+  return Date.now() < searchGroundingCooldownUntil;
+}
+
+export function triggerSearchGroundingCooldown(durationMs = 120000) {
+  searchGroundingCooldownUntil = Date.now() + durationMs;
+}
 
 export interface GroundedSearchResult {
   groundedText: string;
@@ -25,8 +35,8 @@ export async function performSearchGroundedSynthesis(
   const ai = getGenAI();
   if (!ai || !query || query.trim().length === 0) return null;
 
-  // Circuit breaker: If Gemini API quota is in cooldown, return null immediately
-  if (isGeminiQuotaInCooldown()) {
+  // Circuit breaker: If Gemini API quota is in cooldown OR search tool is in cooldown, return null immediately
+  if (isGeminiQuotaInCooldown() || isSearchGroundingInCooldown()) {
     return null;
   }
 
@@ -121,11 +131,11 @@ Provide a rich, factual, and detailed technical brief with key entities, feature
       });
 
       if (isQuota) {
-        triggerGeminiQuotaCooldown(60000);
+        triggerSearchGroundingCooldown(120000);
         console.log(
-          `[SearchGrounding] Quota limit reached (429 RESOURCE_EXHAUSTED). Entering 60s cooldown; skipping remaining candidate models.`
+          `[SearchGrounding] Google Search Tool quota limit reached (429 RESOURCE_EXHAUSTED). Entering 120s search tool cooldown; standard Gemini generation remains active.`
         );
-        break; // Stop attempting other models under the same project quota
+        break; // Stop attempting search tool under the same project quota
       } else if (isOverloaded) {
         console.log(`[SearchGrounding] ${model} temporarily overloaded (503). Trying next fallback model...`);
       } else {

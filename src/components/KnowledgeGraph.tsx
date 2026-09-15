@@ -62,8 +62,6 @@ interface KnowledgeGraphProps {
   onSelectResource: (resource: ResourceItem) => void;
   selectedTag: string | null;
   onSelectTag: (tag: string | null) => void;
-  viewMode?: ViewMode;
-  onViewModeChange?: (mode: ViewMode) => void;
   onOpenIntelligence?: () => void;
   focusedResourceId?: string | null;
   onClearFocusedResource?: () => void;
@@ -206,8 +204,6 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
   onSelectResource,
   selectedTag,
   onSelectTag,
-  viewMode = "graph",
-  onViewModeChange,
   onOpenIntelligence,
   focusedResourceId,
   onClearFocusedResource,
@@ -1924,30 +1920,6 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
                 <Eye className="w-2.5 h-2.5 text-[#C5A059]" />
                 <span>Tutti</span>
               </button>
-            )}
-
-            {/* View Mode switcher quick switch */}
-            {onViewModeChange && (
-              <div className="flex items-center bg-[#141414] border border-[#262626] rounded-full p-0.5 ml-1">
-                <button
-                  type="button"
-                  onClick={() => onViewModeChange("grid")}
-                  className="p-1 px-2 rounded-full text-[10px] font-mono flex items-center gap-1 text-[#888] hover:text-[#EEE] hover:bg-[#202020] transition-colors cursor-pointer"
-                  title="Torna alla vista Griglia"
-                >
-                  <LayoutGrid className="w-3 h-3 text-[#C5A059]" />
-                  <span>Griglia</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onViewModeChange("table")}
-                  className="p-1 px-2 rounded-full text-[10px] font-mono flex items-center gap-1 text-[#888] hover:text-[#EEE] hover:bg-[#202020] transition-colors cursor-pointer"
-                  title="Passa alla vista Tabella"
-                >
-                  <List className="w-3 h-3 text-[#C5A059]" />
-                  <span>Tabella</span>
-                </button>
-              </div>
             )}
 
             {/* Vault Intelligence Button on Graph HUD */}

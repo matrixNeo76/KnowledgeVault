@@ -103,7 +103,7 @@ export function useVaultMutations({
           }),
           { merge: true }
         ),
-        10000
+        20000
       );
 
       addLog("info", "FIRESTORE", `Preferito aggiornato nel cloud per "${resource?.title || id}": ${newFav ? "SI" : "NO"}`);
@@ -165,7 +165,7 @@ export function useVaultMutations({
           }),
           { merge: true }
         ),
-        10000
+        20000
       );
 
       addLog("info", "FIRESTORE", `Avanzamento lettura aggiornato per "${resource?.title || id}": ${clamped}%`);
@@ -228,7 +228,7 @@ export function useVaultMutations({
       };
       delete (dataToClean as any).id;
       const sanitized = sanitizeForFirestore(dataToClean);
-      await withFirestoreTimeout(setDoc(docRef, sanitized, { merge: true }), 5000);
+      await withFirestoreTimeout(setDoc(docRef, sanitized, { merge: true }), 20000);
       recordFirestoreWrite(1, "Aggiornamento Risorsa", (updatedData as any).title || id);
       return true;
     } catch (err: any) {
@@ -298,7 +298,7 @@ export function useVaultMutations({
 
     try {
       addLog("info", "FIRESTORE", `Eliminazione risorsa ID: ${id}...`);
-      await withFirestoreTimeout(deleteDoc(doc(db, "resources", id)), 10000);
+      await withFirestoreTimeout(deleteDoc(doc(db, "resources", id)), 20000);
       recordFirestoreDelete(1, "Eliminazione Risorsa", id);
       addLog("success", "FIRESTORE", `Risorsa eliminata con successo dal Vault (ID: ${id})`);
       setStatusMessage("Risorsa eliminata con successo!");

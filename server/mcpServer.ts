@@ -8,10 +8,66 @@ import { promises as fsPromises } from "fs";
 import fs from "fs";
 import path from "path";
 import { ResourceItem } from "../src/types";
+import { atomicWriteFile } from "./routes/vaultRoutes";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const BACKUP_FILE_PATH = path.join(DATA_DIR, "vault-backup.json");
 const SNAPSHOTS_DIR = path.join(DATA_DIR, "snapshots");
+
+/**
+ * Recupera i metadati di sincronizzazione del Vault per i client MCP (AR-05)
+ */
+export async function getVaultSyncMetadata(): Promise<{
+  lastSynchronizedAt: string | null;
+  version: string;
+  source: "backup" | "snapshot" | "none";
+  count: number;
+}> {
+  try {
+    if (fs.existsSync(BACKUP_FILE_PATH)) {
+      const content = await fsPromises.readFile(BACKUP_FILE_PATH, "utf8");
+      if (content && content.trim().length > 0) {
+        const parsed = JSON.parse(content);
+        if (Array.isArray(parsed.resources)) {
+          return {
+            lastSynchronizedAt: parsed.savedAt || new Date().toISOString(),
+            version: parsed.version || "okf-0.2",
+            source: "backup",
+            count: parsed.resources.length,
+          };
+        }
+      }
+    }
+  } catch {}
+
+  if (fs.existsSync(SNAPSHOTS_DIR)) {
+    try {
+      const files = await fsPromises.readdir(SNAPSHOTS_DIR);
+      const jsonFiles = files.filter((f) => f.endsWith(".json")).sort().reverse();
+      for (const snap of jsonFiles) {
+        try {
+          const content = await fsPromises.readFile(path.join(SNAPSHOTS_DIR, snap), "utf8");
+          const parsed = JSON.parse(content);
+          if (Array.isArray(parsed.resources)) {
+            return {
+              lastSynchronizedAt: parsed.savedAt || snap.replace("snapshot-", "").replace(".json", ""),
+              version: parsed.version || "okf-0.2",
+              source: "snapshot",
+              count: parsed.resources.length,
+            };
+          }
+        } catch {}
+      }
+    } catch {}
+  }
+
+  return {
+    lastSynchronizedAt: null,
+    version: "okf-0.2",
+    source: "none",
+    count: 0,
+  };
+}
 
 // Carica in memoria le risorse del Vault salvate dal backend
 export async function getVaultResources(): Promise<ResourceItem[]> {
@@ -62,7 +118,7 @@ export async function appendVaultResource(newResource: ResourceItem): Promise<bo
     if (!fs.existsSync(DATA_DIR)) {
       fs.mkdirSync(DATA_DIR, { recursive: true });
     }
-    await fsPromises.writeFile(BACKUP_FILE_PATH, JSON.stringify(payload, null, 2), "utf8");
+    await atomicWriteFile(BACKUP_FILE_PATH, JSON.stringify(payload, null, 2));
     return true;
   } catch (err) {
     console.error("[MCP] Errore appendVaultResource:", err);

@@ -29,14 +29,11 @@ import {
   GraduationCap,
   Rss,
   StickyNote,
-  LayoutGrid,
-  List,
-  Network,
   ChevronDown,
   GitBranch,
   BookMarked
 } from "lucide-react";
-import { ResourceType, NavCategory, ViewMode } from "../types";
+import { ResourceType, NavCategory } from "../types";
 import { User } from "firebase/auth";
 
 interface SidebarProps {
@@ -77,8 +74,6 @@ interface SidebarProps {
   onOpenCekikjInspector?: () => void;
   unsyncedCount?: number;
   onUploadUnsynced?: () => void;
-  viewMode?: ViewMode;
-  onViewModeChange?: (mode: ViewMode) => void;
   // Modern 2026 UX extensions
   selectedTag?: string | null;
   onSelectTag?: (tag: string | null) => void;
@@ -109,8 +104,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenCekikjInspector,
   unsyncedCount = 0,
   onUploadUnsynced,
-  viewMode = "grid",
-  onViewModeChange,
   selectedTag,
   onSelectTag,
   availableTags = [],
@@ -430,72 +423,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Scrollable Navigation Body */}
         <div className={`flex-1 ${isCollapsed ? "px-2" : "px-3"} py-2 space-y-4 overflow-y-auto custom-scrollbar`}>
           
-          {/* Section 0: Modalità di Visualizzazione (Griglia, Tabella, Grafo) */}
-          {onViewModeChange && (
-            <div>
-              {!isCollapsed && (
-                <div className="text-[10px] uppercase tracking-widest text-[#555] px-2 mb-1.5 font-mono font-semibold flex items-center justify-between">
-                  <span>Visualizzazione</span>
-                </div>
-              )}
-              <div className={isCollapsed ? "space-y-1" : "grid grid-cols-3 gap-1 bg-[#101010] p-1 rounded-lg border border-[#1E1E1E]"}>
-                <button
-                  onClick={() => {
-                    onViewModeChange("grid");
-                    onCloseMobile();
-                  }}
-                  title="Vista Schede a Griglia"
-                  className={`flex ${
-                    isCollapsed ? "justify-center p-2" : "flex-col items-center justify-center gap-1 py-1.5 px-1 min-h-[42px]"
-                  } rounded-md text-xs font-mono transition-all cursor-pointer ${
-                    viewMode === "grid"
-                      ? "bg-[#251C0E] text-[#E5C170] border border-[#C5A059]/60 shadow-xs font-semibold"
-                      : "text-[#888] hover:text-[#EEE] hover:bg-[#181818]"
-                  }`}
-                >
-                  <LayoutGrid className="w-3.5 h-3.5 text-[#C5A059] shrink-0" />
-                  {!isCollapsed && <span className="text-[10px]">Griglia</span>}
-                </button>
-
-                <button
-                  onClick={() => {
-                    onViewModeChange("table");
-                    onCloseMobile();
-                  }}
-                  title="Vista Elenco a Tabella"
-                  className={`flex ${
-                    isCollapsed ? "justify-center p-2" : "flex-col items-center justify-center gap-1 py-1.5 px-1 min-h-[42px]"
-                  } rounded-md text-xs font-mono transition-all cursor-pointer ${
-                    viewMode === "table"
-                      ? "bg-[#251C0E] text-[#E5C170] border border-[#C5A059]/60 shadow-xs font-semibold"
-                      : "text-[#888] hover:text-[#EEE] hover:bg-[#181818]"
-                  }`}
-                >
-                  <List className="w-3.5 h-3.5 text-[#C5A059] shrink-0" />
-                  {!isCollapsed && <span className="text-[10px]">Tabella</span>}
-                </button>
-
-                <button
-                  onClick={() => {
-                    onViewModeChange("graph");
-                    onCloseMobile();
-                  }}
-                  title="Vista Grafo Ontologico"
-                  className={`flex ${
-                    isCollapsed ? "justify-center p-2" : "flex-col items-center justify-center gap-1 py-1.5 px-1 min-h-[42px]"
-                  } rounded-md text-xs font-mono transition-all cursor-pointer ${
-                    viewMode === "graph"
-                      ? "bg-[#251C0E] text-[#E5C170] border border-[#C5A059]/60 shadow-xs font-semibold"
-                      : "text-[#888] hover:text-[#EEE] hover:bg-[#181818]"
-                  }`}
-                >
-                  <Network className="w-3.5 h-3.5 text-[#C5A059] shrink-0" />
-                  {!isCollapsed && <span className="text-[10px]">Grafo</span>}
-                </button>
-              </div>
-            </div>
-          )}
-
           {/* Section 1: Navigazione Principale */}
           <div>
             {!isCollapsed && (

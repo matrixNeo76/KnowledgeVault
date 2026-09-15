@@ -455,17 +455,26 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
           !s ||
           s.includes("Nota: Il parser") ||
           s.includes("Il parser ha tentato") ||
-          s.includes("I link web non costituiscono");
+          s.includes("I link web non costituiscono") ||
+          s.length < 90;
 
-        if (data.cleanedSummary && isCorrupted(resource.summary)) {
+        if (executiveSummary && (!resource.summary || isCorrupted(resource.summary))) {
+          const newSummary = executiveSummary.slice(0, 320);
+          updates.summary = newSummary;
+          setSummary(newSummary);
+        } else if (data.cleanedSummary && isCorrupted(resource.summary)) {
           updates.summary = data.cleanedSummary;
           setSummary(data.cleanedSummary);
-        } else if (executiveSummary && isCorrupted(resource.summary)) {
-          updates.summary = executiveSummary.slice(0, 300);
-          setSummary(updates.summary);
         }
 
-        if (data.cleanedTitle && (resource.title.includes("levelup.gitconnected.com") || resource.title === "Collegamento Web" || resource.title === "Medium")) {
+        if (
+          data.cleanedTitle &&
+          (resource.title.includes("levelup.gitconnected.com") ||
+            resource.title === "Collegamento Web" ||
+            resource.title === "Medium" ||
+            resource.title.toLowerCase().includes("wiht") ||
+            resource.title.toLowerCase() === data.cleanedTitle.toLowerCase())
+        ) {
           updates.title = data.cleanedTitle;
           setTitle(data.cleanedTitle);
         }

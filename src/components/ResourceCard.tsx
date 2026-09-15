@@ -59,6 +59,7 @@ interface ResourceCardProps {
   onToggleSelect?: (id: string) => void;
   isSelectionActive?: boolean;
   onToggleReadLater?: (id: string, currentlyInQueue: boolean) => void;
+  onUpdateResource?: (id: string, updatedData: Partial<ResourceItem>) => Promise<boolean>;
 }
 
 export const ResourceCard: React.FC<ResourceCardProps> = ({
@@ -77,6 +78,7 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
   onToggleSelect,
   isSelectionActive = false,
   onToggleReadLater,
+  onUpdateResource,
 }) => {
   const [copied, setCopied] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
@@ -86,6 +88,8 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [pdfDownloaded, setPdfDownloaded] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
+  const [isReanalyzing, setIsReanalyzing] = useState(false);
+  const [reanalyzeSuccess, setReanalyzeSuccess] = useState(false);
 
   // Direct client-side generation of offline PDF reference document
   const handleDirectPdfDownload = async (e: React.MouseEvent) => {
@@ -336,13 +340,120 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
   const hasGraphLinks = relationsCount > 0 || entitiesCount > 0;
   const hasItalianTranslation = Boolean(resource.metadata?.translatedSummary || resource.metadata?.translatedTitle || resource.metadata?.translatedContent);
 
+  // Ingestion Health Indicator: Detect resources currently lacking AI-generated metadata (description or executive synthesis)
+  const isCorruptedOrMinimalSummary =
+    !resource.summary ||
+    resource.summary.trim() === "" ||
+    resource.summary.trim() === resource.url?.trim() ||
+    resource.summary.trim() === resource.rawInput?.trim() ||
+    resource.summary.startsWith("Collegamento web a ") ||
+    resource.summary.includes("failed_as_link") ||
+    resource.summary.includes("Nota: Il parser") ||
+    resource.summary.includes("I link web non costituiscono") ||
+    (resource.type === "article" && resource.summary.length < 90 && !hasExecutiveSummary) ||
+    (resource.summary.length < 50 && !hasExecutiveSummary);
+
+  const isPendingIntelligence =
+    !hasExecutiveSummary && (isCorruptedOrMinimalSummary || !resource.summary);
+
+  // Resolved display abstract: prefer rich executive summary if summary is short, empty, or corrupted
+  const displayAbstract =
+    resource.metadata?.aiExecutiveSummary && (!resource.summary || resource.summary.length < 90 || isCorruptedOrMinimalSummary)
+      ? resource.metadata.aiExecutiveSummary
+      : (resource.summary || "Nessuna descrizione o abstract preliminare disponibile.");
+
+  const handleTriggerIntelligenceReanalysis = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isReanalyzing) return;
+
+    setIsReanalyzing(true);
+    try {
+      const res = await fetch("/api/summarize-resource", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resource }),
+      });
+      const data = await res.json();
+      if (data && data.summaryResult) {
+        const {
+          executiveSummary,
+          keyTakeaways = [],
+          targetAudience,
+          actionItems = [],
+          estimatedReadingTime,
+          summarizedAt,
+        } = data.summaryResult;
+
+        const updatedMetadata: Record<string, any> = {
+          ...(resource.metadata || {}),
+          aiExecutiveSummary: executiveSummary,
+          aiKeyTakeaways: keyTakeaways,
+          aiTargetAudience: targetAudience,
+          aiActionItems: actionItems,
+          aiSummarizedAt: summarizedAt || new Date().toISOString(),
+          ...(estimatedReadingTime ? { readingTimeMin: estimatedReadingTime } : {}),
+          ...(data.extractedContent && (!resource.metadata?.markdownContent || resource.metadata.markdownContent.length < 200)
+            ? { markdownContent: data.extractedContent }
+            : {}),
+        };
+
+        const updateData: Partial<ResourceItem> = {
+          metadata: updatedMetadata,
+        };
+
+        // Prefer high-density executive summary if existing summary is minimal or short
+        const candidateSummary =
+          executiveSummary && executiveSummary.trim().length > 50
+            ? executiveSummary.slice(0, 320)
+            : data.cleanedSummary;
+
+        if (
+          candidateSummary &&
+          (!resource.summary ||
+            resource.summary.length < 90 ||
+            isCorruptedOrMinimalSummary ||
+            resource.summary.startsWith("http") ||
+            resource.summary.startsWith("Collegamento web a"))
+        ) {
+          updateData.summary = candidateSummary;
+        }
+
+        if (
+          data.cleanedTitle &&
+          data.cleanedTitle.trim().length > 3 &&
+          (resource.title.startsWith("http") ||
+            resource.title === "Nuova Risorsa" ||
+            resource.title === "Collegamento Web" ||
+            resource.title === "Medium" ||
+            resource.title.toLowerCase().includes("wiht") ||
+            resource.title.toLowerCase() === data.cleanedTitle.toLowerCase())
+        ) {
+          updateData.title = data.cleanedTitle;
+        }
+
+        if (onUpdateResource) {
+          await onUpdateResource(resource.id, updateData);
+        }
+
+        setReanalyzeSuccess(true);
+        setTimeout(() => setReanalyzeSuccess(false), 3500);
+      }
+    } catch (err: any) {
+      console.error("Failed to re-run intelligence analysis:", err);
+    } finally {
+      setIsReanalyzing(false);
+    }
+  };
+
   return (
     <div 
       onClick={() => onOpenDetail(resource)}
-      className={`group bg-[#0C0C0C] hover:bg-[#101010] border p-4 sm:p-5 rounded-xl flex flex-col justify-between transition-all duration-150 cursor-pointer relative ${
+      className={`group border p-4 sm:p-5 rounded-xl flex flex-col justify-between transition-all duration-200 cursor-pointer relative ${
         isSelected
-          ? "border-[#C5A059] bg-[#141008] shadow-[0_0_20px_rgba(197,160,89,0.18)] ring-1 ring-[#C5A059]/40"
-          : "border-[#1C1C1C] hover:border-[#C5A059]/40 hover:shadow-lg"
+          ? "border-[#C5A059] bg-[#141008] shadow-[0_0_20px_rgba(197,160,89,0.18)] ring-1 ring-[#C5A059]/40 opacity-100"
+          : isPendingIntelligence
+            ? "border-dashed border-amber-500/35 hover:border-amber-500/70 bg-[#0C0B08]/85 hover:bg-[#120F09] opacity-75 hover:opacity-100 shadow-[inset_0_1px_0_0_rgba(245,158,11,0.08)] hover:shadow-lg hover:shadow-amber-500/5"
+            : "bg-[#0C0C0C] hover:bg-[#101010] border-[#1C1C1C] hover:border-[#C5A059]/40 hover:shadow-lg opacity-100"
       }`}
     >
       <div>
@@ -363,6 +474,39 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
                 <BrainCircuit className="w-2.5 h-2.5 text-[#C5A059]" />
                 <span>OKF {resource.metadata?.okfVersion ? `v${resource.metadata.okfVersion}` : "v0.2"}</span>
               </span>
+            )}
+
+            {/* Ingestion Health: Top-level Pending Intelligence Flag */}
+            {isPendingIntelligence && (
+              <button
+                type="button"
+                onClick={handleTriggerIntelligenceReanalysis}
+                disabled={isReanalyzing}
+                className="text-[10px] bg-[#231505] hover:bg-[#341F08] text-[#FBBF24] border border-[#F59E0B]/50 hover:border-[#F59E0B] px-2 py-0.5 rounded-md font-mono font-medium flex items-center gap-1.5 shrink-0 transition-all cursor-pointer shadow-xs group/intel"
+                title="Ingestion Health: Sintesi o metadati AI mancanti. Clicca per generare con Gemini AI"
+              >
+                {isReanalyzing ? (
+                  <>
+                    <Loader2 className="w-2.5 h-2.5 text-[#F59E0B] animate-spin shrink-0" />
+                    <span>Elaborazione...</span>
+                  </>
+                ) : reanalyzeSuccess ? (
+                  <>
+                    <Check className="w-2.5 h-2.5 text-emerald-400 shrink-0" />
+                    <span className="text-emerald-300 font-semibold">Pronta!</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="relative flex h-1.5 w-1.5 shrink-0">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-amber-500"></span>
+                    </span>
+                    <BrainCircuit className="w-2.5 h-2.5 text-[#F59E0B] group-hover/intel:scale-110 transition-transform shrink-0" />
+                    <span>Pending Intelligence</span>
+                    <Sparkles className="w-2 h-2 text-[#F59E0B]/80" />
+                  </>
+                )}
+              </button>
             )}
 
             {/* Draft / Bozza Status Badge */}
@@ -560,18 +704,98 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
         </div>
 
         {/* Title */}
-        <h3 className="text-base sm:text-lg font-serif text-white group-hover:text-[#C5A059] transition-colors leading-snug mb-1.5 line-clamp-2">
+        <h3 className={`text-base sm:text-lg font-serif transition-colors leading-snug mb-1.5 line-clamp-2 ${
+          isPendingIntelligence ? "text-[#DDD] group-hover:text-amber-300" : "text-white group-hover:text-[#C5A059]"
+        }`}>
           {resource.title}
         </h3>
 
         {/* Summary (Clean & scannable 2-line abstract) */}
-        <p className="text-xs text-[#888] leading-relaxed mb-3 line-clamp-2">
-          {resource.summary}
+        <p className={`text-xs leading-relaxed mb-3 line-clamp-2 ${
+          isPendingIntelligence ? "text-[#7A7468] italic" : "text-[#888]"
+        }`}>
+          {displayAbstract}
         </p>
 
+        {/* Ingestion Health Visual Queue Prompt */}
+        {isPendingIntelligence && (
+          <div
+            onClick={handleTriggerIntelligenceReanalysis}
+            className="mb-3 px-2.5 py-1.5 rounded-lg bg-[#1D1408]/90 hover:bg-[#2A1D0B] border border-dashed border-[#F59E0B]/40 hover:border-[#F59E0B]/75 transition-all flex items-center justify-between gap-2 cursor-pointer group/prompt shadow-xs select-none"
+            title="Ingestion Health: La risorsa è priva di sintesi e metadati AI completi. Clicca per estrarre e sintetizzare con Gemini AI."
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="p-1 rounded bg-amber-500/15 text-[#FBBF24] shrink-0 group-hover/prompt:scale-110 transition-transform">
+                <BrainCircuit className="w-3.5 h-3.5 text-[#F59E0B]" />
+              </div>
+              <div className="truncate">
+                <div className="text-[11px] font-mono font-semibold text-[#FBBF24] leading-tight flex items-center gap-1.5">
+                  <span>Metadata AI Mancanti</span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+                </div>
+                <div className="text-[10px] text-[#A89878] truncate">
+                  Clicca per generare sintesi e punti chiave
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              disabled={isReanalyzing}
+              className="px-2 py-0.5 rounded bg-[#F59E0B]/20 hover:bg-[#F59E0B]/30 border border-[#F59E0B]/40 text-[#FBBF24] text-[10px] font-mono font-semibold flex items-center gap-1 shrink-0 transition-colors"
+            >
+              {isReanalyzing ? (
+                <>
+                  <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                  <span>Elaborazione...</span>
+                </>
+              ) : reanalyzeSuccess ? (
+                <>
+                  <Check className="w-2.5 h-2.5 text-emerald-400" />
+                  <span className="text-emerald-300">Pronta!</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-2.5 h-2.5" />
+                  <span>Genera AI</span>
+                </>
+              )}
+            </button>
+          </div>
+        )}
+
         {/* Feature & Analysis Completion Indicators (Mostra SE sono state effettuate, senza ingolfare la griglia con i testi) */}
-        {(hasExecutiveSummary || hasKeyTakeaways || hasTroubleshooting || hasUserNotes || hasEvaluation || hasGraphLinks) && (
+        {(isPendingIntelligence || hasExecutiveSummary || hasKeyTakeaways || hasTroubleshooting || hasUserNotes || hasEvaluation || hasGraphLinks) && (
           <div className="flex flex-wrap items-center gap-1.5 mb-3 select-none">
+            {/* Ingestion Health Indicator: Pending Intelligence Action */}
+            {isPendingIntelligence && (
+              <button
+                type="button"
+                onClick={handleTriggerIntelligenceReanalysis}
+                disabled={isReanalyzing}
+                className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono bg-[#231505] hover:bg-[#341F08] border border-[#F59E0B]/50 hover:border-[#F59E0B] text-[#FBBF24] transition-all cursor-pointer group shadow-xs shrink-0"
+                title="Ingestion Health: Descrizione o sintesi AI non elaborata • Clicca per generare l'intelligence con Gemini AI"
+              >
+                {isReanalyzing ? (
+                  <>
+                    <Loader2 className="w-2.5 h-2.5 text-[#F59E0B] animate-spin shrink-0" />
+                    <span>Analisi AI in corso...</span>
+                  </>
+                ) : reanalyzeSuccess ? (
+                  <>
+                    <Check className="w-2.5 h-2.5 text-emerald-400 shrink-0" />
+                    <span className="text-emerald-300">Intelligence Pronta!</span>
+                  </>
+                ) : (
+                  <>
+                    <BrainCircuit className="w-2.5 h-2.5 text-[#F59E0B] group-hover:scale-110 transition-transform shrink-0" />
+                    <span className="font-semibold">Pending Intelligence</span>
+                    <Sparkles className="w-2.5 h-2.5 text-[#F59E0B]/80" />
+                  </>
+                )}
+              </button>
+            )}
+
             {/* Sintesi Esecutiva AI */}
             {hasExecutiveSummary && (
               <span 

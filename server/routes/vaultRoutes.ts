@@ -29,7 +29,7 @@ try {
  * Atomically writes content to destination file by first writing to a temporary file
  * and then renaming it. This ensures readers never see a partially written file or unterminated JSON.
  */
-async function atomicWriteFile(filePath: string, content: string): Promise<void> {
+export async function atomicWriteFile(filePath: string, content: string): Promise<void> {
   // Pre-write integrity validation: if writing a JSON file, ensure it's not truncated or corrupted
   if (filePath.endsWith(".json")) {
     try {

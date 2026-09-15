@@ -1,5 +1,110 @@
 import { OKFEntity, OKFRelation, ResourceType } from "../types";
 
+export const CANONICAL_OKF_TYPES = [
+  "concept",
+  "architecture",
+  "guide",
+  "specification",
+  "tool_description",
+  "prompt_skill",
+] as const;
+
+export type CanonicalOKFType = (typeof CANONICAL_OKF_TYPES)[number];
+
+/**
+ * Normalizza e auto-sanifica un docType non canonico riportandolo deterministicamente
+ * a uno dei 6 tipi ufficiali OKF v0.2, prevenendo corruzioni ontologiche da parte di LLM esterni.
+ */
+export function sanitizeDocType(rawType: string): {
+  sanitized: CanonicalOKFType;
+  wasRepaired: boolean;
+  originalType: string;
+  repairReason?: string;
+} {
+  const original = (rawType || "").trim();
+  const normalized = original.toLowerCase().replace(/[\s-]+/g, "_");
+
+  if (CANONICAL_OKF_TYPES.includes(normalized as CanonicalOKFType)) {
+    return { sanitized: normalized as CanonicalOKFType, wasRepaired: false, originalType: original };
+  }
+
+  // Mappatura euristica verso i 6 tipi canonici
+  if (normalized.includes("arch") || normalized.includes("infra") || normalized.includes("system") || normalized.includes("topology")) {
+    return {
+      sanitized: "architecture",
+      wasRepaired: true,
+      originalType: original,
+      repairReason: `Re-indirizzato tipo non-standard '${original}' verso 'architecture'`,
+    };
+  }
+  if (
+    normalized.includes("guide") ||
+    normalized.includes("tuto") ||
+    normalized.includes("how") ||
+    normalized.includes("walkthrough") ||
+    normalized.includes("manual") ||
+    normalized.includes("runbook")
+  ) {
+    return {
+      sanitized: "guide",
+      wasRepaired: true,
+      originalType: original,
+      repairReason: `Re-indirizzato tipo non-standard '${original}' verso 'guide'`,
+    };
+  }
+  if (
+    normalized.includes("spec") ||
+    normalized.includes("rfc") ||
+    normalized.includes("standard") ||
+    normalized.includes("protocol") ||
+    normalized.includes("contract")
+  ) {
+    return {
+      sanitized: "specification",
+      wasRepaired: true,
+      originalType: original,
+      repairReason: `Re-indirizzato tipo non-standard '${original}' verso 'specification'`,
+    };
+  }
+  if (
+    normalized.includes("tool") ||
+    normalized.includes("mcp") ||
+    normalized.includes("cli") ||
+    normalized.includes("util") ||
+    normalized.includes("script") ||
+    normalized.includes("extension")
+  ) {
+    return {
+      sanitized: "tool_description",
+      wasRepaired: true,
+      originalType: original,
+      repairReason: `Re-indirizzato tipo non-standard '${original}' verso 'tool_description'`,
+    };
+  }
+  if (
+    normalized.includes("prompt") ||
+    normalized.includes("skill") ||
+    normalized.includes("agent") ||
+    normalized.includes("instruction") ||
+    normalized.includes("persona")
+  ) {
+    return {
+      sanitized: "prompt_skill",
+      wasRepaired: true,
+      originalType: original,
+      repairReason: `Re-indirizzato tipo non-standard '${original}' verso 'prompt_skill'`,
+    };
+  }
+
+  // Default di sicurezza
+  return {
+    sanitized: "concept",
+    wasRepaired: true,
+    originalType: original,
+    repairReason: `Re-indirizzato tipo sconosciuto '${original}' verso 'concept'`,
+  };
+}
+
 export interface ParsedOKFDocument {
   isValidOKF: boolean;
   okfVersion?: string;
@@ -12,6 +117,9 @@ export interface ParsedOKFDocument {
   bodyMarkdown: string;
   rawFrontmatter?: string;
   hasFrontmatter: boolean;
+  wasAutoRepaired?: boolean;
+  originalDocType?: string;
+  autoRepairReason?: string;
 }
 
 /**
@@ -200,13 +308,21 @@ export function parseOKFDocument(rawText: string, fallbackTitle: string = "Docum
     });
   }
 
-  const isValidOKF = Boolean(okfVersion && okfVersion.includes("0.2") && title);
+  // Auto-sanitizzazione tipologica per conformità rigorosa OKF v0.2
+  const { sanitized: finalDocType, wasRepaired: wasAutoRepaired, originalType: originalDocType, repairReason: autoRepairReason } = sanitizeDocType(docType);
+
+  const isValidOKF = Boolean(
+    okfVersion &&
+    okfVersion.includes("0.2") &&
+    title &&
+    CANONICAL_OKF_TYPES.includes(finalDocType)
+  );
 
   return {
     isValidOKF,
     okfVersion: okfVersion || "0.2",
     title,
-    docType,
+    docType: finalDocType,
     domain,
     tags: tags.length > 0 ? Array.from(new Set(tags)) : ["knowledge", "okf-v0.2"],
     entities,
@@ -214,6 +330,9 @@ export function parseOKFDocument(rawText: string, fallbackTitle: string = "Docum
     bodyMarkdown,
     rawFrontmatter: rawYaml,
     hasFrontmatter: true,
+    wasAutoRepaired,
+    originalDocType: wasAutoRepaired ? originalDocType : undefined,
+    autoRepairReason,
   };
 }
 

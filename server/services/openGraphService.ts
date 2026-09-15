@@ -9,12 +9,117 @@ export interface OpenGraphData {
   author?: string;
 }
 
+// Clean URLs that have been duplicated or concatenated without space
+export function sanitizeUrl(raw: string): string {
+  if (!raw) return "";
+  const trimmed = raw.trim();
+  // Match first valid URL if multiple are glued together like https://...https://...
+  const doubleMatch = trimmed.match(/(https?:\/\/[^\s]+?)(?=https?:\/\/|$)/i);
+  let clean = doubleMatch ? doubleMatch[1] : trimmed;
+  if (!clean.startsWith("http://") && !clean.startsWith("https://")) {
+    clean = `https://${clean}`;
+  }
+  return clean;
+}
+
+// Check if a title is a generic site name, error message, or bot shield
+export function isGenericTitle(title?: string, domain?: string): boolean {
+  if (!title) return true;
+  const clean = title.trim().toLowerCase();
+  if (clean.length < 2) return true;
+
+  const genericBlacklist = [
+    "medium",
+    "attention required! | cloudflare",
+    "attention required",
+    "cloudflare",
+    "just a moment...",
+    "just a moment",
+    "404 not found",
+    "404",
+    "not found",
+    "403 forbidden",
+    "forbidden",
+    "access denied",
+    "robot or human?",
+    "are you a human?",
+    "verify you are human",
+    "security check",
+    "web",
+    "untitled",
+    "home",
+    "homepage",
+    "login",
+    "sign in",
+    "sign up",
+    "error",
+    "pagina non trovata",
+    "nuova risorsa",
+    "collegamento web",
+  ];
+
+  if (genericBlacklist.includes(clean)) return true;
+  if (clean.includes("cloudflare") && clean.includes("attention")) return true;
+  if (domain) {
+    const cleanDomain = domain.toLowerCase().replace(/^www\./, "");
+    if (clean === cleanDomain || clean === cleanDomain.split(".")[0]) return true;
+  }
+  return false;
+}
+
+// Extract a human-readable title from URL slug as a fallback
+export function extractTitleFromUrlSlug(rawUrl: string): string {
+  try {
+    const sanitized = sanitizeUrl(rawUrl);
+    const parsed = new URL(sanitized);
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    if (segments.length === 0) return "";
+
+    // Find the longest segment or segment with hyphens
+    let candidate = "";
+    for (let i = segments.length - 1; i >= 0; i--) {
+      const seg = segments[i];
+      if (seg.includes("-") && seg.length > 5) {
+        candidate = seg;
+        break;
+      }
+    }
+    if (!candidate) {
+      candidate = segments[segments.length - 1];
+    }
+
+    // Strip trailing hash/hex/numeric ID suffixes like "-c455f11f2ef3", "-7c23236b74e9", "-12345"
+    candidate = candidate
+      .replace(/-[a-f0-9]{8,}$/i, "")
+      .replace(/-[0-9]{5,}$/i, "")
+      .replace(/\.[a-z0-9]+$/i, "")
+      .replace(/^[\-_]+|[\-_]+$/g, "");
+
+    if (!candidate || candidate.length < 3) return "";
+
+    // Convert kebab or snake case into capitalized words
+    const words = candidate.split(/[-_]+/).filter(Boolean);
+    const acronyms = new Set(["ai", "os", "llm", "mcp", "api", "ui", "ux", "sdk", "cli", "css", "html", "js", "ts", "dhh", "cpu", "gpu"]);
+    
+    return words
+      .map((w) => {
+        const lower = w.toLowerCase();
+        if (acronyms.has(lower)) return lower.toUpperCase();
+        return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+      })
+      .join(" ");
+  } catch {
+    return "";
+  }
+}
+
 // Extract Open Graph tags, meta description and favicon from raw HTML
 export function extractOpenGraphFromHtml(html: string, targetUrl: string): OpenGraphData {
+  const cleanUrl = sanitizeUrl(targetUrl);
   let domain = "";
   let origin = "";
   try {
-    const parsed = new URL(targetUrl);
+    const parsed = new URL(cleanUrl);
     domain = parsed.hostname.replace(/^www\./, "");
     origin = parsed.origin;
   } catch {
@@ -64,6 +169,54 @@ export function extractOpenGraphFromHtml(html: string, targetUrl: string): OpenG
   siteName = getMeta("og:site_name") || getMeta("application-name");
   author = getMeta("author") || getMeta("article:author") || getMeta("twitter:creator");
 
+  // Check Apollo State (Medium, GitConnected, Substack, etc.)
+  const apolloMatch = html.match(/window\.__APOLLO_STATE__\s*=\s*(\{[\s\S]*?\});/);
+  if (apolloMatch && apolloMatch[1]) {
+    try {
+      const apolloData = JSON.parse(apolloMatch[1]);
+      for (const [key, val] of Object.entries(apolloData)) {
+        if (val && typeof val === "object") {
+          const item = val as Record<string, any>;
+          if (item.__typename === "Post" && item.title) {
+            ogTitle = item.title;
+            if (!ogDescription) {
+              ogDescription = item.subtitle || item.previewContent?.subtitle || item.metaDescription || "";
+            }
+          }
+          if (item.__typename === "User" && item.name && !author) {
+            author = item.name;
+          }
+        }
+      }
+    } catch {}
+  }
+
+  // Check JSON-LD
+  const ldJsonMatches = [...html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)];
+  for (const match of ldJsonMatches) {
+    try {
+      const parsed = JSON.parse(match[1]);
+      const candidate = Array.isArray(parsed) ? parsed[0] : parsed;
+      if (candidate?.headline && isGenericTitle(ogTitle, domain)) {
+        ogTitle = candidate.headline;
+      }
+      if (!ogDescription && candidate?.description) {
+        ogDescription = candidate.description;
+      }
+      if (!author && candidate?.author?.name) {
+        author = candidate.author.name;
+      }
+    } catch {}
+  }
+
+  // Reject generic or bot-challenge titles and fall back to slug extraction
+  if (isGenericTitle(ogTitle, domain)) {
+    const slugTitle = extractTitleFromUrlSlug(cleanUrl);
+    if (slugTitle) {
+      ogTitle = slugTitle;
+    }
+  }
+
   // If ogImage is relative, resolve it
   if (ogImage && !ogImage.startsWith("http") && origin) {
     try {
@@ -87,7 +240,7 @@ export function extractOpenGraphFromHtml(html: string, targetUrl: string): OpenG
   }
 
   return {
-    url: targetUrl,
+    url: cleanUrl,
     domain,
     siteName: siteName || domain || "Web",
     ogTitle: ogTitle || undefined,
@@ -100,10 +253,7 @@ export function extractOpenGraphFromHtml(html: string, targetUrl: string): OpenG
 
 // Resilient server-side URL fetcher for Open Graph & full article extraction
 export async function fetchArticleTextFromUrl(rawUrl: string, timeoutMs = 6000): Promise<{ title?: string; text: string; markdown: string }> {
-  let targetUrl = rawUrl.trim();
-  if (!targetUrl.startsWith("http://") && !targetUrl.startsWith("https://")) {
-    targetUrl = `https://${targetUrl}`;
-  }
+  const targetUrl = sanitizeUrl(rawUrl);
 
   try {
     const controller = new AbortController();
@@ -131,6 +281,11 @@ export async function fetchArticleTextFromUrl(rawUrl: string, timeoutMs = 6000):
 
     const rawHtml = await response.text();
     
+    let domain = "";
+    try {
+      domain = new URL(targetUrl).hostname.replace(/^www\./, "");
+    } catch {}
+
     // Extract title
     let title = "";
     const ogTitleMatch = rawHtml.match(/<meta[^>]+property=["'](?:og|twitter):title["'][^>]+content=["']([^"']+)["']/i) ||
@@ -139,10 +294,12 @@ export async function fetchArticleTextFromUrl(rawUrl: string, timeoutMs = 6000):
     if (ogTitleMatch && ogTitleMatch[1]) {
       title = ogTitleMatch[1].replace(/\s+/g, " ").trim();
     }
-    if (!title || title.toLowerCase() === "medium") {
+    if (isGenericTitle(title, domain)) {
       const titleMatch = rawHtml.match(/<title[^>]*>([^<]+)<\/title>/i);
-      if (titleMatch && titleMatch[1] && titleMatch[1].toLowerCase() !== "medium") {
+      if (titleMatch && titleMatch[1] && !isGenericTitle(titleMatch[1], domain)) {
         title = titleMatch[1].replace(/\s+/g, " ").trim();
+      } else {
+        title = "";
       }
     }
 
@@ -155,7 +312,7 @@ export async function fetchArticleTextFromUrl(rawUrl: string, timeoutMs = 6000):
         for (const [key, val] of Object.entries(apolloData)) {
           if (val && typeof val === "object") {
             const item = val as Record<string, any>;
-            if (item.__typename === "Post" && item.title && !title) {
+            if (item.__typename === "Post" && item.title) {
               title = item.title;
             }
             if (item.__typename === "Paragraph" && typeof item.text === "string" && item.text.trim()) {
@@ -175,7 +332,7 @@ export async function fetchArticleTextFromUrl(rawUrl: string, timeoutMs = 6000):
       try {
         const parsed = JSON.parse(match[1]);
         const candidate = Array.isArray(parsed) ? parsed[0] : parsed;
-        if (candidate?.headline && !title) {
+        if (candidate?.headline && isGenericTitle(title, domain)) {
           title = candidate.headline;
         }
         if (candidate?.articleBody && typeof candidate.articleBody === "string") {
@@ -186,6 +343,14 @@ export async function fetchArticleTextFromUrl(rawUrl: string, timeoutMs = 6000):
         }
       } catch {
         // ignore JSON-LD parse errors
+      }
+    }
+
+    // If title is still missing or generic, fall back to URL slug
+    if (isGenericTitle(title, domain)) {
+      const slugTitle = extractTitleFromUrlSlug(targetUrl);
+      if (slugTitle) {
+        title = slugTitle;
       }
     }
 
@@ -268,10 +433,7 @@ export async function fetchArticleTextFromUrl(rawUrl: string, timeoutMs = 6000):
 
 // Resilient server-side URL fetcher for Open Graph extraction
 export async function fetchOpenGraphMetadata(rawUrl: string, timeoutMs = 4500): Promise<OpenGraphData> {
-  let targetUrl = rawUrl.trim();
-  if (!targetUrl.startsWith("http://") && !targetUrl.startsWith("https://")) {
-    targetUrl = `https://${targetUrl}`;
-  }
+  const targetUrl = sanitizeUrl(rawUrl);
 
   let domain = "";
   try {
@@ -281,10 +443,13 @@ export async function fetchOpenGraphMetadata(rawUrl: string, timeoutMs = 4500): 
     domain = "web";
   }
 
+  const fallbackSlugTitle = extractTitleFromUrlSlug(targetUrl);
+
   const defaultResult: OpenGraphData = {
     url: targetUrl,
     domain,
     siteName: domain,
+    ogTitle: fallbackSlugTitle || undefined,
     favicon: domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=64` : undefined,
   };
 

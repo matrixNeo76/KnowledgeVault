@@ -232,26 +232,28 @@ export function VaultModalsContainer({
       />
 
       {/* OKF Knowledge Markdown Reader & Explorer Modal */}
-      <KnowledgeReader
-        resource={selectedKnowledgeForReader}
-        allResources={resources}
-        onClose={() => setSelectedKnowledgeForReader(null)}
-        onUpdate={handleUpdateResource}
-        onPrintPreview={(res) => setPrintPreviewResource(res)}
-        onExportGoogleDoc={handleExportGoogleDoc}
-        onViewInGraph={(res) => {
-          setSelectedKnowledgeForReader(null);
-          onNavigateToGraphNode?.(res.id);
-        }}
-        onNavigateToResource={(res) => {
-          if (res.type === "knowledge") {
-            setSelectedKnowledgeForReader(res);
-          } else {
+      {selectedKnowledgeForReader && (
+        <KnowledgeReader
+          resource={selectedKnowledgeForReader}
+          allResources={resources}
+          onClose={() => setSelectedKnowledgeForReader(null)}
+          onUpdate={handleUpdateResource}
+          onPrintPreview={(res) => setPrintPreviewResource(res)}
+          onExportGoogleDoc={handleExportGoogleDoc}
+          onViewInGraph={(res) => {
             setSelectedKnowledgeForReader(null);
-            setSelectedResourceForDetail(res);
-          }
-        }}
-      />
+            onNavigateToGraphNode?.(res.id);
+          }}
+          onNavigateToResource={(res) => {
+            if (res.type === "knowledge") {
+              setSelectedKnowledgeForReader(res);
+            } else {
+              setSelectedKnowledgeForReader(null);
+              setSelectedResourceForDetail(res);
+            }
+          }}
+        />
+      )}
 
       {/* Knowledge Upload Dialog (OKF v0.2 Converter) */}
       <KnowledgeUploadDialog

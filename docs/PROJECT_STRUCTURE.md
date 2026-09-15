@@ -86,6 +86,7 @@ La documentazione è rigorosamente suddivisa tra **standard attivo** e **archivi
 - `docs/SYSTEM_ARCHITECTURE_OKF.md`: **Blueprint architetturale** del Vault a 3 livelli (Client IDB $\leftrightarrow$ Ring Buffer JSON $\leftrightarrow$ Cloud Firestore), motore D3 e framework Cekikj.
 - `docs/INGESTION_PIPELINE_SPEC.md`: **Pipeline di ingestione ed estrazione AI** (scraping OpenGraph, schema JSON Gemini 3.7 Flash, de-duplicazione con `conflictResolver.ts`).
 - `docs/SYSTEM_REPLICATION_GUIDE.md`: **Guida di replicazione passo-passo** con elenco dipendenze, albero critico e comandi di bootstrap.
+- `docs/SPEC_PIANO_MITIGAZIONE_CRITICITA_OKF.md`: **Specifica e piano di mitigazione delle criticità** (matrice dei rischi, circuit breaker, resilienza Tri-Layer e guardrail anti-rottura).
 - `docs/PROJECT_STRUCTURE.md`: *Questo documento* (mappa geografica dei file).
 
 ### 3.2 Archivio Storico dei Piani Completati (`docs/archive/`)

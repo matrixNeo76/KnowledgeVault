@@ -1,12 +1,23 @@
+import { sanitizeUrl, isGenericTitle, extractTitleFromUrlSlug } from "./openGraphService";
+
 // Fallback heuristic parser if Gemini API is unavailable or busy
-export function fallbackParse(rawText: string, explicitType?: string) {
+export function fallbackParse(rawText: string, explicitType?: string, ogData?: any, articleData?: any) {
   const text = rawText.trim();
   let type: "troubleshooting" | "article" | "github_repo" | "mcp_server" | "ai_skill" | "knowledge" | "link" | "paper" | "rss" | "note" = (explicitType as any) || "knowledge";
-  let title = "Nuova Risorsa";
-  let summary = "";
+  let title = ogData?.ogTitle && !isGenericTitle(ogData.ogTitle, ogData.domain) ? ogData.ogTitle : "Nuova Risorsa";
+  let summary = ogData?.ogDescription || "";
   const tags: string[] = [];
-  let url = "";
+  let url = ogData?.url || "";
   const metadata: Record<string, any> = {};
+
+  if (ogData?.domain) {
+    metadata.domain = ogData.domain;
+    metadata.siteName = ogData.siteName || ogData.domain;
+    metadata.favicon = ogData.favicon;
+  }
+  if (ogData?.author) {
+    metadata.author = ogData.author;
+  }
 
   // Check if input is a Troubleshooting / Error log report
   const isTroubleshoot = explicitType === "troubleshooting" || 
@@ -114,10 +125,10 @@ export function fallbackParse(rawText: string, explicitType?: string) {
     // Check URL pattern
     const urlMatch = text.match(/https?:\/\/[^\s]+/i);
     if (urlMatch) {
-      url = urlMatch[0];
+      url = sanitizeUrl(urlMatch[0]);
     } else if (text.includes("github.com/")) {
       const ghMatch = text.match(/github\.com\/[^\s]+/i);
-      if (ghMatch) url = `https://${ghMatch[0]}`;
+      if (ghMatch) url = sanitizeUrl(`https://${ghMatch[0]}`);
     }
 
     // GitHub URL or Owner/Repo pattern check
@@ -237,7 +248,7 @@ export function fallbackParse(rawText: string, explicitType?: string) {
       // Article or general note or link
       type = (explicitType as any) || (url ? "link" : "article");
       const lines = text.split("\n").filter(l => l.trim().length > 0);
-      if (lines.length > 0) {
+      if (lines.length > 0 && !text.startsWith("http")) {
         title = lines[0].replace(/^#+\s*/, "").slice(0, 100);
         summary = lines.slice(1).join("\n\n").trim() || lines[0];
       }
@@ -248,8 +259,28 @@ export function fallbackParse(rawText: string, explicitType?: string) {
           const parsedUrl = new URL(url);
           const domain = parsedUrl.hostname.replace(/^www\./, "");
           metadata.domain = domain;
-          metadata.siteName = domain;
-          metadata.favicon = `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
+          metadata.siteName = ogData?.siteName || domain;
+          metadata.favicon = ogData?.favicon || `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
+
+          // Title selection: prefer OG title > Article title > Slug title > Domain
+          if (ogData?.ogTitle && !isGenericTitle(ogData.ogTitle, domain)) {
+            title = ogData.ogTitle;
+          } else if (articleData?.title && !isGenericTitle(articleData.title, domain)) {
+            title = articleData.title;
+          } else if (isGenericTitle(title, domain) || title.startsWith("http://") || title.startsWith("https://") || title === "Nuova Risorsa") {
+            const slugTitle = extractTitleFromUrlSlug(url);
+            title = slugTitle || domain;
+          }
+
+          // Summary selection: prefer OG description > Article text > Default description
+          if (ogData?.ogDescription && ogData.ogDescription.trim().length > 15) {
+            summary = ogData.ogDescription.trim();
+          } else if (articleData?.text && articleData.text.trim().length > 30) {
+            const firstP = articleData.text.split("\n\n").find((p: string) => p.trim().length > 30 && p !== title);
+            summary = firstP ? (firstP.length > 280 ? firstP.slice(0, 277) + "..." : firstP) : articleData.text.slice(0, 250);
+          } else if (!summary || summary === title || summary.startsWith("http")) {
+            summary = `Articolo tecnico e documentazione di riferimento pubblicata su ${domain}.`;
+          }
         } catch {}
       }
     }

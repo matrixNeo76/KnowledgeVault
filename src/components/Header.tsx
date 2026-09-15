@@ -277,7 +277,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* View Mode Toggle: Grid / Table / Graph */}
-        <div className="flex items-center bg-[#111111] border border-[#202020] rounded-lg p-0.5 shrink-0 shadow-xs">
+        <div className="flex items-center bg-[#111111] border border-[#202020] rounded-lg p-0.5 shrink-0 shadow-xs" role="radiogroup" aria-label="Modalità di visualizzazione">
           <button
             onClick={() => onViewModeChange("grid")}
             className={`p-2 sm:p-1.5 min-w-[34px] min-h-[34px] rounded-md text-xs font-mono flex items-center justify-center gap-1 transition-all cursor-pointer ${
@@ -285,11 +285,13 @@ export const Header: React.FC<HeaderProps> = ({
                 ? "bg-[#241C0E] text-[#E5C170] border border-[#C5A059]/60 shadow-xs font-semibold"
                 : "text-[#888] hover:text-[#EEE] hover:bg-[#181818]"
             }`}
-            title="Vista Schede a Griglia"
+            title="Vista Schede a Griglia (Alt+1)"
             aria-label="Vista Griglia"
+            aria-checked={viewMode === "grid"}
+            role="radio"
           >
             <LayoutGrid className="w-4 h-4 sm:w-3.5 sm:h-3.5 shrink-0" />
-            <span className="hidden lg:inline text-[10.5px]">Griglia</span>
+            <span className="hidden md:inline text-[10.5px]">Griglia</span>
           </button>
 
           <button
@@ -299,11 +301,13 @@ export const Header: React.FC<HeaderProps> = ({
                 ? "bg-[#241C0E] text-[#E5C170] border border-[#C5A059]/60 shadow-xs font-semibold"
                 : "text-[#888] hover:text-[#EEE] hover:bg-[#181818]"
             }`}
-            title="Vista Elenco a Tabella"
+            title="Vista Elenco a Tabella (Alt+2)"
             aria-label="Vista Tabella"
+            aria-checked={viewMode === "table"}
+            role="radio"
           >
             <List className="w-4 h-4 sm:w-3.5 sm:h-3.5 shrink-0" />
-            <span className="hidden lg:inline text-[10.5px]">Tabella</span>
+            <span className="hidden md:inline text-[10.5px]">Tabella</span>
           </button>
 
           <button
@@ -313,11 +317,13 @@ export const Header: React.FC<HeaderProps> = ({
                 ? "bg-[#241C0E] text-[#E5C170] border border-[#C5A059]/60 shadow-xs font-semibold"
                 : "text-[#888] hover:text-[#EEE] hover:bg-[#181818]"
             }`}
-            title="Vista Grafo Ontologico OKF"
+            title="Vista Grafo Ontologico OKF (Alt+3)"
             aria-label="Vista Grafo"
+            aria-checked={viewMode === "graph"}
+            role="radio"
           >
             <Network className="w-4 h-4 sm:w-3.5 sm:h-3.5 shrink-0" />
-            <span className="hidden lg:inline text-[10.5px]">Grafo</span>
+            <span className="hidden md:inline text-[10.5px]">Grafo</span>
           </button>
         </div>
 

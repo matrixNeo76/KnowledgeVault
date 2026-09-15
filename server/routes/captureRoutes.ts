@@ -10,6 +10,9 @@ import {
   fetchOpenGraphMetadata,
   fetchArticleTextFromUrl,
   OpenGraphData,
+  sanitizeUrl,
+  isGenericTitle,
+  extractTitleFromUrlSlug,
 } from "../services/openGraphService";
 import { fallbackParse } from "../services/heuristicParser";
 import {
@@ -936,33 +939,51 @@ captureRouter.post("/analyze-resource", async (req, res) => {
     }
 
     const trimmedInput = input.trim();
+    const rawUrlMatch = trimmedInput.match(/https?:\/\/[^\s]+/i);
+    let cleanTargetUrl = "";
+    let cleanInput = trimmedInput;
+    if (rawUrlMatch) {
+      cleanTargetUrl = sanitizeUrl(rawUrlMatch[0]);
+      if (trimmedInput.replace(/https?:\/\/[^\s]+/gi, "").trim().length === 0) {
+        cleanInput = cleanTargetUrl;
+      }
+    }
+
+    let ogData: OpenGraphData | null = null;
+    let articleData: any = null;
+    if (cleanTargetUrl) {
+      try {
+        const [ogRes, artRes] = await Promise.all([
+          fetchOpenGraphMetadata(cleanTargetUrl),
+          fetchArticleTextFromUrl(cleanTargetUrl, 6000).catch(() => null),
+        ]);
+        ogData = ogRes;
+        articleData = artRes;
+      } catch {}
+    }
 
     // -------------------------------------------------------------
     // STAGE 1: REAL-TIME GOOGLE SEARCH GROUNDING SYNTHESIS
     // -------------------------------------------------------------
     let searchGrounding: GroundedSearchResult | null = null;
-    const isFullMarkdownDoc = trimmedInput.startsWith("---") || trimmedInput.length > 2500;
+    const isFullMarkdownDoc = cleanInput.startsWith("---") || cleanInput.length > 2500;
     const shouldSearchGround = searchGrounded !== false && !isFullMarkdownDoc;
 
     if (shouldSearchGround) {
       try {
-        console.log(`[analyze-resource] Stage 1 Search Grounding for: "${trimmedInput.slice(0, 70)}..."`);
+        const groundingQuery = (ogData?.ogTitle && !isGenericTitle(ogData.ogTitle, ogData.domain))
+          ? `${ogData.ogTitle} ${ogData.author || ""} ${ogData.domain || ""}`.trim()
+          : cleanInput;
+
+        console.log(`[analyze-resource] Stage 1 Search Grounding for: "${groundingQuery.slice(0, 70)}..."`);
         searchGrounding = await performSearchGroundedSynthesis(
-          trimmedInput,
+          groundingQuery,
           explicitType ? `Target category: ${explicitType}` : undefined,
           10000
         );
       } catch (sgErr: any) {
         console.warn("[analyze-resource] Stage 1 Search Grounding skipped:", sgErr?.message);
       }
-    }
-
-    let ogData: OpenGraphData | null = null;
-    const urlMatch = trimmedInput.match(/https?:\/\/[^\s]+/i);
-    if (urlMatch) {
-      try {
-        ogData = await fetchOpenGraphMetadata(urlMatch[0]);
-      } catch {}
     }
 
     const prompt = `You are an expert AI software architect and knowledge curator.
@@ -976,6 +997,8 @@ EVERY resource is a structured technical document in this Knowledge Vault. You M
 4. 'metadata.entities': Array of 3 to 6 identified technical entities { name, type, description }
 5. 'metadata.relations': Array of 2 to 5 topological relations { targetTitle, relationType, weight, description }
 6. 'metadata.markdownContent': Full technical documentation starting with YAML frontmatter conforming to OKF v0.2.
+7. 'metadata.aiExecutiveSummary': A concise 2-3 sentence executive analytical summary of the core insight.
+8. 'metadata.keyTakeaways': 3-5 high-density technical bullet points.
 
 Target Categories:
 1. 'troubleshooting' - Technical issues, software bugs, DLL/system errors, crash diagnostics
@@ -994,6 +1017,12 @@ User Raw Input:
 ${trimmedInput}
 """
 ${explicitType ? `User requested type hint: ${explicitType}` : ""}
+${articleData?.text ? `
+Extracted Web Page / Article Content Body:
+"""
+${articleData.text.slice(0, 3500)}
+"""
+` : ""}
 ${searchGrounding ? `
 VERIFIED REAL-TIME GOOGLE SEARCH GROUNDING BRIEF (Stage 1 Synthesis):
 """
@@ -1117,8 +1146,9 @@ Return pure JSON matching this exact structure:
     };
 
     let parsedJson: any = null;
+    let isFallback = false;
     try {
-      const generated = await generateWithGeminiFallback(prompt, schema);
+      const generated = await generateWithGeminiFallback(prompt, schema, 25000);
       if (generated?.text) {
         parsedJson = JSON.parse(generated.text);
       }
@@ -1127,7 +1157,8 @@ Return pure JSON matching this exact structure:
     }
 
     if (!parsedJson) {
-      parsedJson = fallbackParse(trimmedInput, explicitType);
+      isFallback = true;
+      parsedJson = fallbackParse(cleanInput, explicitType, ogData, articleData);
     }
 
     if (!parsedJson.tags) parsedJson.tags = [];
@@ -1141,6 +1172,10 @@ Return pure JSON matching this exact structure:
       }
     }
 
+    if (cleanTargetUrl) {
+      parsedJson.url = cleanTargetUrl;
+    }
+
     if (ogData) {
       if (!parsedJson.metadata.domain && ogData.domain) parsedJson.metadata.domain = ogData.domain;
       if (!parsedJson.metadata.siteName && ogData.siteName) parsedJson.metadata.siteName = ogData.siteName;
@@ -1149,10 +1184,33 @@ Return pure JSON matching this exact structure:
       if (!parsedJson.metadata.ogTitle && ogData.ogTitle) parsedJson.metadata.ogTitle = ogData.ogTitle;
       if (!parsedJson.metadata.ogImage && ogData.ogImage) parsedJson.metadata.ogImage = ogData.ogImage;
       if (!parsedJson.metadata.author && ogData.author) parsedJson.metadata.author = ogData.author;
-      
-      if (ogData.ogTitle && (!parsedJson.title || parsedJson.title.startsWith("http://") || parsedJson.title.startsWith("https://") || parsedJson.title === "Nuova Risorsa" || parsedJson.title.toLowerCase() === "collegamento web")) {
+    }
+
+    // Title validation and non-generic fallback guarantee
+    if (isGenericTitle(parsedJson.title, parsedJson.metadata?.domain || ogData?.domain)) {
+      if (ogData?.ogTitle && !isGenericTitle(ogData.ogTitle, ogData.domain)) {
         parsedJson.title = ogData.ogTitle;
+      } else if (articleData?.title && !isGenericTitle(articleData.title, ogData?.domain)) {
+        parsedJson.title = articleData.title;
+      } else if (cleanTargetUrl) {
+        parsedJson.title = extractTitleFromUrlSlug(cleanTargetUrl) || (ogData?.domain ? `Risorsa su ${ogData.domain}` : "Nuova Risorsa");
       }
+    }
+
+    // Summary validation and rich fallback guarantee
+    if (!parsedJson.summary || isGenericTitle(parsedJson.summary, ogData?.domain) || parsedJson.summary.startsWith("http") || parsedJson.summary === trimmedInput || parsedJson.summary.length < 15) {
+      if (ogData?.ogDescription) {
+        parsedJson.summary = ogData.ogDescription;
+      } else if (articleData?.text) {
+        const firstP = articleData.text.split("\n\n").find((p: string) => p.trim().length > 30 && p !== parsedJson.title);
+        if (firstP) {
+          parsedJson.summary = firstP.length > 250 ? firstP.slice(0, 247) + "..." : firstP;
+        }
+      }
+    }
+
+    if (!parsedJson.metadata.aiExecutiveSummary && parsedJson.summary) {
+      parsedJson.metadata.aiExecutiveSummary = parsedJson.summary;
     }
 
     if (explicitType && explicitType !== "link") {
@@ -1268,10 +1326,10 @@ Return pure JSON matching this exact structure:
       const entitiesYaml = (parsedJson.metadata.entities || []).map((e: any) => `  - name: "${e.name}"\n    type: "${e.type || 'concept'}"\n    description: "${e.description || 'Entità'}"`).join("\n");
       const relationsYaml = (parsedJson.metadata.relations || []).map((r: any) => `  - target_title: "${r.targetTitle || r.target_title}"\n    relation_type: "${r.relationType || r.relation_type || 'references'}"\n    weight: ${r.weight || 0.8}\n    description: "${r.description || 'Connessione'}"`).join("\n");
 
-      parsedJson.metadata.markdownContent = `---\nokf_version: "0.2"\ntitle: "${parsedJson.title}"\ntype: "${parsedJson.metadata.docType}"\ndomain: "${parsedJson.metadata.domain}"\ntags: ${JSON.stringify(cleanTags)}\ncreated_at: "${new Date().toISOString()}"\nentities:\n${entitiesYaml}\nrelations:\n${relationsYaml}\n---\n\n# ${parsedJson.title}\n\n> **${parsedJson.metadata.docType?.toUpperCase()} · OKF v0.2**\n> Ambito: ${parsedJson.metadata.domain}\n\n## 1. Panoramica & Sintesi\n\n${parsedJson.summary || trimmedInput}\n\n${parsedJson.url ? `**URL di Riferimento:** [${parsedJson.url}](${parsedJson.url})\n\n` : ""}## 2. Specifiche Tecniche & Componenti\n\n- **Tipologia Risorsa**: \`${parsedJson.type}\`\n- **Dominio Tecnico**: \`${parsedJson.metadata.domain}\`\n- **Tipo Documento OKF**: \`${parsedJson.metadata.docType}\`\n${parsedJson.metadata.installCommand ? `- **Installazione / Clone**: \`${parsedJson.metadata.installCommand}\`\n` : ""}${parsedJson.metadata.command ? `- **Comando MCP**: \`${parsedJson.metadata.command}\`\n` : ""}\n## 3. Ontologia & Connessioni Topologiche\n\n${parsedJson.metadata.relations.map((r: any) => `- [[${r.targetTitle || r.target_title}]]: *${r.description || 'Correlazione'}* (\`${r.relationType || 'references'}\`)`).join("\n")}\n`;
+      parsedJson.metadata.markdownContent = `---\nokf_version: "0.2"\ntitle: "${parsedJson.title}"\ntype: "${parsedJson.metadata.docType}"\ndomain: "${parsedJson.metadata.domain}"\ntags: ${JSON.stringify(cleanTags)}\ncreated_at: "${new Date().toISOString()}"\nentities:\n${entitiesYaml}\nrelations:\n${relationsYaml}\n---\n\n# ${parsedJson.title}\n\n> **${parsedJson.metadata.docType?.toUpperCase()} · OKF v0.2**\n> Ambito: ${parsedJson.metadata.domain}\n\n## 1. Panoramica & Sintesi\n\n${parsedJson.summary || cleanInput}\n\n${parsedJson.url ? `**URL di Riferimento:** [${parsedJson.url}](${parsedJson.url})\n\n` : ""}## 2. Specifiche Tecniche & Componenti\n\n- **Tipologia Risorsa**: \`${parsedJson.type}\`\n- **Dominio Tecnico**: \`${parsedJson.metadata.domain}\`\n- **Tipo Documento OKF**: \`${parsedJson.metadata.docType}\`\n${parsedJson.metadata.installCommand ? `- **Installazione / Clone**: \`${parsedJson.metadata.installCommand}\`\n` : ""}${parsedJson.metadata.command ? `- **Comando MCP**: \`${parsedJson.metadata.command}\`\n` : ""}\n## 3. Ontologia & Connessioni Topologiche\n\n${parsedJson.metadata.relations.map((r: any) => `- [[${r.targetTitle || r.target_title}]]: *${r.description || 'Correlazione'}* (\`${r.relationType || 'references'}\`)`).join("\n")}\n`;
     }
 
-    res.json({ result: parsedJson, source: parsedJson ? "gemini" : "fallback" });
+    res.json({ result: parsedJson, source: isFallback ? "fallback" : "gemini" });
   } catch (error: any) {
     console.error("Analysis handler exception:", error);
     const fallbackResult = fallbackParse(req.body.input || "", req.body.explicitType);
@@ -1616,7 +1674,16 @@ captureRouter.post("/summarize-resource", async (req, res) => {
       }
     }
 
-    if (!cleanTitle) {
+    if (extractedTitle && (
+      !cleanTitle ||
+      cleanTitle.toLowerCase().includes("wiht") ||
+      cleanTitle.toLowerCase() === "collegamento web" ||
+      cleanTitle.toLowerCase() === "nuova risorsa" ||
+      cleanTitle.toLowerCase() === "medium" ||
+      extractedTitle.toLowerCase() === cleanTitle.toLowerCase().replace(/\bwiht\b/g, "with")
+    )) {
+      cleanTitle = extractedTitle;
+    } else if (!cleanTitle) {
       cleanTitle = extractedTitle || title || "Articolo Tecnico";
     }
     if (!cleanSummary && extractedDesc) {
@@ -1684,11 +1751,16 @@ Return pure JSON matching the schema.`;
     }
 
     if (result && result.executiveSummary) {
+      const preferredCleanSummary =
+        !cleanSummary || cleanSummary.length < 90 || isCorruptedText(cleanSummary)
+          ? result.executiveSummary.slice(0, 320)
+          : cleanSummary;
+
       return res.json({
         success: true,
         source: "gemini",
         cleanedTitle: cleanTitle,
-        cleanedSummary: cleanSummary || result.executiveSummary.slice(0, 200),
+        cleanedSummary: preferredCleanSummary,
         extractedContent: fullContent || undefined,
         summaryResult: {
           executiveSummary: result.executiveSummary,
@@ -1731,11 +1803,16 @@ Return pure JSON matching the schema.`;
     const wordCount = fullContent.split(/\s+/).filter(Boolean).length;
     const estTime = Math.max(2, Math.round(wordCount / 180)) + " minuti";
 
+    const preferredFallbackSummary =
+      !cleanSummary || cleanSummary.length < 90 || isCorruptedText(cleanSummary)
+        ? (extractedDesc || execBrief.slice(0, 320))
+        : cleanSummary;
+
     return res.json({
       success: true,
       source: "fallback",
       cleanedTitle: cleanTitle,
-      cleanedSummary: cleanSummary || extractedDesc || execBrief.slice(0, 200),
+      cleanedSummary: preferredFallbackSummary,
       extractedContent: fullContent || undefined,
       summaryResult: {
         executiveSummary: execBrief,

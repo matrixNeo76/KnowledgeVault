@@ -274,6 +274,17 @@ export default function App() {
         e.preventDefault();
         setIsAddModalOpen((prev) => !prev);
       }
+      // Alt+1 / Alt+2 / Alt+3 for View Mode switching (Griglia / Tabella / Grafo)
+      if (e.altKey && e.key === "1") {
+        e.preventDefault();
+        setViewMode("grid");
+      } else if (e.altKey && e.key === "2") {
+        e.preventDefault();
+        setViewMode("table");
+      } else if (e.altKey && e.key === "3") {
+        e.preventDefault();
+        setViewMode("graph");
+      }
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "f") {
         e.preventDefault();
         handleToggleZenMode();
@@ -506,8 +517,6 @@ export default function App() {
         onOpenCekikjInspector={() => setIsCekikjModalOpen(true)}
         unsyncedCount={resources.filter((r) => r.id.startsWith("local-") || r.id.startsWith("conv-") || r.id.startsWith("seed-")).length}
         onUploadUnsynced={handleUploadUnsyncedResources}
-        viewMode={viewMode}
-        onViewModeChange={setViewMode}
         selectedTag={selectedTag}
         onSelectTag={(tag) => {
           setSelectedTag(tag);
@@ -691,8 +700,6 @@ export default function App() {
               }}
               selectedTag={selectedTag}
               onSelectTag={setSelectedTag}
-              viewMode={viewMode}
-              onViewModeChange={setViewMode}
               onOpenIntelligence={() => setIsIntelligenceDrawerOpen((prev) => !prev)}
             />
           </div>
@@ -732,8 +739,6 @@ export default function App() {
                   onSelectTag={setSelectedTag}
                   sortBy={sortBy}
                   onSortByChange={setSortBy}
-                  viewMode={viewMode}
-                  onViewModeChange={setViewMode}
                   totalFilteredCount={filteredResources.length}
                   searchQuery={searchQuery}
                   onClearSearch={() => setSearchQuery("")}
@@ -899,6 +904,7 @@ export default function App() {
                       isSelected={selectedResourceIds.has(item.id)}
                       onToggleSelect={handleToggleSelect}
                       isSelectionActive={selectedResourceIds.size > 0}
+                      onUpdateResource={handleUpdateResourceWithModalSync}
                     />
                   ))}
                 </div>
@@ -927,6 +933,7 @@ export default function App() {
                   onToggleSelectAll={handleToggleSelectAllVisible}
                   isAllSelected={filteredResources.length > 0 && selectedResourceIds.size === filteredResources.length}
                   isIndeterminate={selectedResourceIds.size > 0 && selectedResourceIds.size < filteredResources.length}
+                  onUpdateResource={handleUpdateResourceWithModalSync}
                 />
               )}
             </div>

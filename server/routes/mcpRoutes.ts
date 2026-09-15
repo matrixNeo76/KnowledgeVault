@@ -5,14 +5,17 @@
  */
 
 import { Router } from "express";
-import { processMcpJsonRpc, MCP_TOOLS_MANIFEST, getVaultResources } from "../mcpServer";
+import { processMcpJsonRpc, MCP_TOOLS_MANIFEST, getVaultResources, getVaultSyncMetadata } from "../mcpServer";
 
 export const mcpRouter = Router();
 
 // GET /api/mcp - Info, diagnostica e configurazione IDE (Claude Desktop / Cursor)
 mcpRouter.get("/", async (req, res) => {
   try {
-    const resources = await getVaultResources();
+    const [resources, syncMeta] = await Promise.all([
+      getVaultResources(),
+      getVaultSyncMetadata(),
+    ]);
     const host = req.get("host") || "localhost:3000";
     const protocol = req.protocol || "http";
     const endpointUrl = `${protocol}://${host}/api/mcp`;
@@ -23,6 +26,9 @@ mcpRouter.get("/", async (req, res) => {
       status: "active",
       endpoint: endpointUrl,
       vaultDocumentsIndexed: resources.length,
+      vaultLastSynchronizedAt: syncMeta.lastSynchronizedAt,
+      snapshotVersion: syncMeta.version,
+      triLayerStatus: syncMeta.count > 0 ? "synchronized" : "initialized",
       toolsCount: MCP_TOOLS_MANIFEST.length,
       tools: MCP_TOOLS_MANIFEST,
       ideConfigurations: {

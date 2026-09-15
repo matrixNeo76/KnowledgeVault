@@ -1410,7 +1410,7 @@ export function useVaultCapture({
         });
         delete (sanitizedResource as any).id;
 
-        const newResourceDoc = await withFirestoreTimeout(addDoc(collection(db, "resources"), sanitizedResource), 3500);
+        const newResourceDoc = await withFirestoreTimeout(addDoc(collection(db, "resources"), sanitizedResource), 20000);
         const writeDuration = Date.now() - writeStart;
         newResourceItem.id = newResourceDoc.id;
 
@@ -1437,7 +1437,7 @@ export function useVaultCapture({
                 },
                 { merge: true }
               ),
-              3500
+              15000
             );
           } catch (updateRawErr: any) {
             console.warn("Raw file status update in Firestore deferred (latency):", updateRawErr?.message || updateRawErr);

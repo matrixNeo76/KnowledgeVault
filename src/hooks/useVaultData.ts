@@ -194,6 +194,39 @@ let lastPendingRawFiles: RawFileItem[] | undefined = undefined;
 let lastPendingUid: string | undefined = undefined;
 let lastPendingDeleted: string[] = [];
 
+export function healResourceIntelligence(item: ResourceItem): ResourceItem {
+  let modified = false;
+  let newSummary = item.summary;
+  let newTitle = item.title;
+
+  const isMinimal =
+    !item.summary ||
+    item.summary.trim() === "" ||
+    item.summary.length < 90 ||
+    item.summary.startsWith("http") ||
+    item.summary.startsWith("Collegamento web a ") ||
+    item.summary.includes("Nota: Il parser") ||
+    item.summary.includes("failed_as_link");
+
+  if (item.metadata?.aiExecutiveSummary && isMinimal) {
+    newSummary = item.metadata.aiExecutiveSummary.slice(0, 320);
+    modified = true;
+  }
+
+  if (item.title && (item.title.includes("wiht ") || item.title.includes(" wiht") || item.title.includes("wiht\n"))) {
+    newTitle = item.title.replace(/\bwiht\b/gi, "with");
+    modified = true;
+  }
+
+  if (!modified) return item;
+
+  return {
+    ...item,
+    title: newTitle,
+    summary: newSummary,
+  };
+}
+
 export function saveLocalResources(items: ResourceItem[], uid?: string, currentRawFiles?: RawFileItem[]) {
   if (items.length === 0) {
     const existing = loadCachedResources(uid);
@@ -223,12 +256,14 @@ export function saveLocalResources(items: ResourceItem[], uid?: string, currentR
     }
   }
 
+  const healedItems = cleanItems.map(healResourceIntelligence);
+
   // 1. Instant synchronous localStorage cache persistence
-  saveCachedResources(cleanItems, uid);
+  saveCachedResources(healedItems, uid);
 
   // 2. Debounced multi-layer persistence save (IndexedDB + Server filesystem)
   // Collapses rapid state updates and prevents concurrent overlapping network backups
-  lastPendingItems = cleanItems;
+  lastPendingItems = healedItems;
   lastPendingRawFiles = currentRawFiles;
   lastPendingUid = uid;
   lastPendingDeleted = Array.from(deletedSet);
@@ -255,7 +290,8 @@ export function useVaultData() {
   const [authLoading, setAuthLoading] = useState(true);
   const [resources, setResourcesRaw] = useState<ResourceItem[]>(() => {
     const cached = loadCachedResources();
-    return cached && cached.length > 0 ? cached : getInitialSampleResourcesWithIds();
+    const initial = cached && cached.length > 0 ? cached : getInitialSampleResourcesWithIds();
+    return initial.map(healResourceIntelligence);
   });
   const [isLoadingResources, setIsLoadingResources] = useState(false);
 
@@ -294,7 +330,8 @@ export function useVaultData() {
       traceContext?: Partial<SetResourcesTraceContext>
     ) => {
       setResourcesRaw((prev) => {
-        const next = typeof action === "function" ? (action as (prev: ResourceItem[]) => ResourceItem[])(prev) : action;
+        const rawNext = typeof action === "function" ? (action as (prev: ResourceItem[]) => ResourceItem[])(prev) : action;
+        const next = rawNext.map(healResourceIntelligence);
         const ctx: SetResourcesTraceContext = {
           operation: traceContext?.operation || "EXTERNAL_CALLER",
           callerDescription: traceContext?.callerDescription,

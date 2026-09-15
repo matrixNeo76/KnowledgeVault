@@ -88,6 +88,12 @@ export const KnowledgeReader: React.FC<KnowledgeReaderProps> = ({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
+  // Discover other resources sharing entities, tags, or content overlap via semantic affinity engine
+  const correlatedResources = useMemo(() => {
+    if (!currentResource) return [];
+    return identifyRelatedResources(currentResource, allResources, { limit: 4, minScore: 18 });
+  }, [currentResource, allResources]);
+
   if (!currentResource) return null;
   const resource = currentResource;
 
@@ -186,12 +192,6 @@ export const KnowledgeReader: React.FC<KnowledgeReaderProps> = ({
       targetResource: match,
     };
   });
-
-  // Discover other resources sharing entities, tags, or content overlap via semantic affinity engine
-  const correlatedResources = useMemo(() => {
-    if (!resource) return [];
-    return identifyRelatedResources(resource, allResources, { limit: 4, minScore: 18 });
-  }, [resource, allResources]);
 
   // Extract clean markdown without frontmatter for reader display
   const contentBody = rawMarkdown.replace(/^---[\s\S]*?---\n*/, "") || resource.summary;

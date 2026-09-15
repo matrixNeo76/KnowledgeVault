@@ -47,6 +47,7 @@ interface ResourceTableProps {
   onToggleSelectAll?: () => void;
   isAllSelected?: boolean;
   isIndeterminate?: boolean;
+  onUpdateResource?: (id: string, updatedData: Partial<ResourceItem>) => Promise<boolean>;
 }
 
 export const ResourceTable: React.FC<ResourceTableProps> = ({
@@ -63,10 +64,105 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({
   onToggleSelectAll,
   isAllSelected = false,
   isIndeterminate = false,
+  onUpdateResource,
 }) => {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [generatingPdfId, setGeneratingPdfId] = useState<string | null>(null);
   const [downloadedPdfId, setDownloadedPdfId] = useState<string | null>(null);
+  const [analyzingIds, setAnalyzingIds] = useState<Set<string>>(new Set());
+  const [successIds, setSuccessIds] = useState<Set<string>>(new Set());
+
+  const handleTriggerReanalysis = async (e: React.MouseEvent, item: ResourceItem) => {
+    e.stopPropagation();
+    if (analyzingIds.has(item.id)) return;
+
+    setAnalyzingIds((prev) => new Set(prev).add(item.id));
+    try {
+      const res = await fetch("/api/summarize-resource", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resource: item }),
+      });
+      const data = await res.json();
+      if (data && data.summaryResult) {
+        const {
+          executiveSummary,
+          keyTakeaways = [],
+          targetAudience,
+          actionItems = [],
+          estimatedReadingTime,
+          summarizedAt,
+        } = data.summaryResult;
+
+        const updatedMetadata: Record<string, any> = {
+          ...(item.metadata || {}),
+          aiExecutiveSummary: executiveSummary,
+          aiKeyTakeaways: keyTakeaways,
+          aiTargetAudience: targetAudience,
+          aiActionItems: actionItems,
+          aiSummarizedAt: summarizedAt || new Date().toISOString(),
+          ...(estimatedReadingTime ? { readingTimeMin: estimatedReadingTime } : {}),
+          ...(data.extractedContent && (!item.metadata?.markdownContent || item.metadata.markdownContent.length < 200)
+            ? { markdownContent: data.extractedContent }
+            : {}),
+        };
+
+        const updateData: Partial<ResourceItem> = {
+          metadata: updatedMetadata,
+        };
+
+        // Prefer high-density executive summary if existing summary is minimal or short
+        const candidateSummary =
+          executiveSummary && executiveSummary.trim().length > 50
+            ? executiveSummary.slice(0, 320)
+            : data.cleanedSummary;
+
+        if (
+          candidateSummary &&
+          (!item.summary ||
+            item.summary.length < 90 ||
+            item.summary.startsWith("http") ||
+            item.summary.startsWith("Collegamento web a"))
+        ) {
+          updateData.summary = candidateSummary;
+        }
+
+        if (
+          data.cleanedTitle &&
+          data.cleanedTitle.trim().length > 3 &&
+          (item.title.startsWith("http") ||
+            item.title === "Nuova Risorsa" ||
+            item.title === "Collegamento Web" ||
+            item.title === "Medium" ||
+            item.title.toLowerCase().includes("wiht") ||
+            item.title.toLowerCase() === data.cleanedTitle.toLowerCase())
+        ) {
+          updateData.title = data.cleanedTitle;
+        }
+
+        if (onUpdateResource) {
+          await onUpdateResource(item.id, updateData);
+        }
+
+        setSuccessIds((prev) => new Set(prev).add(item.id));
+        setTimeout(() => {
+          setSuccessIds((prev) => {
+            const next = new Set(prev);
+            next.delete(item.id);
+            return next;
+          });
+        }, 3500);
+      }
+    } catch (err) {
+      console.error("Failed to re-run intelligence analysis:", err);
+    } finally {
+      setAnalyzingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(item.id);
+        return next;
+      });
+    }
+  };
 
   const handleDownloadPdf = async (e: React.MouseEvent, item: ResourceItem) => {
     e.stopPropagation();
@@ -336,9 +432,53 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({
                         <span>Read Later</span>
                       </span>
                     )}
+                    {(() => {
+                      const isCorruptedOrMinimal =
+                        !item.summary ||
+                        item.summary.trim() === "" ||
+                        item.summary.trim() === item.url?.trim() ||
+                        item.summary.trim() === item.rawInput?.trim() ||
+                        item.summary.startsWith("Collegamento web a ") ||
+                        item.summary.includes("failed_as_link") ||
+                        item.summary.includes("Nota: Il parser") ||
+                        (item.type === "article" && item.summary.length < 90 && !item.metadata?.aiExecutiveSummary);
+                      const isPending = !item.metadata?.aiExecutiveSummary && isCorruptedOrMinimal;
+                      if (!isPending) return null;
+                      const isItemAnalyzing = analyzingIds.has(item.id);
+                      const isItemSuccess = successIds.has(item.id);
+                      return (
+                        <button
+                          type="button"
+                          onClick={(e) => handleTriggerReanalysis(e, item)}
+                          disabled={isItemAnalyzing}
+                          className="inline-flex items-center gap-1 text-[9.5px] font-mono px-2 py-0.5 rounded bg-[#231505] hover:bg-[#341F08] text-[#FBBF24] border border-[#F59E0B]/50 hover:border-[#F59E0B] transition-colors cursor-pointer shrink-0"
+                          title="Ingestion Health: Sintesi o intelligence mancante. Clicca per generare con Gemini AI"
+                        >
+                          {isItemAnalyzing ? (
+                            <>
+                              <Loader2 className="w-2.5 h-2.5 text-[#F59E0B] animate-spin shrink-0" />
+                              <span>Analisi...</span>
+                            </>
+                          ) : isItemSuccess ? (
+                            <>
+                              <Check className="w-2.5 h-2.5 text-emerald-400 shrink-0" />
+                              <span className="text-emerald-300">Pronta!</span>
+                            </>
+                          ) : (
+                            <>
+                              <BrainCircuit className="w-2.5 h-2.5 text-[#F59E0B] shrink-0" />
+                              <span>Pending Intelligence</span>
+                              <Sparkles className="w-2 h-2 text-[#F59E0B]" />
+                            </>
+                          )}
+                        </button>
+                      );
+                    })()}
                   </div>
                   <div className="text-[#666] text-[11px] truncate mt-0.5">
-                    {item.summary}
+                    {item.metadata?.aiExecutiveSummary && (!item.summary || item.summary.length < 90)
+                      ? item.metadata.aiExecutiveSummary
+                      : (item.summary || "Nessuna descrizione disponibile")}
                   </div>
                 </td>
 
