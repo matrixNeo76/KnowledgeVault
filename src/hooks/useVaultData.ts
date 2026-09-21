@@ -198,18 +198,93 @@ export function healResourceIntelligence(item: ResourceItem): ResourceItem {
   let modified = false;
   let newSummary = item.summary;
   let newTitle = item.title;
+  let newMetadata = item.metadata ? { ...item.metadata } : {};
+
+  const isMeetily =
+    item.id === "RH48Y3OTh9EznbbXFwcJ" ||
+    item.url?.includes("github.com/Zackriya-Solutions/meetily") ||
+    (item.title && item.title.includes("Meetily"));
+
+  if (isMeetily) {
+    const correctMeetilyExec =
+      "Meetily è un assistente per riunioni e meeting minutes open-source orientato alla massima privacy locale (100% on-device). Sviluppato con backend ad alte prestazioni in Rust/Tauri e interfaccia Next.js, esegue la trascrizione audio in tempo reale sfruttando modelli locali all'avanguardia (NVIDIA Parakeet e Whisper con accelerazione GPU Metal/CoreML/Vulkan/CUDA) e genera verbali e sintesi strutturate con LLM locali (Ollama) o endpoint custom compatibili OpenAI, senza mai inviare dati audio o testuali al cloud.";
+
+    const correctMeetilyTakeaways = [
+      "Trascrizione 100% Locale & Sovranità dei Dati: Elaborazione audio e memorizzazione dei verbali interamente on-device senza dispersioni nel cloud né dipendenza da API esterne.",
+      "Supporto Multi-Modello STT ad Alte Prestazioni: Utilizza NVIDIA Parakeet TDT (fino a 4x più rapido) e Whisper.cpp per una trascrizione accurata a bassissima latenza.",
+      "Sintesi Esecutive con LLM Locali e Flessibili: Generazione automatica di verbali, decisioni e azioni tramite Ollama (offline) o endpoint personalizzati (Claude, Groq, OpenAI).",
+      "Architettura Desktop Rust & Tauri: Soluzione leggera e reattiva con mixaggio audio intelligente di microfono e audio di sistema, ducking dinamico e prevenzione del clipping.",
+      "Import & Enhance e Funzionalità Pro: Capacità di re-ingestione e miglioramento di registrazioni pregresse con modelli superiori, export avanzati e predisposizione per speaker diarization."
+    ];
+
+    const correctMeetilyAudience =
+      "Team aziendali, professionisti legali, sviluppatori, consulenti e organizzazioni che gestiscono conversazioni riservate e necessitano di verbali automatici nel rispetto rigoroso della privacy e del GDPR.";
+
+    const correctMeetilyActions = [
+      "Scaricare e installare l'eseguibile Meetily adeguato alla propria piattaforma (macOS con Metal/CoreML, Windows con Vulkan o build da sorgenti su Linux).",
+      "Configurare una sessione locale Ollama o specificare un endpoint OpenAI-compatible per abilitare la sintesi automatica e l'estrazione delle azioni dei meeting.",
+      "Testare la trascrizione dal vivo configurando il corretto canale di cattura tra microfono e audio di sistema con il modulo di ducking attivo."
+    ];
+
+    const correctMeetilySummary =
+      "Meetily è un assistente AI per riunioni e meeting minutes open-source orientato alla massima privacy locale (100% on-device). Basato su architettura Tauri e backend Rust, esegue trascrizione in tempo reale con modelli NVIDIA Parakeet e Whisper, generando riassunti e note tramite Ollama o endpoint personalizzati senza inviare dati al cloud.";
+
+    if (newMetadata.aiExecutiveSummary !== correctMeetilyExec) {
+      newMetadata.aiExecutiveSummary = correctMeetilyExec;
+      modified = true;
+    }
+    if (JSON.stringify(newMetadata.aiKeyTakeaways) !== JSON.stringify(correctMeetilyTakeaways)) {
+      newMetadata.aiKeyTakeaways = correctMeetilyTakeaways;
+      modified = true;
+    }
+    if (newMetadata.aiTargetAudience !== correctMeetilyAudience) {
+      newMetadata.aiTargetAudience = correctMeetilyAudience;
+      modified = true;
+    }
+    if (JSON.stringify(newMetadata.aiActionItems) !== JSON.stringify(correctMeetilyActions)) {
+      newMetadata.aiActionItems = correctMeetilyActions;
+      modified = true;
+    }
+    if (newSummary !== correctMeetilySummary) {
+      newSummary = correctMeetilySummary;
+      modified = true;
+    }
+  } else {
+    // General cleanup for other resources
+    if (newMetadata.aiExecutiveSummary && newMetadata.aiExecutiveSummary.includes("analisi di vulnerabilità e metodologie ingegneristiche")) {
+      newMetadata.aiExecutiveSummary = newMetadata.aiExecutiveSummary
+        .replace(/\.\s*Risorsa tecnica focalizzata su pattern architetturali avanzati,\s*analisi di vulnerabilità e metodologie ingegneristiche per sistemi ad agenti e grafi di conoscenza\.?/gi, ".")
+        .replace(/,\s*analisi di vulnerabilità e metodologie ingegneristiche per sistemi ad agenti e grafi di conoscenza\.?/gi, ".")
+        .trim();
+      modified = true;
+    }
+
+    if (Array.isArray(newMetadata.aiKeyTakeaways)) {
+      const filtered = newMetadata.aiKeyTakeaways.filter((t: string) => {
+        if (!t || typeof t !== "string") return false;
+        const s = t.trim();
+        if (s.startsWith("[ ]") || s.startsWith("#\n[") || s.startsWith("http") || s.startsWith("[") && s.includes("](")) return false;
+        if (s.includes("trendshift.io") || s.includes("github.com") && s.includes("releases")) return false;
+        return s.length > 20;
+      });
+      if (filtered.length !== newMetadata.aiKeyTakeaways.length) {
+        newMetadata.aiKeyTakeaways = filtered;
+        modified = true;
+      }
+    }
+  }
 
   const isMinimal =
-    !item.summary ||
-    item.summary.trim() === "" ||
-    item.summary.length < 90 ||
-    item.summary.startsWith("http") ||
-    item.summary.startsWith("Collegamento web a ") ||
-    item.summary.includes("Nota: Il parser") ||
-    item.summary.includes("failed_as_link");
+    !newSummary ||
+    newSummary.trim() === "" ||
+    newSummary.length < 90 ||
+    newSummary.startsWith("http") ||
+    newSummary.startsWith("Collegamento web a ") ||
+    newSummary.includes("Nota: Il parser") ||
+    newSummary.includes("failed_as_link");
 
-  if (item.metadata?.aiExecutiveSummary && isMinimal) {
-    newSummary = item.metadata.aiExecutiveSummary.slice(0, 320);
+  if (newMetadata.aiExecutiveSummary && isMinimal) {
+    newSummary = newMetadata.aiExecutiveSummary.slice(0, 320);
     modified = true;
   }
 
@@ -224,6 +299,7 @@ export function healResourceIntelligence(item: ResourceItem): ResourceItem {
     ...item,
     title: newTitle,
     summary: newSummary,
+    metadata: newMetadata,
   };
 }
 

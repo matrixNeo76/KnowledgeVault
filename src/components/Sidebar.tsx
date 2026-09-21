@@ -31,7 +31,8 @@ import {
   StickyNote,
   ChevronDown,
   GitBranch,
-  BookMarked
+  BookMarked,
+  Workflow
 } from "lucide-react";
 import { ResourceType, NavCategory } from "../types";
 import { User } from "firebase/auth";
@@ -635,7 +636,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       </button>
                     )}
 
-                    {/* Importa Doc */}
+                    {/* Ingestione Doc / Paper */}
                     <button
                       onClick={() => {
                         onOpenKnowledgeUpload();
@@ -644,11 +645,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-md bg-[#121212] hover:bg-[#181818] border border-[#1E1E1E] hover:border-[#C5A059]/40 text-[#BBB] hover:text-white text-xs transition-all group text-left cursor-pointer"
                     >
                       <div className="flex items-center gap-2.5 truncate">
-                        <FileUp className="w-3.5 h-3.5 text-[#C5A059] shrink-0" />
-                        <span className="truncate font-medium">Importa Doc</span>
+                        <Workflow className="w-3.5 h-3.5 text-[#C5A059] shrink-0" />
+                        <span className="truncate font-medium">Ingestione Doc</span>
                       </div>
                       <span className="text-[9px] font-mono text-[#555] group-hover:text-[#C5A059] transition-colors">
-                        .md
+                        6 Agenti
                       </span>
                     </button>
 
@@ -779,10 +780,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
         )}
 
         {/* User Account & Persistence Health Monitor Footer */}
-        <div className={`p-2.5 border-t border-[#1A1A1A] bg-[#070707] shrink-0 ${isCollapsed ? "flex flex-col items-center" : ""}`}>
+        <div className={`p-3 pb-4 border-t border-[#1A1A1A] bg-[#070707] shrink-0 ${isCollapsed ? "flex flex-col items-center" : ""}`}>
           <div className={`flex items-center ${isCollapsed ? "flex-col gap-2" : "justify-between gap-2"}`}>
             <div 
-              className="flex items-center space-x-2 overflow-hidden min-w-0 cursor-pointer hover:opacity-85 transition-opacity"
+              className="flex items-center space-x-2.5 overflow-hidden min-w-0 flex-1 cursor-pointer hover:opacity-85 transition-opacity"
               onClick={onOpenPersistenceStatus}
               title="Clicca per visualizzare lo stato della persistenza a 3 livelli (IndexedDB, Server, Firestore)"
             >
@@ -803,14 +804,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
               )}
 
               {!isCollapsed && (
-                <div className="text-xs truncate min-w-0">
+                <div className="text-xs truncate min-w-0 flex-1">
                   <p className="text-white font-medium truncate text-[11px] leading-tight">
                     {user?.isAnonymous ? "Ospite (Sessione Locale)" : (user ? (user.displayName || user.email || "Utente Google") : "Modalità Locale")}
                   </p>
                   <div className="flex items-center gap-1.5 text-[9px] text-[#777] mt-0.5 font-mono">
                     <ShieldCheck className="w-2.5 h-2.5 text-emerald-400 shrink-0" />
-                    <span className="text-[#AAA] truncate">
-                      {counts.all} protetti {counts.raw_files > 0 ? `(+${counts.raw_files} file)` : ""} • {user?.isAnonymous ? "Ospite" : "Google"}
+                    <span className="text-[#AAA] truncate" title={`${counts.all} protetti • ${user?.isAnonymous ? "Ospite" : "Google Cloud"}`}>
+                      {counts.all} protetti • {user?.isAnonymous ? "Ospite" : "Google Cloud"}
                     </span>
                   </div>
                 </div>

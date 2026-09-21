@@ -1599,11 +1599,12 @@ export function useVaultCapture({
     input: string, 
     explicitType?: ResourceType,
     onStageUpdate?: (stage: CaptureStage, message?: string) => void,
-    correlationId?: string
+    correlationId?: string,
+    preferredModel?: string
   ) => {
     const activeCorrId = correlationId || ("ai-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6));
     const startTime = Date.now();
-    addLog("info", "GEMINI_AI", `[${activeCorrId}] Inizio analisi semantica (${input.length} caratteri, tipo: ${explicitType || "auto"})...`);
+    addLog("info", "GEMINI_AI", `[${activeCorrId}] Inizio analisi semantica (${input.length} caratteri, tipo: ${explicitType || "auto"}, modello: ${preferredModel || "auto"})...`);
     
     try {
       if (onStageUpdate) {
@@ -1634,7 +1635,8 @@ export function useVaultCapture({
         body: JSON.stringify({ 
           input, 
           explicitType,
-          existingResources: contextList
+          existingResources: contextList,
+          preferredModel: preferredModel || undefined
         }),
       });
       clearTimeout(timeoutId);
@@ -1887,7 +1889,8 @@ export function useVaultCapture({
             setCaptureStage(stg);
             if (msg) setCaptureStageMessage(msg);
           },
-          captureSessionId
+          captureSessionId,
+          extraMetadata?.preferredModel
         );
         if (analyzed && analyzed._source === "local_fallback") {
           aiAnalysisFailed = true;

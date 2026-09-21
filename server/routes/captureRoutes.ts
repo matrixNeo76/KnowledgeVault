@@ -25,6 +25,9 @@ import {
 } from "../services/filesAdapter";
 import { scanGitHubRepositoryOKF } from "../services/githubOkfService";
 import { extractMlTagsLocally, normalizeTag, RawTagSuggestion } from "../services/tagMlService";
+import { executePreFlightCheck } from "../services/deterministicGates";
+import { executeCekikjIngestionGate } from "../services/cekikjIngestionGate";
+import { processAcademicPaperPipeline } from "../services/specializedPipelines";
 
 export const captureRouter = Router();
 
@@ -84,7 +87,7 @@ captureRouter.post("/convert-file-to-okf", async (req, res) => {
       ["mp3", "wav", "m4a", "ogg", "aac", "flac", "opus", "webm", "wma", "aiff"].some((ext) => lowerName.endsWith("." + ext)) ||
       fileType?.toLowerCase() === "audio";
 
-    const isPdf = lowerName.endsWith(".pdf") || (mimeType && mimeType.toLowerCase().includes("pdf")) || fileType?.toLowerCase() === "pdf";
+    const isPdf = lowerName.endsWith(".pdf") || (mimeType && mimeType.toLowerCase().includes("pdf")) || fileType?.toLowerCase() === "pdf" || fileType?.toLowerCase() === "paper";
     const isImage = (mimeType && mimeType.toLowerCase().startsWith("image/")) || ["png", "jpg", "jpeg", "webp", "gif", "svg"].some((ext) => lowerName.endsWith("." + ext));
 
     let cleanBase64 = "";
@@ -98,6 +101,47 @@ captureRouter.post("/convert-file-to-okf", async (req, res) => {
       cleanBase64 = dataPart.replace(/[^A-Za-z0-9+/=]/g, "");
       while (cleanBase64.length % 4 !== 0) {
         cleanBase64 += "=";
+      }
+    }
+
+    // -------------------------------------------------------------
+    // DETERMINISTIC PRE-FLIGHT GATE & SPECIALIZED ACADEMIC PAPER PIPELINE
+    // -------------------------------------------------------------
+    if (isPdf && cleanBase64 && cleanBase64.length > 20) {
+      try {
+        const pdfBuffer = Buffer.from(cleanBase64, "base64");
+        const existingShaList = (existingResources as any[])
+          .filter((r) => r.metadata?.sha256)
+          .map((r) => ({ id: r.id, sha256: r.metadata.sha256 }));
+
+        const preFlight = executePreFlightCheck(pdfBuffer, "application/pdf", fileName, existingShaList);
+
+        if (!preFlight.valid && !preFlight.isDuplicate) {
+          return res.status(400).json({
+            success: false,
+            error: preFlight.rejectionReason || "File non valido per l'ingestione.",
+          });
+        }
+
+        console.log(`[Specialized Ingestion] Executing Academic Paper Pipeline for "${fileName}" (SHA-256: ${preFlight.sha256.slice(0, 8)}...)`);
+        const paperResult = await processAcademicPaperPipeline(pdfBuffer, preFlight, {
+          existingResources: existingResources as any[],
+          filename: fileName,
+          notes,
+        });
+
+        if (paperResult.success && paperResult.resource) {
+          return res.json({
+            success: true,
+            source: "specialized_academic_paper_pipeline",
+            pipeline: "academic_paper",
+            preFlight: paperResult.preFlight,
+            cekikjEvaluation: paperResult.cekikjGate,
+            resource: paperResult.resource,
+          });
+        }
+      } catch (paperPipelineErr: any) {
+        console.warn("[convert-file-to-okf] Academic paper pipeline error, falling back to standard pipeline:", paperPipelineErr?.message);
       }
     }
 
@@ -933,7 +977,7 @@ captureRouter.post("/search-grounded-enrich", async (req, res) => {
 // POST /api/analyze-resource
 captureRouter.post("/analyze-resource", async (req, res) => {
   try {
-    const { input, explicitType, existingResources, searchGrounded } = req.body;
+    const { input, explicitType, existingResources, searchGrounded, preferredModel } = req.body;
     if (!input || typeof input !== "string" || input.trim().length === 0) {
       return res.status(400).json({ error: "Input string is required" });
     }
@@ -1147,10 +1191,17 @@ Return pure JSON matching this exact structure:
 
     let parsedJson: any = null;
     let isFallback = false;
+    let usedModelName = "";
     try {
-      const generated = await generateWithGeminiFallback(prompt, schema, 25000);
+      const generated = await generateWithGeminiFallback(prompt, schema, {
+        timeoutMs: 25000,
+        endpoint: "/api/analyze-resource",
+        preferredModel,
+        thinkingBudget: 512,
+      });
       if (generated?.text) {
         parsedJson = JSON.parse(generated.text);
+        usedModelName = generated.modelUsed;
       }
     } catch (err: any) {
       console.warn("AI generation failed for analyze-resource, using rule-based parser:", err?.message);
@@ -1329,7 +1380,11 @@ Return pure JSON matching this exact structure:
       parsedJson.metadata.markdownContent = `---\nokf_version: "0.2"\ntitle: "${parsedJson.title}"\ntype: "${parsedJson.metadata.docType}"\ndomain: "${parsedJson.metadata.domain}"\ntags: ${JSON.stringify(cleanTags)}\ncreated_at: "${new Date().toISOString()}"\nentities:\n${entitiesYaml}\nrelations:\n${relationsYaml}\n---\n\n# ${parsedJson.title}\n\n> **${parsedJson.metadata.docType?.toUpperCase()} · OKF v0.2**\n> Ambito: ${parsedJson.metadata.domain}\n\n## 1. Panoramica & Sintesi\n\n${parsedJson.summary || cleanInput}\n\n${parsedJson.url ? `**URL di Riferimento:** [${parsedJson.url}](${parsedJson.url})\n\n` : ""}## 2. Specifiche Tecniche & Componenti\n\n- **Tipologia Risorsa**: \`${parsedJson.type}\`\n- **Dominio Tecnico**: \`${parsedJson.metadata.domain}\`\n- **Tipo Documento OKF**: \`${parsedJson.metadata.docType}\`\n${parsedJson.metadata.installCommand ? `- **Installazione / Clone**: \`${parsedJson.metadata.installCommand}\`\n` : ""}${parsedJson.metadata.command ? `- **Comando MCP**: \`${parsedJson.metadata.command}\`\n` : ""}\n## 3. Ontologia & Connessioni Topologiche\n\n${parsedJson.metadata.relations.map((r: any) => `- [[${r.targetTitle || r.target_title}]]: *${r.description || 'Correlazione'}* (\`${r.relationType || 'references'}\`)`).join("\n")}\n`;
     }
 
-    res.json({ result: parsedJson, source: isFallback ? "fallback" : "gemini" });
+    res.json({
+      result: parsedJson,
+      source: isFallback ? "fallback" : "gemini",
+      modelUsed: isFallback ? "heuristic-fallback" : (usedModelName || "gemini-3.8-flash")
+    });
   } catch (error: any) {
     console.error("Analysis handler exception:", error);
     const fallbackResult = fallbackParse(req.body.input || "", req.body.explicitType);
@@ -1595,6 +1650,32 @@ Return pure JSON matching the schema.`;
   }
 });
 
+function cleanMarkdownForIntelligence(text: string): string {
+  if (!text) return "";
+  return text
+    // Remove markdown image embeds like ![alt](url) or [![badge](url)](url)
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+    // Remove empty markdown links like [ ](url) or [  ](url)
+    .replace(/\[\s*\]\([^)]*\)/g, "")
+    // Convert markdown links [text](url) to just text
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    // Remove raw URLs
+    .replace(/https?:\/\/[^\s)\]]+/g, "")
+    // Remove HTML tags
+    .replace(/<[^>]+>/g, " ")
+    // Remove markdown header markers #, ##, ###
+    .replace(/^#{1,6}\s+/gm, "")
+    // Remove bold/italics
+    .replace(/[*_]{1,3}/g, "")
+    // Remove divider or anchor relics like #--- or ---
+    .replace(/^[-_]{3,}\s*$/gm, "")
+    .replace(/#+[-_]{2,}/g, "")
+    // Normalize spaces and newlines
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n\s*\n/g, "\n\n")
+    .trim();
+}
+
 // POST /api/summarize-resource
 captureRouter.post("/summarize-resource", async (req, res) => {
   try {
@@ -1711,7 +1792,7 @@ Resource Information:
 - Author: "${extractedAuthor || metadata.author || 'N/A'}"
 - Tags: ${JSON.stringify(tags)}
 - Context / Subtitle: """${cleanSummary}"""
-- Full Body / Content: """${fullContent.slice(0, 12000)}"""
+- Full Body / Content: """${cleanMarkdownForIntelligence(fullContent).slice(0, 12000)}"""
 
 Produce the following in Italian:
 1. 'executiveSummary': A 2-4 sentence executive overview explaining the core architecture, significance, and technical methodology.
@@ -1774,31 +1855,110 @@ Return pure JSON matching the schema.`;
     }
 
     // Heuristic Fallback (Zero-latency when Gemini quota is in cooldown or offline)
-    const contentParagraphs = fullContent
+    const cleanedText = cleanMarkdownForIntelligence(fullContent);
+    const contentParagraphs = cleanedText
       .split("\n\n")
       .map((p) => p.trim())
-      .filter((p) => p.length > 40 && !p.toLowerCase().includes("sign up") && !p.toLowerCase().includes("sitemap"));
+      .filter((p) => {
+        if (p.length < 35) return false;
+        if (p.startsWith("[") || p.startsWith("#") || p.startsWith("- [ ]")) return false;
+        const lower = p.toLowerCase();
+        if (
+          lower.includes("sign up") ||
+          lower.includes("sitemap") ||
+          lower.includes("cookie") ||
+          lower.includes("all rights reserved") ||
+          lower.includes("licensed under") ||
+          lower.includes("contributing guidelines") ||
+          lower.includes("trendshift.io") ||
+          lower.includes("releases")
+        ) {
+          return false;
+        }
+        return true;
+      });
 
     const dynamicTakeaways: string[] = [];
-    if (extractedDesc) {
-      dynamicTakeaways.push(extractedDesc);
+    if (extractedDesc && extractedDesc.length > 25) {
+      const cleanDesc = extractedDesc.replace(/^[-*•\d.]+\s*/, "").trim();
+      dynamicTakeaways.push(cleanDesc.length > 220 ? cleanDesc.slice(0, 217) + "..." : cleanDesc);
     }
-    for (const p of contentParagraphs.slice(0, 4)) {
-      if (p !== cleanTitle && p !== extractedDesc && dynamicTakeaways.length < 5) {
-        dynamicTakeaways.push(p.length > 180 ? p.slice(0, 177) + "..." : p);
+    for (const p of contentParagraphs) {
+      if (dynamicTakeaways.length >= 5) break;
+      const cleanP = p.replace(/^[-*•\d.]+\s*/, "").trim();
+      if (
+        cleanP.length > 30 &&
+        cleanP !== cleanTitle &&
+        !dynamicTakeaways.some((t) => t.toLowerCase().includes(cleanP.slice(0, 30).toLowerCase()))
+      ) {
+        dynamicTakeaways.push(cleanP.length > 220 ? cleanP.slice(0, 217) + "..." : cleanP);
       }
     }
     if (dynamicTakeaways.length < 3) {
-      dynamicTakeaways.push(
-        `Analisi architetturale e pattern operativi per ${cleanTitle}.`,
-        "Metodologie di ingegneria e integrazione nei workflow del Knowledge Vault.",
-        "Mappatura delle entità e relazioni topologiche nel Grafo D3."
-      );
+      if (type === "github_repo") {
+        dynamicTakeaways.push(
+          `Architettura applicativa e implementazione open-source per ${cleanTitle}.`,
+          "Pattern ingegneristici modulari orientati a prestazioni, affidabilità e manutenibilità.",
+          "Possibilità di esecuzione e integrazione locale o nel proprio stack infrastrutturale."
+        );
+      } else {
+        dynamicTakeaways.push(
+          `Analisi tecnica approfondita e principi operativi per ${cleanTitle}.`,
+          "Metodologie ingegneristiche e best practice applicabili nel Knowledge Vault.",
+          "Mappatura delle entità e relazioni concettuali nel Grafo D3."
+        );
+      }
     }
 
-    const execBrief = extractedDesc
-      ? `${cleanTitle}: ${extractedDesc}. Risorsa tecnica focalizzata su pattern architetturali avanzati, analisi di vulnerabilità e metodologie ingegneristiche per sistemi ad agenti e grafi di conoscenza.`
-      : `${cleanTitle} è una risorsa di tipo ${typeLabel}. Fornisce metodologie essenziali per l'architettura applicativa, la sicurezza software e l'orchestrazione semantica.`;
+    let execBrief = "";
+    if (extractedDesc) {
+      execBrief = `${cleanTitle}: ${extractedDesc}`;
+      if (contentParagraphs.length > 0 && contentParagraphs[0] !== extractedDesc) {
+        const extraP = contentParagraphs[0].replace(/^[-*•\d.]+\s*/, "").trim();
+        if (extraP.length > 30 && !execBrief.toLowerCase().includes(extraP.slice(0, 25).toLowerCase())) {
+          execBrief += ` ${extraP}`;
+        }
+      }
+    } else if (contentParagraphs.length > 0) {
+      execBrief = `${cleanTitle}: ${contentParagraphs.slice(0, 2).map((p) => p.replace(/^[-*•\d.]+\s*/, "").trim()).join(" ")}`;
+    } else {
+      execBrief = `${cleanTitle} è una risorsa tecnica di tipo ${typeLabel}. Fornisce specifiche implementative, architettura applicativa e metodologie operative dettagliate.`;
+    }
+
+    const titleAndTags = `${cleanTitle} ${tags.join(" ")} ${type}`.toLowerCase();
+    let targetAudience = "Ingegneri del software, architetti di sistema e team tecnici";
+    if (
+      titleAndTags.includes("meet") ||
+      titleAndTags.includes("whisper") ||
+      titleAndTags.includes("speech") ||
+      titleAndTags.includes("audio") ||
+      titleAndTags.includes("transcript")
+    ) {
+      targetAudience = "Professionisti, team aziendali e sviluppatori che necessitano di soluzioni per meeting, trascrizione audio e produttività nel rispetto della privacy";
+    } else if (
+      titleAndTags.includes("security") ||
+      titleAndTags.includes("vulnerab") ||
+      titleAndTags.includes("auth")
+    ) {
+      targetAudience = "Security engineer, specialisti di cybersecurity e devops";
+    } else if (type === "github_repo") {
+      targetAudience = "Sviluppatori software, ingegneri e maintainer di progetti open-source";
+    }
+
+    let actionItems: string[] = [];
+    if (type === "github_repo") {
+      actionItems = [
+        `Esaminare la documentazione ufficiale e i requisiti di sistema nel repository ${cleanTitle}`,
+        "Testare l'installazione o l'esecuzione in locale tramite release precompilate o compilazione dai sorgenti",
+        "Valutare l'integrazione o l'adozione delle funzionalità core nei flussi di lavoro del team"
+      ];
+    } else {
+      actionItems = [
+        `Esaminare i dettagli tecnici e le specifiche della risorsa ${cleanTitle}`,
+        "Condividere o archiviare le note e le considerazioni pratiche nel Knowledge Vault",
+        "Pianificare l'eventuale sperimentazione o adozione delle metodologie illustrate"
+      ];
+    }
 
     const wordCount = fullContent.split(/\s+/).filter(Boolean).length;
     const estTime = Math.max(2, Math.round(wordCount / 180)) + " minuti";
@@ -1817,12 +1977,8 @@ Return pure JSON matching the schema.`;
       summaryResult: {
         executiveSummary: execBrief,
         keyTakeaways: dynamicTakeaways.slice(0, 5),
-        targetAudience: "Team di Sviluppo, Architetti Software e Specialisti AI / Cybersecurity",
-        actionItems: [
-          "Approfondire i principi architetturali descritti nella risorsa originale",
-          "Mappare le relazioni concettuali nel Knowledge Vault tramite il Grafo D3",
-          "Valutare l'adozione delle metodologie di reachability e analisi topologica nel proprio stack"
-        ],
+        targetAudience,
+        actionItems,
         estimatedReadingTime: estTime,
         summarizedAt: new Date().toISOString(),
       },

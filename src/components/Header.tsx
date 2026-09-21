@@ -348,45 +348,54 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         )}
 
-        {/* Cekikj Zero-Guessing Epistemic Inspector */}
-        {onOpenCekikjInspector && (
-          <button
-            onClick={onOpenCekikjInspector}
-            className="hidden 2xl:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#C5A059]/40 bg-[#161208] hover:bg-[#20180B] text-[#E5C170] hover:text-white text-xs font-mono transition-all shadow-xs cursor-pointer"
-            title="Architettura Epistemica Cekikj: Motore Bounded Loop, Contradiction Gate e Grounding Verifier"
-            aria-label="Cekikj Epistemic Engine"
-          >
-            <ShieldAlert className="w-3.5 h-3.5 text-[#C5A059]" />
-            <span>Cekikj Gate</span>
-          </button>
-        )}
+        {/* Subtle Visual Divider between Views and Governance/Diagnostics */}
+        <div className="hidden xl:block h-4 w-px bg-[#262626] mx-0.5" />
 
-        {/* Server MCP Nativo Quick Action */}
-        {onOpenMcpServer && (
-          <button
-            onClick={onOpenMcpServer}
-            className="hidden xl:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#3A2D1B] bg-[#141009] hover:bg-[#1E170E] hover:border-[#C5A059]/50 text-[#C5A059] hover:text-[#E5C170] text-xs font-mono transition-all shadow-xs cursor-pointer"
-            title="Server MCP Nativo: Connetti Claude Desktop, Cursor o agenti esterni al Knowledge Vault tramite JSON-RPC 2.0"
-            aria-label="Server MCP Nativo"
-          >
-            <Server className="w-3.5 h-3.5 text-[#C5A059]" />
-            <span>Server MCP</span>
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-          </button>
-        )}
+        {/* Governance & Diagnostics Cluster */}
+        <div className="hidden xl:flex items-center gap-1.5">
+          {/* Cekikj Zero-Guessing Epistemic Inspector */}
+          {onOpenCekikjInspector && (
+            <button
+              onClick={onOpenCekikjInspector}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#C5A059]/40 bg-[#161208] hover:bg-[#20180B] text-[#E5C170] hover:text-white text-xs font-mono transition-all shadow-xs cursor-pointer"
+              title="Architettura Epistemica Cekikj: Motore Bounded Loop, Contradiction Gate e Grounding Verifier"
+              aria-label="Cekikj Epistemic Engine"
+            >
+              <ShieldAlert className="w-3.5 h-3.5 text-[#C5A059]" />
+              <span>Cekikj Gate</span>
+            </button>
+          )}
 
-        {/* Vault Health Check Deep Comparison Trigger */}
-        {onOpenVaultHealthCheck && (
-          <button
-            onClick={onOpenVaultHealthCheck}
-            className="hidden xl:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#C5A059]/40 bg-[#161208] hover:bg-[#20180B] text-[#E5C170] hover:text-white text-xs font-mono transition-all shadow-xs cursor-pointer"
-            title="Vault Health Check: Confronto profondo memoria locale vs query raw Firestore"
-            aria-label="Vault Health Check"
-          >
-            <Activity className="w-3.5 h-3.5 text-[#C5A059]" />
-            <span>Health Check</span>
-          </button>
-        )}
+          {/* Server MCP Nativo Quick Action */}
+          {onOpenMcpServer && (
+            <button
+              onClick={onOpenMcpServer}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#3A2D1B] bg-[#141009] hover:bg-[#1E170E] hover:border-[#C5A059]/50 text-[#C5A059] hover:text-[#E5C170] text-xs font-mono transition-all shadow-xs cursor-pointer"
+              title="Server MCP Nativo: Connetti Claude Desktop, Cursor o agenti esterni al Knowledge Vault tramite JSON-RPC 2.0"
+              aria-label="Server MCP Nativo"
+            >
+              <Server className="w-3.5 h-3.5 text-[#C5A059]" />
+              <span>Server MCP</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+            </button>
+          )}
+
+          {/* Vault Health Check Deep Comparison Trigger */}
+          {onOpenVaultHealthCheck && (
+            <button
+              onClick={onOpenVaultHealthCheck}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#C5A059]/40 bg-[#161208] hover:bg-[#20180B] text-[#E5C170] hover:text-white text-xs font-mono transition-all shadow-xs cursor-pointer"
+              title="Vault Health Check: Confronto profondo memoria locale vs query raw Firestore"
+              aria-label="Vault Health Check"
+            >
+              <Activity className="w-3.5 h-3.5 text-[#C5A059]" />
+              <span>Health Check</span>
+            </button>
+          )}
+        </div>
+
+        {/* Subtle Visual Divider before Status */}
+        <div className="hidden sm:block h-4 w-px bg-[#262626] mx-0.5" />
 
         {/* Integrated Status & Persistence Capsule */}
         {onManualSync && (

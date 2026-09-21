@@ -526,7 +526,7 @@ vaultRouter.get("/resources/:id/raw", async (req, res) => {
 // POST /api/vault/agentic-query - Multi-Agent Orchestrator Engine for Epistemic Vault Queries
 vaultRouter.post("/agentic-query", async (req, res) => {
   try {
-    const { query, mode, activeCategory, activeTag, selectedResourceIds, history, clientResources } = req.body;
+    const { query, mode, activeCategory, activeTag, selectedResourceIds, history, clientResources, preferredModel } = req.body;
     if (!query || typeof query !== "string" || query.trim().length === 0) {
       return res.status(400).json({ error: "Campo 'query' obbligatorio." });
     }
@@ -541,6 +541,7 @@ vaultRouter.post("/agentic-query", async (req, res) => {
         selectedResourceIds,
         history,
         clientResources,
+        preferredModel,
       },
       ai
     );
@@ -561,7 +562,7 @@ vaultRouter.post("/agentic-query", async (req, res) => {
 // POST /api/vault/agentic-query-stream - Streaming Server-Sent Events (SSE) Multi-Agent Query Engine
 vaultRouter.post("/agentic-query-stream", async (req, res) => {
   try {
-    const { query, mode, activeCategory, activeTag, selectedResourceIds, history, clientResources } = req.body;
+    const { query, mode, activeCategory, activeTag, selectedResourceIds, history, clientResources, preferredModel } = req.body;
     if (!query || typeof query !== "string" || query.trim().length === 0) {
       return res.status(400).json({ error: "Campo 'query' obbligatorio." });
     }
@@ -588,6 +589,7 @@ vaultRouter.post("/agentic-query-stream", async (req, res) => {
         selectedResourceIds,
         history,
         clientResources,
+        preferredModel,
       },
       ai,
       (event, data) => {

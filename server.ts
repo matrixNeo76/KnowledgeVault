@@ -15,6 +15,10 @@ const PORT = 3000;
 app.use(express.json({ limit: "60mb" }));
 app.use(express.urlencoded({ limit: "60mb", extended: true }));
 
+// Serve built assets safely if requested by cached browser clients
+const distAssetsPath = path.join(process.cwd(), "dist", "assets");
+app.use("/assets", express.static(distAssetsPath));
+
 // Modular API Routers
 app.use("/api", telemetryRouter);
 app.use("/api/vault", vaultRouter);

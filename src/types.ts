@@ -1,3 +1,20 @@
+export type GeminiModelId =
+  | 'auto'
+  | 'gemini-3.8-flash'
+  | 'gemini-3.7-flash'
+  | 'gemini-flash-latest'
+  | 'gemini-2.5-flash'
+  | 'gemini-3.1-flash-lite';
+
+export interface GeminiModelOption {
+  id: GeminiModelId;
+  label: string;
+  badge: string;
+  description: string;
+  supportsThinking: boolean;
+  recommendedFor: 'capture' | 'intelligence' | 'balanced' | 'fast';
+}
+
 export type ResourceType = 'article' | 'github_repo' | 'mcp_server' | 'ai_skill' | 'knowledge' | 'link' | 'troubleshooting' | 'paper' | 'rss' | 'note';
 
 export interface OKFEntity {
@@ -168,6 +185,32 @@ export interface ResourceMetadata {
   relations?: OKFRelation[];
   markdownContent?: string;
   keyConcepts?: string[];
+  // Cekikj Epistemic Ingestion Evaluation
+  cekikjEvaluation?: {
+    status: 'certified_grounded' | 'partial_insufficient' | 'flagged_contradiction' | string;
+    groundingScore?: number;
+    insufficient?: boolean;
+    insufficientFields?: string[];
+    contradictions?: Array<{
+      existingResourceId: string;
+      existingResourceTitle: string;
+      claimInNewDoc: string;
+      claimInExistingDoc: string;
+      severity: string;
+    }>;
+    verifiedProofChains?: Array<{
+      claim: string;
+      sourceExcerpt?: string;
+      confidence: number;
+      grounded: boolean;
+    }>;
+    evaluatedAt?: string;
+    sha256?: string;
+    pipelineUsed?: string;
+  };
+  sha256?: string;
+  latexEquations?: string[];
+  benchmarks?: string[];
 }
 
 export interface ResourceItem {

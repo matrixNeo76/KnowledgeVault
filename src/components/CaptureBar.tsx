@@ -24,12 +24,14 @@ import {
   StickyNote,
   Mic,
   Square,
-  Trash2
+  Trash2,
+  Workflow
 } from "lucide-react";
-import { ResourceType, CaptureStage, TransformationCategory } from "../types";
+import { ResourceType, CaptureStage, TransformationCategory, GeminiModelId } from "../types";
+import { GEMINI_MODEL_OPTIONS } from "../constants/geminiModels";
 
 interface CaptureBarProps {
-  onCapture: (input: string, explicitType?: ResourceType) => Promise<boolean>;
+  onCapture: (input: string, explicitType?: ResourceType, extraMetadata?: Record<string, any>) => Promise<boolean>;
   isAnalyzing: boolean;
   captureStage?: CaptureStage;
   captureStageMessage?: string;
@@ -58,6 +60,8 @@ export const CaptureBar: React.FC<CaptureBarProps> = ({
   const [input, setInput] = useState("");
   const [selectedType, setSelectedType] = useState<ResourceType | "auto">("auto");
   const [isTypeDropdownOpen, setIsTypeDropdownOpen] = useState(false);
+  const [selectedModel, setSelectedModel] = useState<GeminiModelId>("auto");
+  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [isUploadingFile, setIsUploadingFile] = useState(false);
 
@@ -72,19 +76,23 @@ export const CaptureBar: React.FC<CaptureBarProps> = ({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const typeDropdownRef = useRef<HTMLDivElement>(null);
+  const modelDropdownRef = useRef<HTMLDivElement>(null);
 
-  // Close type dropdown on outside click
+  // Close type and model dropdown on outside click
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (typeDropdownRef.current && !typeDropdownRef.current.contains(e.target as Node)) {
         setIsTypeDropdownOpen(false);
       }
+      if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
+        setIsModelDropdownOpen(false);
+      }
     };
-    if (isTypeDropdownOpen) {
+    if (isTypeDropdownOpen || isModelDropdownOpen) {
       document.addEventListener("mousedown", handleClickOutside);
     }
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [isTypeDropdownOpen]);
+  }, [isTypeDropdownOpen, isModelDropdownOpen]);
 
   // Auto-resize textarea based on content (1 to 4 lines)
   useEffect(() => {
@@ -111,7 +119,8 @@ export const CaptureBar: React.FC<CaptureBarProps> = ({
 
     const success = await onCapture(
       cleanInput, 
-      selectedType === "auto" ? undefined : selectedType
+      selectedType === "auto" ? undefined : selectedType,
+      { preferredModel: selectedModel }
     );
 
     if (success) {
@@ -318,93 +327,150 @@ export const CaptureBar: React.FC<CaptureBarProps> = ({
   return (
     <div className="w-full">
       <form onSubmit={handleSubmit} className="relative">
-        <div className="bg-[#0A0A0A]/95 backdrop-blur-md border border-[#1F1F1F] hover:border-[#2A2A2A] focus-within:border-[#C5A059]/70 focus-within:ring-1 focus-within:ring-[#C5A059]/30 rounded-2xl p-2.5 shadow-2xl transition-all space-y-2">
+        <div className="bg-[#0C0C0C] border border-[#222] hover:border-[#2E2E2E] focus-within:border-[#C5A059]/80 focus-within:ring-1 focus-within:ring-[#C5A059]/40 rounded-xl p-2.5 shadow-xl transition-all space-y-2">
           
-          {/* Top Control Bar: Contextual Chips & Engine Indicators */}
-          <div className="flex items-center justify-between gap-2 px-1 text-xs">
+          {/* Top Control Bar: Contextual Chips & Engine Indicators - Unified 32px height row */}
+          <div className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-2 px-0.5">
             
-            {/* Left: Smart Type Selector Dropdown (Replaces static 8-button row) */}
-            <div className="relative" ref={typeDropdownRef}>
-              <button
-                type="button"
-                onClick={() => setIsTypeDropdownOpen(!isTypeDropdownOpen)}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#141414] hover:bg-[#1A1A1A] border border-[#252525] hover:border-[#383838] text-[11px] font-mono text-[#DDD] transition-all cursor-pointer shadow-xs"
-                title="Seleziona tipologia di classificazione AI"
-              >
-                {currentOption.icon}
-                <span className="font-medium text-white">{currentOption.label}</span>
-                <ChevronDown className={`w-3 h-3 text-[#777] transition-transform ${isTypeDropdownOpen ? "rotate-180 text-[#C5A059]" : ""}`} />
-              </button>
+            {/* Left Group: Type Selector + Gemini Model Selector */}
+            <div className="flex items-center gap-1.5 flex-wrap sm:flex-nowrap">
+              {/* Type Selector Dropdown */}
+              <div className="relative shrink-0" ref={typeDropdownRef}>
+                <button
+                  type="button"
+                  onClick={() => setIsTypeDropdownOpen(!isTypeDropdownOpen)}
+                  className="h-8 flex items-center gap-1.5 px-2.5 rounded-lg bg-[#141414] hover:bg-[#1A1A1A] border border-[#262626] hover:border-[#383838] text-[11px] font-mono text-[#DDD] transition-all cursor-pointer shadow-xs whitespace-nowrap"
+                  title="Seleziona tipologia di classificazione AI"
+                >
+                  {currentOption.icon}
+                  <span className="font-medium text-white whitespace-nowrap">{currentOption.label}</span>
+                  <ChevronDown className={`w-3 h-3 text-[#777] shrink-0 transition-transform ${isTypeDropdownOpen ? "rotate-180 text-[#C5A059]" : ""}`} />
+                </button>
 
-              {/* Type Dropdown Popover */}
-              {isTypeDropdownOpen && (
-                <div className="absolute left-0 bottom-full mb-2 w-72 bg-[#0F0F0F] border border-[#262626] rounded-xl shadow-2xl z-50 p-1.5 animate-in fade-in zoom-in-95 duration-150">
-                  <div className="px-2.5 py-1 text-[10px] font-mono text-[#666] uppercase tracking-wider border-b border-[#1A1A1A] mb-1">
-                    Tipo di Risorsa per l'Agente
-                  </div>
-                  <div className="space-y-0.5 max-h-64 overflow-y-auto custom-scrollbar">
-                    {typeOptions.map((opt) => {
-                      const isSelected = selectedType === opt.id;
-                      return (
-                        <button
-                          key={opt.id}
-                          type="button"
-                          onClick={() => {
-                            setSelectedType(opt.id);
-                            setIsTypeDropdownOpen(false);
-                          }}
-                          className={`w-full flex items-start gap-2 px-2.5 py-1.5 rounded-lg text-left transition-all ${
-                            isSelected
-                              ? "bg-[#1F180E] border border-[#C5A059]/40 text-[#E5C170]"
-                              : "hover:bg-[#161616] text-[#BBB] hover:text-white"
-                          }`}
-                        >
-                          <span className="mt-0.5 shrink-0">{opt.icon}</span>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center justify-between text-xs font-mono font-medium">
-                              <span>{opt.label}</span>
-                              {isSelected && <Check className="w-3 h-3 text-[#C5A059]" />}
+                {/* Type Dropdown Popover */}
+                {isTypeDropdownOpen && (
+                  <div className="absolute left-0 bottom-full mb-2 w-72 bg-[#0F0F0F] border border-[#262626] rounded-xl shadow-2xl z-50 p-1.5 animate-in fade-in zoom-in-95 duration-150">
+                    <div className="px-2.5 py-1 text-[10px] font-mono text-[#666] uppercase tracking-wider border-b border-[#1A1A1A] mb-1">
+                      Tipo di Risorsa per l'Agente
+                    </div>
+                    <div className="space-y-0.5 max-h-64 overflow-y-auto custom-scrollbar">
+                      {typeOptions.map((opt) => {
+                        const isSelected = selectedType === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedType(opt.id);
+                              setIsTypeDropdownOpen(false);
+                            }}
+                            className={`w-full flex items-start gap-2 px-2.5 py-1.5 rounded-lg text-left transition-all ${
+                              isSelected
+                                ? "bg-[#1F180E] border border-[#C5A059]/40 text-[#E5C170]"
+                                : "hover:bg-[#161616] text-[#BBB] hover:text-white"
+                            }`}
+                          >
+                            <span className="mt-0.5 shrink-0">{opt.icon}</span>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center justify-between text-xs font-mono font-medium">
+                                <span>{opt.label}</span>
+                                {isSelected && <Check className="w-3 h-3 text-[#C5A059]" />}
+                              </div>
+                              <p className="text-[10px] text-[#666] truncate mt-0.2">
+                                {opt.description}
+                              </p>
                             </div>
-                            <p className="text-[10px] text-[#666] truncate mt-0.2">
-                              {opt.description}
-                            </p>
-                          </div>
-                        </button>
-                      );
-                    })}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
+
+              {/* Interactive Model Selector Dropdown */}
+              <div className="relative shrink-0" ref={modelDropdownRef}>
+                <button
+                  type="button"
+                  onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
+                  className="h-8 flex items-center gap-1.5 px-2.5 rounded-lg bg-[#141414] hover:bg-[#1A1A1A] border border-[#262626] hover:border-[#383838] text-[11px] font-mono text-[#DDD] transition-all cursor-pointer shadow-xs whitespace-nowrap"
+                  title="Seleziona modello Gemini per la cattura e classificazione (Default: priorità 3.8 Flash con thinking)"
+                >
+                  <Zap className={`w-3 h-3 shrink-0 ${selectedModel === "gemini-3.8-flash" ? "text-amber-400 animate-pulse" : selectedModel === "gemini-3.7-flash" ? "text-purple-400" : "text-[#C5A059]"}`} />
+                  <span className="font-medium text-white whitespace-nowrap">
+                    {GEMINI_MODEL_OPTIONS.find((m) => m.id === selectedModel)?.label || "Auto Fallback"}
+                  </span>
+                  <ChevronDown className={`w-2.5 h-2.5 text-[#777] shrink-0 transition-transform ${isModelDropdownOpen ? "rotate-180 text-[#C5A059]" : ""}`} />
+                </button>
+
+                {/* Model Dropdown Popover */}
+                {isModelDropdownOpen && (
+                  <div className="absolute left-0 sm:left-auto sm:right-0 bottom-full mb-2 w-72 bg-[#0F0F0F] border border-[#262626] rounded-xl shadow-2xl z-50 p-1.5 animate-in fade-in zoom-in-95 duration-150">
+                    <div className="px-2.5 py-1 text-[10px] font-mono text-[#666] uppercase tracking-wider border-b border-[#1A1A1A] mb-1 flex items-center justify-between">
+                      <span>Modello Gemini per Cattura</span>
+                      <span className="text-[9px] text-[#C5A059] bg-[#C5A059]/10 px-1 py-0.2 rounded font-mono">OKF v0.2</span>
+                    </div>
+                    <div className="space-y-0.5 max-h-64 overflow-y-auto custom-scrollbar">
+                      {GEMINI_MODEL_OPTIONS.map((opt) => {
+                        const isSelected = selectedModel === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedModel(opt.id);
+                              setIsModelDropdownOpen(false);
+                            }}
+                            className={`w-full flex items-start gap-2 px-2.5 py-1.5 rounded-lg text-left transition-all ${
+                              isSelected
+                                ? "bg-[#1F180E] border border-[#C5A059]/40 text-[#E5C170]"
+                                : "hover:bg-[#161616] text-[#BBB] hover:text-white"
+                            }`}
+                          >
+                            <Zap className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${opt.id === "gemini-3.8-flash" ? "text-amber-400" : opt.id === "gemini-3.7-flash" ? "text-purple-400" : "text-[#C5A059]"}`} />
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center justify-between text-xs font-mono font-medium">
+                                <span className="flex items-center gap-1.5">
+                                  {opt.label}
+                                  {opt.supportsThinking && (
+                                    <span className="text-[9px] px-1 py-0.2 rounded bg-amber-950/60 text-amber-300 border border-amber-800/40 font-mono">
+                                      Thinking
+                                    </span>
+                                  )}
+                                </span>
+                                {isSelected && <Check className="w-3 h-3 text-[#C5A059]" />}
+                              </div>
+                              <p className="text-[10px] text-[#777] line-clamp-2 mt-0.5 leading-tight">
+                                {opt.description}
+                              </p>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
-            {/* Right: Engine Indicator & Helper Hints & Vault Intelligence CTA */}
-            <div className="flex items-center gap-1.5 sm:gap-2 text-[10.5px] font-mono text-[#666] shrink-0">
-              {showSuccess ? (
-                <span className="text-emerald-400 flex items-center gap-1 font-semibold animate-fade-in">
-                  <CheckCircle className="w-3 h-3" /> Salvato nel Vault!
+            {/* Right Group: Actions (Import Doc + Intelligence ⌘K) */}
+            <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+              {showSuccess && (
+                <span className="text-emerald-400 flex items-center gap-1 text-[11px] font-semibold animate-fade-in whitespace-nowrap mr-1">
+                  <CheckCircle className="w-3.5 h-3.5 shrink-0" /> Salvato!
                 </span>
-              ) : (
-                <>
-                  <div className="hidden lg:flex items-center gap-1 text-[#888] bg-[#121212] px-2 py-0.5 rounded-md border border-[#202020]">
-                    <Zap className="w-2.5 h-2.5 text-[#C5A059]" />
-                    <span>Gemini 3.7 Flash</span>
-                  </div>
-
-                  <span className="hidden xl:inline text-[#555]">
-                    Invio per analizzare • Shift+Invio per a capo
-                  </span>
-                </>
               )}
 
               {onOpenKnowledgeUpload && (
                 <button
                   type="button"
                   onClick={onOpenKnowledgeUpload}
-                  className="hidden md:flex items-center gap-1 text-[#C5A059] hover:underline text-[10.5px] bg-[#1A1408] border border-[#C5A059]/30 px-2 py-0.5 rounded-md hover:bg-[#261E0E] transition-colors cursor-pointer"
-                  title="Importa file .md, note o documentazione tecnica direttamente nello standard OKF v0.2"
+                  className="h-8 flex items-center gap-1.5 text-[#C5A059] hover:text-[#F0D598] text-[11px] font-mono bg-[#161208] hover:bg-[#221A0C] border border-[#C5A059]/40 hover:border-[#C5A059]/70 px-2.5 rounded-lg transition-colors cursor-pointer whitespace-nowrap shrink-0 shadow-xs"
+                  title="Pipeline di Ingestione Paper scientifici, PDF multimodale (Pixel-to-Markdown OCR), .md con architettura a 6 Agenti e Gate Cekikj"
                 >
-                  <UploadCloud className="w-3 h-3" />
-                  <span className="hidden lg:inline">Uploader</span> .md
+                  <Workflow className="w-3.5 h-3.5 shrink-0" />
+                  <span className="hidden sm:inline">Ingestione Doc / Paper</span>
+                  <span className="sm:hidden">Ingestione</span>
                 </button>
               )}
 
@@ -421,16 +487,16 @@ export const CaptureBar: React.FC<CaptureBarProps> = ({
                       onOpenIntelligence();
                     }
                   }}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono transition-all cursor-pointer border shrink-0 ${
+                  className={`h-8 flex items-center gap-1.5 px-2.5 rounded-lg text-[11px] font-mono transition-all cursor-pointer border shrink-0 whitespace-nowrap ${
                     isIntelligenceOpen
                       ? "bg-[#C5A059] text-black border-[#C5A059] font-bold shadow-[0_0_12px_rgba(197,160,89,0.4)]"
                       : "bg-[#18130B] hover:bg-[#241A0D] text-[#E5C170] hover:text-[#F8E2A8] border-[#C5A059]/60 hover:border-[#C5A059] shadow-xs active:scale-95"
                   }`}
-                  title="Apri Vault Intelligence: Orquestratore Agenti Autonomi con Grounding Ontologico (Scorciatoia globale: ⌘K / Ctrl+K)"
+                  title="Apri Vault Intelligence: Orchestratore Agenti Autonomi (Scorciatoia globale: ⌘K / Ctrl+K)"
                   aria-label="Apri Vault Intelligence"
                 >
                   <BrainCircuit className="w-3.5 h-3.5 text-[#C5A059] shrink-0" />
-                  <span className="font-semibold text-[11px] sm:text-xs">Intelligence</span>
+                  <span className="font-semibold">Intelligence</span>
                   <span className="hidden sm:inline-block text-[9.5px] px-1 py-0.2 rounded bg-black/40 text-[#C5A059] border border-[#C5A059]/30 font-mono font-medium">
                     ⌘K
                   </span>
@@ -453,14 +519,14 @@ export const CaptureBar: React.FC<CaptureBarProps> = ({
                   </span>
                 </div>
 
-                {/* 4-Step Stepper: 1. Invio -> 2. AI Parsing -> 3. Data Transformation -> 4. Vault Storage */}
+                {/* 4-Step Stepper: 1. Pre-Flight -> 2. Gemini SOTA -> 3. Cekikj Gate -> 4. Vault */}
                 <div className="flex items-center gap-1 text-[10px] font-mono">
                   <span className={`flex items-center gap-1 px-1.5 py-0.5 rounded ${
                     captureStage === 'sending' 
                       ? 'bg-[#C5A059] text-black font-semibold' 
                       : 'text-emerald-400 bg-emerald-950/40'
                   }`}>
-                    1. Invio
+                    1. Pre-Flight
                   </span>
                   <ArrowRight className="w-2.5 h-2.5 text-[#555]" />
                   <span className={`flex items-center gap-1 px-1.5 py-0.5 rounded ${
@@ -470,7 +536,7 @@ export const CaptureBar: React.FC<CaptureBarProps> = ({
                       ? 'text-emerald-400 bg-emerald-950/40'
                       : 'text-[#666]'
                   }`}>
-                    2. AI Parsing
+                    2. Gemini Thinking
                   </span>
                   <ArrowRight className="w-2.5 h-2.5 text-[#555]" />
                   <span className={`flex items-center gap-1 px-1.5 py-0.5 rounded ${
@@ -480,7 +546,7 @@ export const CaptureBar: React.FC<CaptureBarProps> = ({
                       ? 'text-emerald-400 bg-emerald-950/40'
                       : 'text-[#666]'
                   }`}>
-                    3. Trasformazione
+                    3. Cekikj Gate
                   </span>
                   <ArrowRight className="w-2.5 h-2.5 text-[#555]" />
                   <span className={`flex items-center gap-1 px-1.5 py-0.5 rounded ${
@@ -490,7 +556,7 @@ export const CaptureBar: React.FC<CaptureBarProps> = ({
                       ? 'text-emerald-400 bg-emerald-950/40'
                       : 'text-[#666]'
                   }`}>
-                    4. Vault
+                    4. Vault OKF
                   </span>
                 </div>
               </div>

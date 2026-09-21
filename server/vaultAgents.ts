@@ -2,7 +2,12 @@ import fs from "fs";
 import path from "path";
 import { GoogleGenAI, createPartFromFunctionResponse } from "@google/genai";
 import { ResourceItem, ResourceType } from "../src/types";
-import { getGenAI, trackCall } from "./gemini/client";
+import {
+  getGenAI,
+  trackCall,
+  isGeminiQuotaInCooldown,
+  triggerGeminiQuotaCooldown,
+} from "./gemini/client";
 import { getOrCreateContextCache } from "./services/contextCacheService";
 import {
   vaultFunctionDeclarations,
@@ -37,6 +42,7 @@ export interface AgenticQueryRequest {
   selectedResourceIds?: string[];
   history?: Array<{ role: "user" | "assistant"; content: string }>;
   clientResources?: ResourceItem[];
+  preferredModel?: string;
 }
 
 export interface CitedResourceMeta {
@@ -486,14 +492,28 @@ export async function executeAgenticVaultQuery(
   let modelUsed = "heuristic-local-synthesizer";
   let extractedCitedIds: string[] = [];
 
-  // Step 3: LLM Generation con Gemini 3.7 Flash e Fallback Bounded
+  // Step 3: LLM Generation con Gemini Flash Hierarchy e Circuit Breaker
   const activeGenAI = genAI || getGenAI();
-  if (activeGenAI && candidateResources.length > 0) {
-    const modelsToTry = [
+  const isCooldown = isGeminiQuotaInCooldown();
+  if (activeGenAI && candidateResources.length > 0 && !isCooldown) {
+    // Gerarchia Modelli: se l'utente ha scelto un modello specifico, provalo prima
+    const candidateHierarchy = [
+      "gemini-3.8-flash",
       "gemini-3.7-flash",
       "gemini-flash-latest",
+      "gemini-2.5-flash",
       "gemini-3.1-flash-lite",
     ];
+
+    const modelsToTry: string[] = [];
+    if (request.preferredModel && request.preferredModel !== "auto") {
+      modelsToTry.push(request.preferredModel);
+      for (const m of candidateHierarchy) {
+        if (m !== request.preferredModel) modelsToTry.push(m);
+      }
+    } else {
+      modelsToTry.push(...candidateHierarchy);
+    }
 
     const compactContext = candidateResources.map((r) => {
       const entitiesStr = Array.isArray(r.metadata?.entities)
@@ -569,10 +589,10 @@ Fornisci la sintesi epistemica verificata seguendo le istruzioni di sistema. Ris
           temperature: 0.2,
         };
 
-        // If gemini-3.7-flash, calibrate thinking budget according to mode
-        if (modelName.includes("3.7")) {
+        // If gemini-3.8-flash or gemini-3.7-flash, calibrate thinking budget according to mode
+        if (modelName === "gemini-3.8-flash" || modelName === "gemini-3.7-flash") {
           configPayload.thinkingConfig = {
-            thinkingBudget: request.mode === "deep_implementation" ? 2048 : 0,
+            thinkingBudget: request.mode === "deep_implementation" ? 2048 : 1024,
           };
         }
 
@@ -651,7 +671,19 @@ Fornisci la sintesi epistemica verificata seguendo le istruzioni di sistema. Ris
         }
       } catch (err: any) {
         trackCall(modelName, Date.now() - callStart, false, err?.message);
-        console.warn(`[VAULT_AGENTS] Fallimento con modello ${modelName}:`, err?.message || err);
+        const errMsg = (err?.message || "").toLowerCase();
+        const isQuota =
+          err?.status === "RESOURCE_EXHAUSTED" ||
+          err?.code === 429 ||
+          errMsg.includes("resource_exhausted") ||
+          errMsg.includes("quota") ||
+          errMsg.includes("429");
+        if (isQuota) {
+          triggerGeminiQuotaCooldown(45000);
+          console.warn(`[VAULT_AGENTS] Quota 429 esaurita per ${modelName}. Attivato circuit breaker 45s.`);
+        } else {
+          console.warn(`[VAULT_AGENTS] Fallimento con modello ${modelName}:`, err?.message || err);
+        }
       }
     }
   }

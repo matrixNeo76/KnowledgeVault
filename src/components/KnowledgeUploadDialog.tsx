@@ -262,7 +262,7 @@ export const KnowledgeUploadDialog: React.FC<KnowledgeUploadDialogProps> = ({
       setActiveFileName(first.name);
       if (first.isPdf && first.base64) {
         setPdfPayload({ name: first.name, size: first.size, base64: first.base64 });
-        setInputText(`[Documento PDF Binario Caricato: "${first.name}" (${(first.size / 1024).toFixed(1)} KB)]\n\nIl motore utilizzerà l'estrazione testuale integrata e l'analisi multimodale Gemini 3.7 Flash per strutturare la specifica tecnica OKF v0.2.`);
+        setInputText(`[PIPELINE INGESTIONE MULTIMODALE: "${first.name}" (${(first.size / 1024).toFixed(1)} KB)]\n\n✓ Buffer binario caricato nel circuito di ingestione\n✓ Modalità Pixel-to-Markdown OCR attiva per parsing di impaginazione, formule LaTeX ($$) e tabelle\n✓ Team di 6 Agenti autonomi pronto per de-strutturazione, ontologia, linking topologico e audit di contraddizione Cekikj\n\nClicca "Esegui Ingestion Pipeline (6 Agenti)" in basso per avviare il processo.`);
       } else if (first.text) {
         setPdfPayload(null);
         setInputText(first.text);
@@ -276,7 +276,7 @@ export const KnowledgeUploadDialog: React.FC<KnowledgeUploadDialogProps> = ({
     setErrorMessage(null);
     if (item.isPdf && item.base64) {
       setPdfPayload({ name: item.name, size: item.size, base64: item.base64 });
-      setInputText(`[Documento PDF Binario Caricato: "${item.name}" (${(item.size / 1024).toFixed(1)} KB)]\n\nIl motore utilizzerà l'estrazione testuale integrata e l'analisi multimodale Gemini 3.7 Flash per strutturare la specifica tecnica OKF v0.2.`);
+      setInputText(`[PIPELINE INGESTIONE MULTIMODALE: "${item.name}" (${(item.size / 1024).toFixed(1)} KB)]\n\n✓ Buffer binario caricato nel circuito di ingestione\n✓ Modalità Pixel-to-Markdown OCR attiva per parsing di impaginazione, formule LaTeX ($$) e tabelle\n✓ Team di 6 Agenti autonomi pronto per de-strutturazione, ontologia, linking topologico e audit di contraddizione Cekikj\n\nClicca "Esegui Ingestion Pipeline (6 Agenti)" in basso per avviare il processo.`);
     } else if (item.text) {
       setPdfPayload(null);
       setInputText(item.text);
@@ -688,15 +688,18 @@ export const KnowledgeUploadDialog: React.FC<KnowledgeUploadDialogProps> = ({
         <div className="p-4 sm:p-5 border-b border-[#1E1E1E] flex items-center justify-between gap-3 bg-[#0B0B0B]">
           <div className="flex items-center gap-3 min-w-0 flex-1">
             <div className="w-10 h-10 rounded-xl bg-[#161616] border border-[#C5A059]/40 flex items-center justify-center text-[#C5A059] shrink-0 shadow-sm">
-              <BrainCircuit className="w-5 h-5" />
+              <Workflow className="w-5 h-5" />
             </div>
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-base sm:text-lg font-serif text-white font-medium tracking-tight truncate">
-                  Importa & Struttura Documento
+                  Pipeline Ingestione Documenti & Paper
                 </h2>
-                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-[#1F1A12] text-[#C5A059] border border-[#C5A059]/30 shrink-0">
-                  OKF v0.2
+                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-[#1F1A12] text-[#C5A059] border border-[#C5A059]/30 shrink-0 flex items-center gap-1">
+                  <Cpu className="w-3 h-3" /> 6 Agenti OKF v0.2
+                </span>
+                <span className="hidden md:inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono text-cyan-400 bg-cyan-950/40 border border-cyan-800/40">
+                  Pixel-to-Markdown OCR
                 </span>
                 {isOkfNative && (
                   <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono text-emerald-400 bg-emerald-950/40 border border-emerald-800/50">
@@ -705,7 +708,7 @@ export const KnowledgeUploadDialog: React.FC<KnowledgeUploadDialogProps> = ({
                 )}
               </div>
               <p className="text-[11px] text-[#777] font-mono truncate mt-0.5">
-                Ingestione documenti, estrazione ontologica e linking topologico nel grafo
+                Parsing multimodale, de-strutturazione, ontologia canonica, linking topologico e audit di contraddizione Cekikj
               </p>
             </div>
           </div>
@@ -721,8 +724,8 @@ export const KnowledgeUploadDialog: React.FC<KnowledgeUploadDialogProps> = ({
               }`}
             >
               <Edit3 className="w-3.5 h-3.5 text-[#C5A059]" />
-              <span className="hidden sm:inline">Sorgente & Editor</span>
-              <span className="sm:hidden">Editor</span>
+              <span className="hidden sm:inline">Ingestione & Editor</span>
+              <span className="sm:hidden">Ingestione</span>
             </button>
             <button
               onClick={() => setActiveTab("preview")}
@@ -750,7 +753,7 @@ export const KnowledgeUploadDialog: React.FC<KnowledgeUploadDialogProps> = ({
               }`}
             >
               <Workflow className="w-3.5 h-3.5 text-[#C5A059]" />
-              <span className="hidden sm:inline">Trace Agenti</span>
+              <span className="hidden sm:inline">Pipeline Trace (6 Agenti)</span>
               <span className="sm:hidden">Trace</span>
               {agentSteps.length > 0 && (
                 <span className="px-1.5 py-0.2 rounded-full text-[9px] bg-emerald-500/20 text-emerald-400 font-mono">
@@ -795,7 +798,7 @@ export const KnowledgeUploadDialog: React.FC<KnowledgeUploadDialogProps> = ({
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".md,.txt,.pdf,.json,.yaml,.csv,.ts,.py"
+                  accept=".pdf,.md,.markdown,.txt,.json,.yaml,.yml,.csv,.ts,.tsx,.py,.rs,.go"
                   multiple
                   className="hidden"
                   onChange={(e) => {
@@ -815,11 +818,22 @@ export const KnowledgeUploadDialog: React.FC<KnowledgeUploadDialogProps> = ({
                         <FileCode className="w-4 h-4" /> {activeFileName}
                       </span>
                     ) : (
-                      "Trascina qui i tuoi file (.md, .txt, .pdf, .json) o clicca per sfogliare"
+                      "Trascina qui i tuoi Paper (.pdf), specifiche (.md), appunti (.txt, .json) o clicca per sfogliare"
                     )}
                   </p>
-                  <p className="text-[11px] text-[#666] font-mono max-w-md">
-                    Supporto multi-file: lettura automatica, parsing PDF con OCR e conversione conforme a OKF v0.2
+                  <div className="flex items-center gap-2 mt-0.5 flex-wrap justify-center">
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#1F1A12] text-[#C5A059] border border-[#C5A059]/30">
+                      Pipeline Ingestione OKF v0.2
+                    </span>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-950/40 text-cyan-400 border border-cyan-800/40">
+                      Pixel-to-Markdown Multimodale
+                    </span>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#181818] text-[#888] border border-[#2A2A2A]">
+                      LaTeX ($$) & Tabelle
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-[#666] font-mono max-w-md mt-0.5">
+                    De-strutturazione layout, ontologia canonica, linking topologico automatico e audit di contraddizione Cekikj
                   </p>
                 </div>
               </div>
@@ -1380,10 +1394,10 @@ export const KnowledgeUploadDialog: React.FC<KnowledgeUploadDialogProps> = ({
               onClick={() => handleMultiAgentIngest(false)}
               disabled={(!inputText.trim() && !pdfPayload) || isProcessing}
               className="px-3.5 py-2 rounded-lg text-xs text-[#DDD] bg-[#1A1A1A] hover:bg-[#252525] border border-[#333] hover:border-[#444] font-medium transition-all disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
-              title="Esegui i 6 Agenti cooperativi e ispeziona la derivazione epistemica prima di salvare"
+              title="Esegui la pipeline di ingestione (6 Agenti) e visualizza la traccia di derivazione epistemica prima del salvataggio"
             >
               <Workflow className="w-3.5 h-3.5 text-[#C5A059]" />
-              <span>Ispeziona Trace Agenti</span>
+              <span>Trace Pipeline (6 Agenti)</span>
             </button>
 
             {/* Multi-Agent Orchestration & Save (Primary) */}
@@ -1396,18 +1410,18 @@ export const KnowledgeUploadDialog: React.FC<KnowledgeUploadDialogProps> = ({
               {isProcessing ? (
                 <>
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Orchestrazione in corso...</span>
+                  <span>Esecuzione Pipeline Ingestione...</span>
                 </>
               ) : success ? (
                 <>
                   <CheckCircle className="w-3.5 h-3.5 text-emerald-950" />
-                  <span>Salvato!</span>
+                  <span>Ingerito & Salvato!</span>
                 </>
               ) : (
                 <>
                   <BrainCircuit className="w-3.5 h-3.5 stroke-[2.5]" />
                   <span>
-                    {isOkfNative ? "Arricchisci & Salva con Agenti" : "Orchestra & Salva OKF"}
+                    {isOkfNative ? "Arricchisci & Ingerisci OKF" : "Esegui Ingestion Pipeline (6 Agenti)"}
                   </span>
                 </>
               )}

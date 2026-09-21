@@ -136,17 +136,18 @@ export function trackCall(model: string, latencyMs: number, success: boolean, er
 // Candidate Model Hierarchy & Generation Helpers
 // ----------------------------------------------------------------------
 export const CANDIDATE_MODELS = [
-  "gemini-2.5-flash",
+  "gemini-3.8-flash",
   "gemini-3.7-flash",
   "gemini-flash-latest",
+  "gemini-2.5-flash",
   "gemini-3.1-flash-lite",
-  "gemini-3.8-flash",
 ];
 
 export interface GeminiGenerateOptions {
   timeoutMs?: number;
   endpoint?: string;
   thinkingBudget?: number; // 0 for fast response, or up to 2048 for complex reasoning
+  preferredModel?: string; // Optional user-chosen model
 }
 
 export async function generateWithGeminiFallback(
@@ -168,8 +169,22 @@ export async function generateWithGeminiFallback(
   const timeoutMs = typeof options === "number" ? options : (options.timeoutMs ?? 6000);
   const endpoint = typeof options === "number" ? endpointFallback : (options.endpoint ?? endpointFallback);
   const thinkingBudget = typeof options === "object" ? options.thinkingBudget : undefined;
+  const preferredModel = typeof options === "object" ? options.preferredModel : undefined;
 
-  for (const modelName of CANDIDATE_MODELS) {
+  let hadQuotaIssue = false;
+
+  // Build model hierarchy: if a valid preferred model is specified, test it first
+  const modelsToTry: string[] = [];
+  if (preferredModel && preferredModel !== "auto") {
+    modelsToTry.push(preferredModel);
+    for (const m of CANDIDATE_MODELS) {
+      if (m !== preferredModel) modelsToTry.push(m);
+    }
+  } else {
+    modelsToTry.push(...CANDIDATE_MODELS);
+  }
+
+  for (const modelName of modelsToTry) {
     const callStart = Date.now();
     try {
       const config: any = {
@@ -177,8 +192,8 @@ export async function generateWithGeminiFallback(
         responseSchema: schema,
       };
 
-      // Thinking Budget control
-      if (modelName === "gemini-3.7-flash") {
+      // Native Thinking Budget control: supports gemini-3.8-flash & gemini-3.7-flash
+      if (modelName === "gemini-3.8-flash" || modelName === "gemini-3.7-flash") {
         if (thinkingBudget !== undefined) {
           config.thinkingConfig = { thinkingBudget };
         } else {
@@ -240,25 +255,22 @@ export async function generateWithGeminiFallback(
       });
 
       if (isQuota) {
-        const isPerModelQuota = errMsg.includes("per_model") || errMsg.includes("per_model_per_day");
-        if (isPerModelQuota) {
-          console.log(
-            `[Gemini] Model ${modelName} daily quota exhausted. Attempting next candidate model...`
-          );
-          continue;
-        } else {
-          triggerGeminiQuotaCooldown(60000);
-          console.log(
-            `[Gemini] API quota limit reached (RESOURCE_EXHAUSTED/429). Entering 60s cooldown; switching seamlessly to heuristic fallback parser.`
-          );
-          break; // Stop attempting other models under the same exhausted project quota
-        }
+        hadQuotaIssue = true;
+        console.log(`[Gemini] Model ${modelName} quota limit reached (429). Trying next candidate model...`);
+        continue;
       } else if (isUnavailable) {
         console.log(`[Gemini] ${modelName} temporarily overloaded/busy (503), attempting next candidate model...`);
       } else {
         console.log(`[Gemini] ${modelName} generation issue: ${err?.message || "unknown"}`);
       }
     }
+  }
+
+  if (hadQuotaIssue) {
+    triggerGeminiQuotaCooldown(45000);
+    console.log(
+      `[Gemini] All candidate models exhausted or rate-limited. Entering 45s cooldown; switching seamlessly to heuristic fallback parser.`
+    );
   }
 
   return null;
@@ -268,7 +280,8 @@ export async function generateMultimodalWithGeminiFallback(
   contents: any,
   schema: any,
   timeoutMs = 45000,
-  endpoint = "/api/convert-file-to-okf"
+  endpoint = "/api/convert-file-to-okf",
+  preferredModel?: string
 ): Promise<{ text: string; modelUsed: string } | null> {
   const ai = getGenAI();
   if (!ai) return null;
@@ -280,7 +293,19 @@ export async function generateMultimodalWithGeminiFallback(
     return null;
   }
 
-  for (const modelName of CANDIDATE_MODELS) {
+  let hadQuotaIssue = false;
+
+  const modelsToTry: string[] = [];
+  if (preferredModel && preferredModel !== "auto") {
+    modelsToTry.push(preferredModel);
+    for (const m of CANDIDATE_MODELS) {
+      if (m !== preferredModel) modelsToTry.push(m);
+    }
+  } else {
+    modelsToTry.push(...CANDIDATE_MODELS);
+  }
+
+  for (const modelName of modelsToTry) {
     const callStart = Date.now();
     try {
       const config: any = {
@@ -288,7 +313,7 @@ export async function generateMultimodalWithGeminiFallback(
         responseSchema: schema,
       };
 
-      if (modelName === "gemini-3.7-flash") {
+      if (modelName === "gemini-3.8-flash" || modelName === "gemini-3.7-flash") {
         config.thinkingConfig = { thinkingLevel: ThinkingLevel.LOW };
       }
 
@@ -344,21 +369,16 @@ export async function generateMultimodalWithGeminiFallback(
       });
 
       if (isQuota) {
-        const isPerModelQuota = errMsg.includes("per_model") || errMsg.includes("per_model_per_day");
-        if (isPerModelQuota) {
-          console.log(
-            `[Gemini Multimodal] Model ${modelName} daily quota exhausted. Attempting next candidate model...`
-          );
-          continue;
-        } else {
-          triggerGeminiQuotaCooldown(60000);
-          console.log(
-            `[Gemini Multimodal] API quota reached (RESOURCE_EXHAUSTED/429). Entering 60s cooldown.`
-          );
-          break;
-        }
+        hadQuotaIssue = true;
+        console.log(`[Gemini Multimodal] Model ${modelName} quota limit reached (429). Trying next candidate model...`);
+        continue;
       }
     }
+  }
+
+  if (hadQuotaIssue) {
+    triggerGeminiQuotaCooldown(45000);
+    console.log(`[Gemini Multimodal] All candidate models exhausted or rate-limited. Entering 45s cooldown.`);
   }
 
   return null;

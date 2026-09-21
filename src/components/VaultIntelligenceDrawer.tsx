@@ -29,9 +29,11 @@ import {
   FileJson,
   CheckCircle2,
   Share2,
+  Zap,
 } from "lucide-react";
 import Markdown from "react-markdown";
-import { ResourceItem, ResourceType, OKFEntity, OKFRelation } from "../types";
+import { ResourceItem, ResourceType, OKFEntity, OKFRelation, GeminiModelId } from "../types";
+import { GEMINI_MODEL_OPTIONS } from "../constants/geminiModels";
 import {
   buildOKFMarkdown,
   buildStructuredJSON,
@@ -129,6 +131,8 @@ export const VaultIntelligenceDrawer: React.FC<VaultIntelligenceDrawerProps> = (
 }) => {
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<"quick_synthesis" | "topological_analysis" | "deep_implementation">("quick_synthesis");
+  const [selectedModel, setSelectedModel] = useState<GeminiModelId>("auto");
+  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [activeStageIndex, setActiveStageIndex] = useState(0);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -199,6 +203,7 @@ export const VaultIntelligenceDrawer: React.FC<VaultIntelligenceDrawerProps> = (
     const handleOutsideClick = () => {
       setOpenCopyMenuId(null);
       setOpenDownloadMenuId(null);
+      setIsModelDropdownOpen(false);
     };
     window.addEventListener("click", handleOutsideClick);
     return () => window.removeEventListener("click", handleOutsideClick);
@@ -286,6 +291,7 @@ export const VaultIntelligenceDrawer: React.FC<VaultIntelligenceDrawerProps> = (
         activeTag: activeTag || undefined,
         history: historyPayload,
         clientResources: resources.slice(0, 150),
+        preferredModel: selectedModel === "auto" ? undefined : selectedModel,
       };
 
       // Tenta prima la connessione in streaming Server-Sent Events (SSE)
@@ -599,43 +605,114 @@ export const VaultIntelligenceDrawer: React.FC<VaultIntelligenceDrawerProps> = (
           </div>
         </div>
 
-        {/* Modalità di Interrogazione (Pill Selector) */}
-        <div className="px-4 py-2 bg-[#0E0B07] border-b border-[#1A150D] flex items-center gap-1.5 overflow-x-auto shrink-0 scrollbar-none text-xs">
-          <span className="text-[10px] uppercase font-mono tracking-wider text-[#666] mr-1 shrink-0">
-            Modalità:
-          </span>
-          <button
-            onClick={() => setMode("quick_synthesis")}
-            className={`px-2.5 py-1 rounded-full text-xs font-medium transition-all shrink-0 cursor-pointer ${
-              mode === "quick_synthesis"
-                ? "bg-[#C5A059] text-black font-semibold shadow-xs"
-                : "bg-[#16120B] text-[#999] hover:text-[#DDD] hover:bg-[#201A10]"
-            }`}
-          >
-            Sintesi Rapida
-          </button>
-          <button
-            onClick={() => setMode("topological_analysis")}
-            className={`px-2.5 py-1 rounded-full text-xs font-medium transition-all shrink-0 cursor-pointer flex items-center gap-1.5 ${
-              mode === "topological_analysis"
-                ? "bg-[#C5A059] text-black font-semibold shadow-xs"
-                : "bg-[#16120B] text-[#999] hover:text-[#DDD] hover:bg-[#201A10]"
-            }`}
-          >
-            <GitGraph className="w-3 h-3" />
-            Grafo & Connessioni
-          </button>
-          <button
-            onClick={() => setMode("deep_implementation")}
-            className={`px-2.5 py-1 rounded-full text-xs font-medium transition-all shrink-0 cursor-pointer flex items-center gap-1.5 ${
-              mode === "deep_implementation"
-                ? "bg-[#C5A059] text-black font-semibold shadow-xs"
-                : "bg-[#16120B] text-[#999] hover:text-[#DDD] hover:bg-[#201A10]"
-            }`}
-          >
-            <Code2 className="w-3 h-3" />
-            Codice & MCP
-          </button>
+        {/* Modalità di Interrogazione (Pill Selector) & Scelta Modello Gemini */}
+        <div className="px-4 py-2 bg-[#0E0B07] border-b border-[#1A150D] flex items-center justify-between gap-2 shrink-0 text-xs">
+          <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none">
+            <span className="text-[10px] uppercase font-mono tracking-wider text-[#666] mr-1 shrink-0">
+              Modalità:
+            </span>
+            <button
+              onClick={() => setMode("quick_synthesis")}
+              className={`px-2.5 py-1 rounded-full text-xs font-medium transition-all shrink-0 cursor-pointer ${
+                mode === "quick_synthesis"
+                  ? "bg-[#C5A059] text-black font-semibold shadow-xs"
+                  : "bg-[#16120B] text-[#999] hover:text-[#DDD] hover:bg-[#201A10]"
+              }`}
+            >
+              Sintesi Rapida
+            </button>
+            <button
+              onClick={() => setMode("topological_analysis")}
+              className={`px-2.5 py-1 rounded-full text-xs font-medium transition-all shrink-0 cursor-pointer flex items-center gap-1.5 ${
+                mode === "topological_analysis"
+                  ? "bg-[#C5A059] text-black font-semibold shadow-xs"
+                  : "bg-[#16120B] text-[#999] hover:text-[#DDD] hover:bg-[#201A10]"
+              }`}
+            >
+              <GitGraph className="w-3 h-3" />
+              Grafo & Connessioni
+            </button>
+            <button
+              onClick={() => setMode("deep_implementation")}
+              className={`px-2.5 py-1 rounded-full text-xs font-medium transition-all shrink-0 cursor-pointer flex items-center gap-1.5 ${
+                mode === "deep_implementation"
+                  ? "bg-[#C5A059] text-black font-semibold shadow-xs"
+                  : "bg-[#16120B] text-[#999] hover:text-[#DDD] hover:bg-[#201A10]"
+              }`}
+            >
+              <Code2 className="w-3 h-3" />
+              Codice & MCP
+            </button>
+          </div>
+
+          {/* Model Selector Dropdown */}
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsModelDropdownOpen(!isModelDropdownOpen);
+              }}
+              className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-[#16120B] hover:bg-[#201A10] border border-[#2B2113] hover:border-[#C5A059]/40 text-xs font-mono text-[#DDD] transition-all cursor-pointer shadow-xs"
+              title="Seleziona modello Gemini per Vault Intelligence"
+            >
+              <Zap className={`w-3 h-3 ${selectedModel === "gemini-3.8-flash" ? "text-amber-400 animate-pulse" : selectedModel === "gemini-3.7-flash" ? "text-purple-400" : "text-[#C5A059]"}`} />
+              <span className="font-medium text-white max-w-[110px] sm:max-w-[140px] truncate">
+                {GEMINI_MODEL_OPTIONS.find((m) => m.id === selectedModel)?.label || "Auto Fallback"}
+              </span>
+              <ChevronDown className={`w-3 h-3 text-[#777] transition-transform ${isModelDropdownOpen ? "rotate-180 text-[#C5A059]" : ""}`} />
+            </button>
+
+            {isModelDropdownOpen && (
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className="absolute right-0 top-full mt-1.5 w-72 bg-[#0F0F0F] border border-[#262626] rounded-xl shadow-2xl z-50 p-1.5 animate-in fade-in zoom-in-95 duration-150"
+              >
+                <div className="px-2.5 py-1 text-[10px] font-mono text-[#666] uppercase tracking-wider border-b border-[#1A1A1A] mb-1 flex items-center justify-between">
+                  <span>Modello Gemini Intelligence</span>
+                  <span className="text-[9px] text-[#C5A059] bg-[#C5A059]/10 px-1 py-0.2 rounded font-mono">OKF v0.2</span>
+                </div>
+                <div className="space-y-0.5 max-h-64 overflow-y-auto custom-scrollbar">
+                  {GEMINI_MODEL_OPTIONS.map((opt) => {
+                    const isSelected = selectedModel === opt.id;
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedModel(opt.id);
+                          setIsModelDropdownOpen(false);
+                        }}
+                        className={`w-full flex items-start gap-2 px-2.5 py-1.5 rounded-lg text-left transition-all ${
+                          isSelected
+                            ? "bg-[#1F180E] border border-[#C5A059]/40 text-[#E5C170]"
+                            : "hover:bg-[#161616] text-[#BBB] hover:text-white"
+                        }`}
+                      >
+                        <Zap className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${opt.id === "gemini-3.8-flash" ? "text-amber-400" : opt.id === "gemini-3.7-flash" ? "text-purple-400" : "text-[#C5A059]"}`} />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between text-xs font-mono font-medium">
+                            <span className="flex items-center gap-1.5">
+                              {opt.label}
+                              {opt.supportsThinking && (
+                                <span className="text-[9px] px-1 py-0.2 rounded bg-amber-950/60 text-amber-300 border border-amber-800/40 font-mono">
+                                  Thinking
+                                </span>
+                              )}
+                            </span>
+                            {isSelected && <Check className="w-3 h-3 text-[#C5A059]" />}
+                          </div>
+                          <p className="text-[10px] text-[#777] line-clamp-2 mt-0.5 leading-tight">
+                            {opt.description}
+                          </p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Area di Conversazione (Feed Messaggi) */}
@@ -665,7 +742,11 @@ export const VaultIntelligenceDrawer: React.FC<VaultIntelligenceDrawerProps> = (
                       <Sparkles className="w-3.5 h-3.5" />
                       <span className="font-semibold text-[#E5C170]">Vault Intelligence</span>
                       <span className="text-[#555]">•</span>
-                      <span className="text-[10px] text-[#777]">{msg.response.stats.modelUsed}</span>
+                      <span className="text-[10px] text-[#777]">
+                        {msg.response.stats.modelUsed === "heuristic-local-synthesizer"
+                          ? "Sintetizzatore Euristico Locale (Zero-Quota)"
+                          : msg.response.stats.modelUsed}
+                      </span>
                     </div>
                     <div className="flex items-center gap-1">
                       {msg.response.insufficient ? (

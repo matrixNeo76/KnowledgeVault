@@ -706,7 +706,7 @@ export default function App() {
         ) : (
           <>
             {/* Scrollable View Container */}
-            <div className={`flex-1 overflow-y-auto p-4 sm:p-8 space-y-6 flex flex-col transition-all duration-300 ${
+            <div className={`flex-1 overflow-y-auto p-4 sm:p-8 pb-8 space-y-6 flex flex-col transition-all duration-300 ${
               isZenMode ? "max-w-6xl mx-auto w-full" : ""
             }`}>
               {/* Active Zen Focus Mode Notice */}
@@ -953,9 +953,9 @@ export default function App() {
               onBulkToggleFavorite={onBulkToggleFavorite}
             />
 
-            {/* Bottom Floating Quick Capture Bar */}
-            <div className="p-4 sm:p-6 sm:pt-0 shrink-0 bg-gradient-to-t from-[#050505] via-[#050505]/90 to-transparent">
-              <div className="max-w-4xl mx-auto">
+            {/* Bottom Unified Command Deck (CaptureBar) */}
+            <div className="px-4 sm:px-6 pb-4 pt-2 shrink-0 border-t border-[#1C1C1C]/80 bg-[#070707]/90 backdrop-blur-sm">
+              <div className="max-w-5xl mx-auto w-full">
                 <CaptureBar
                   onCapture={handleCapture}
                   isAnalyzing={isAnalyzing}
