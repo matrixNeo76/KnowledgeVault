@@ -233,6 +233,14 @@ Regole tassonomiche rigorose:
 6. 'tags': 4-8 tag tecnici rigorosi in minuscolo (es. ["architettura", "typescript", "web"]).
 7. 'entities': Array di 3-8 entità canoniche con { name: string, type: string, description: string }. Utilizza denominazioni canoniche (es. "Anthropic", "TypeScript", "Model Context Protocol", "PostgreSQL").
 8. 'keyClaims': Array di 2-4 asserzioni tecniche o architetturali chiave affermate nel testo per il successivo audit di contraddizione.
+9. Se la risorsa è un paper scientifico/accademico o sorgente LaTeX/TeX: estrai con precisione:
+   - 'authors': array dei nomi di autori/ricercatori (es. ["Ashish Vaswani", "Noam Shazeer"])
+   - 'arxivId': identificativo arXiv se presente (es. "1706.03762")
+   - 'doi': codice DOI se presente (es. "10.xxxx/yyyy")
+   - 'venue': conferenza o rivista accademica (es. "NeurIPS", "ICLR", "arXiv preprint")
+   - 'publishedYear': anno di pubblicazione (numero intero a 4 cifre)
+   - 'pdfUrl': link al PDF originale se menzionato
+   - 'tldr': sintesi densa del contributo metodologico e scientifico di 1-2 frasi
 
 Rispondi rigorosamente in JSON secondo lo schema.`;
 
@@ -248,6 +256,13 @@ Rispondi rigorosamente in JSON secondo lo schema.`;
       domain: { type: Type.STRING },
       docType: { type: Type.STRING },
       tags: { type: Type.ARRAY, items: { type: Type.STRING } },
+      authors: { type: Type.ARRAY, items: { type: Type.STRING } },
+      arxivId: { type: Type.STRING },
+      doi: { type: Type.STRING },
+      venue: { type: Type.STRING },
+      publishedYear: { type: Type.NUMBER },
+      pdfUrl: { type: Type.STRING },
+      tldr: { type: Type.STRING },
       entities: {
         type: Type.ARRAY,
         items: {
@@ -267,6 +282,13 @@ Rispondi rigorosamente in JSON secondo lo schema.`;
 
   let parsedOntology: any = null;
   let keyClaims: string[] = [];
+  let extractedAuthors: string[] | undefined = undefined;
+  let extractedArxivId: string | undefined = undefined;
+  let extractedDoi: string | undefined = undefined;
+  let extractedVenue: string | undefined = undefined;
+  let extractedPublishedYear: number | undefined = undefined;
+  let extractedPdfUrl: string | undefined = undefined;
+  let extractedTldr: string | undefined = undefined;
 
   try {
     const ontoRes = await generateWithGeminiFallback(ontologistPrompt, ontologistSchema, {
@@ -282,22 +304,106 @@ Rispondi rigorosamente in JSON secondo lo schema.`;
   }
 
   if (parsedOntology && parsedOntology.title) {
-    extractedTitle = parsedOntology.title;
-    extractedSummary = parsedOntology.summary || extractedSummary;
-    extractedDomain = parsedOntology.domain || extractedDomain;
-    extractedDocType = parsedOntology.docType || extractedDocType;
+    extractedTitle = String(parsedOntology.title).trim();
+    extractedSummary = String(parsedOntology.summary || extractedSummary).trim();
+    extractedDomain = String(parsedOntology.domain || extractedDomain).trim();
+    extractedDocType = String(parsedOntology.docType || extractedDocType).trim();
     if (req.explicitType) {
       extractedResourceType = req.explicitType as ResourceType;
     } else {
       extractedResourceType = (parsedOntology.resourceType as ResourceType) || extractedResourceType;
     }
-    extractedTags = Array.isArray(parsedOntology.tags) && parsedOntology.tags.length > 0 
-      ? Array.from(new Set(parsedOntology.tags.map((t: string) => t.toLowerCase())))
-      : extractedTags;
-    extractedEntities = Array.isArray(parsedOntology.entities) ? parsedOntology.entities : [];
-    keyClaims = Array.isArray(parsedOntology.keyClaims) ? parsedOntology.keyClaims : [];
+    extractedTags = (Array.isArray(parsedOntology.tags) ? parsedOntology.tags : [])
+      .map((t: any) => (typeof t === "string" ? t.trim().toLowerCase() : String(t || "").toLowerCase()))
+      .filter((t: string) => t.length > 0);
+    if (extractedTags.length === 0) extractedTags = ["knowledge", "okf-v0.2"];
+
+    extractedEntities = (Array.isArray(parsedOntology.entities) ? parsedOntology.entities : [])
+      .map((e: any) => {
+        if (typeof e === "string") {
+          const name = e.trim();
+          return name ? { name, type: "concept", description: "Entità rilevata nel documento" } : null;
+        }
+        if (e && typeof e === "object") {
+          const name = String(e.name || e.title || e.entity || "").trim();
+          if (!name) return null;
+          return {
+            name,
+            type: String(e.type || "concept").trim(),
+            description: String(e.description || "").trim(),
+          };
+        }
+        return null;
+      })
+      .filter(Boolean) as OKFEntity[];
+
+    if (extractedEntities.length === 0) {
+      extractedEntities = [{ name: extractedTitle || "Concetto Primario", type: "concept", description: "Entità cardine del documento" }];
+    }
+
+    keyClaims = (Array.isArray(parsedOntology.keyClaims) ? parsedOntology.keyClaims : [])
+      .map((c: any) => (typeof c === "string" ? c.trim() : String(c || "").trim()))
+      .filter((c: string) => c.length > 0);
+
+    if (Array.isArray(parsedOntology.authors) && parsedOntology.authors.length > 0) {
+      extractedAuthors = parsedOntology.authors.map((a: any) => String(a || "").trim()).filter(Boolean);
+    }
+    if (parsedOntology.arxivId) extractedArxivId = String(parsedOntology.arxivId).trim();
+    if (parsedOntology.doi) extractedDoi = String(parsedOntology.doi).trim();
+    if (parsedOntology.venue) extractedVenue = String(parsedOntology.venue).trim();
+    if (parsedOntology.publishedYear && !isNaN(Number(parsedOntology.publishedYear))) {
+      extractedPublishedYear = Number(parsedOntology.publishedYear);
+    }
+    if (parsedOntology.pdfUrl) extractedPdfUrl = String(parsedOntology.pdfUrl).trim();
+    if (parsedOntology.tldr) extractedTldr = String(parsedOntology.tldr).trim();
   } else {
     // Heuristic fallback
+    // Check if input already has frontmatter with title/domain
+    const frontmatterMatch = normalizedText.match(/^---\s*[\r\n]+([\s\S]*?)[\r\n]+---/);
+    if (frontmatterMatch) {
+      const fLines = frontmatterMatch[1].split("\n");
+      for (const line of fLines) {
+        const titleMatch = line.match(/^title:\s*["']?([^"'\r\n]+)["']?/);
+        if (titleMatch) extractedTitle = titleMatch[1].trim();
+        const domainMatch = line.match(/^domain:\s*["']?([^"'\r\n]+)["']?/);
+        if (domainMatch) extractedDomain = domainMatch[1].trim();
+        const typeMatch = line.match(/^type:\s*["']?([^"'\r\n]+)["']?/);
+        if (typeMatch) extractedDocType = typeMatch[1].trim();
+      }
+    }
+
+    // Heuristics for LaTeX / TeX and academic papers
+    if (
+      filename.toLowerCase().endsWith(".tex") ||
+      normalizedText.includes("\\author") ||
+      normalizedText.includes("\\documentclass") ||
+      normalizedText.includes("arxiv.org") ||
+      isPdf
+    ) {
+      extractedResourceType = (req.explicitType as ResourceType) || "paper";
+      extractedDocType = "specification";
+      extractedDomain = "Artificial Intelligence & Computer Science";
+      extractedPublishedYear = new Date().getFullYear();
+
+      const texTitleMatch = normalizedText.match(/\\title\{([^}]+)\}/);
+      if (texTitleMatch) {
+        extractedTitle = texTitleMatch[1].replace(/\\thanks\{[^}]+\}/g, "").trim();
+      }
+      const texAuthorMatch = normalizedText.match(/\\author\{([^}]+)\}/);
+      if (texAuthorMatch) {
+        extractedAuthors = texAuthorMatch[1]
+          .split(/\\and|,/)
+          .map((a) => a.replace(/\\thanks\{[^}]+\}/g, "").trim())
+          .filter(Boolean);
+      }
+      const arxivMatch = normalizedText.match(/arxiv\.org\/(?:abs|pdf)\/([0-9]+\.[0-9]+(?:v[0-9]+)?)/i);
+      if (arxivMatch) {
+        extractedArxivId = arxivMatch[1];
+        extractedPdfUrl = `https://arxiv.org/pdf/${arxivMatch[1]}.pdf`;
+        extractedVenue = "arXiv preprint";
+      }
+    }
+
     if (detectedUrl) {
       if (detectedUrl.includes("github.com")) {
         extractedResourceType = (req.explicitType as ResourceType) || "github_repo";
@@ -309,15 +415,18 @@ Rispondi rigorosamente in JSON secondo lo schema.`;
         extractedResourceType = (req.explicitType as ResourceType) || "link";
         extractedDocType = "tool_description";
       }
-      extractedTitle = ogData?.ogTitle || detectedUrl.replace(/https?:\/\//, "").split("/")[0];
+      extractedTitle = extractedTitle || ogData?.ogTitle || detectedUrl.replace(/https?:\/\//, "").split("/")[0];
       extractedSummary = ogData?.ogDescription || `Risorsa web da ${detectedUrl}`;
     } else {
-      const firstLine = normalizedText.split("\n").find((l) => l.trim().length > 0) || "";
-      extractedTitle = firstLine.replace(/^#+\s*/, "").slice(0, 80) || filename.replace(/\.[^/.]+$/, "");
-      extractedSummary = normalizedText.slice(0, 240) || `Documento tecnico ${filename}`;
+      if (!extractedTitle || extractedTitle === "documento") {
+        const bodyWithoutFm = normalizedText.replace(/^---\s*[\r\n]+[\s\S]*?[\r\n]+---/, "").trim();
+        const firstLine = bodyWithoutFm.split("\n").find((l) => l.trim().length > 0) || "";
+        extractedTitle = firstLine.replace(/^#+\s*/, "").slice(0, 80) || filename.replace(/\.[^/.]+$/, "");
+      }
+      extractedSummary = normalizedText.replace(/^---\s*[\r\n]+[\s\S]*?[\r\n]+---/, "").slice(0, 240).trim() || `Documento tecnico ${filename}`;
       extractedResourceType = (req.explicitType as ResourceType) || "knowledge";
     }
-    extractedEntities = [{ name: extractedTitle, type: "concept", description: "Entità cardine del documento" }];
+    extractedEntities = [{ name: extractedTitle || "Concetto Primario", type: "concept", description: "Entità cardine del documento" }];
     keyClaims = [extractedSummary];
   }
 
@@ -339,17 +448,27 @@ Rispondi rigorosamente in JSON secondo lo schema.`;
 
   if (existingResources.length > 0) {
     // Scoring e matching semantico su risorse esistenti
-    const entityNames = new Set(extractedEntities.map((e) => e.name.toLowerCase()));
-    const docTagsSet = new Set(extractedTags);
+    const entityNames = new Set(
+      extractedEntities
+        .map((e) => (typeof e?.name === "string" ? e.name.toLowerCase().trim() : ""))
+        .filter((n) => n.length > 0)
+    );
+    const docTagsSet = new Set(
+      extractedTags
+        .map((t) => (typeof t === "string" ? t.toLowerCase().trim() : ""))
+        .filter((t) => t.length > 0)
+    );
 
     for (const res of existingResources) {
+      if (!res || !res.title) continue;
       let score = 0;
       let matchReason = "";
-      const resTitleLower = res.title.toLowerCase();
+      const resTitleLower = String(res.title || "").toLowerCase();
 
       // Intersezione tag
       if (res.tags && Array.isArray(res.tags)) {
-        const sharedTags = res.tags.filter((t) => docTagsSet.has(t.toLowerCase()));
+        const sharedTags = res.tags
+          .filter((t) => typeof t === "string" && docTagsSet.has(t.toLowerCase().trim()));
         if (sharedTags.length > 0) {
           score += sharedTags.length * 0.25;
           matchReason = `Condivide tag [${sharedTags.join(", ")}]`;
@@ -378,7 +497,7 @@ Rispondi rigorosamente in JSON secondo lo schema.`;
 
         calculatedRelations.push({
           targetId: res.id,
-          targetTitle: res.title,
+          targetTitle: String(res.title || "Risorsa Vault"),
           relationType,
           weight: Math.min(0.95, parseFloat((0.5 + score * 0.3).toFixed(2))),
           description: matchReason || `Correlazione semantica topologica con ${res.title}`,
@@ -395,7 +514,7 @@ Rispondi rigorosamente in JSON secondo lo schema.`;
   if (calculatedRelations.length === 0 && existingResources.length > 0) {
     calculatedRelations.push({
       targetId: existingResources[0].id,
-      targetTitle: existingResources[0].title,
+      targetTitle: String(existingResources[0].title || "Knowledge Vault"),
       relationType: "references",
       weight: 0.75,
       description: "Collegamento topologico al contesto del Vault",
@@ -405,7 +524,7 @@ Rispondi rigorosamente in JSON secondo lo schema.`;
   agentSteps.push({
     agent: "graph_linker",
     action: "Topological Graph Linking & Edge Weighting",
-    description: `Calcolati ${calculatedRelations.length} archi topologici verso il grafo del Vault (${calculatedRelations.map((r) => `"${r.targetTitle}" [${r.relationType}]`).join(", ")}).`,
+    description: `Calcolati ${calculatedRelations.length} archi topologici verso il grafo del Vault (${calculatedRelations.map((r) => `"${r.targetTitle || "Risorsa"}" [${r.relationType || "references"}]`).join(", ")}).`,
     itemsFound: calculatedRelations.length,
     status: calculatedRelations.length > 0 ? "success" : "insufficient",
     timestamp: new Date().toISOString(),
@@ -492,25 +611,29 @@ Altrimenti imposta hasConflict: false.`;
   const serialStart = Date.now();
   
   // Costruzione Frontmatter YAML OKF v0.2
+  const safeTitle = String(extractedTitle || "Documento Knowledge OKF").replace(/"/g, '\\"');
+  const safeDomain = String(extractedDomain || "Knowledge Architecture").replace(/"/g, '\\"');
+  const safeDocType = String(extractedDocType || "specification").replace(/"/g, '\\"');
+
   const yamlEntities = extractedEntities.map(
-    (e) => `  - name: "${e.name.replace(/"/g, '\\"')}"\n    type: "${e.type || "concept"}"\n    description: "${(e.description || "").replace(/"/g, '\\"')}"`
+    (e) => `  - name: "${String(e.name || "Entità").replace(/"/g, '\\"')}"\n    type: "${String(e.type || "concept").replace(/"/g, '\\"')}"\n    description: "${String(e.description || "").replace(/"/g, '\\"')}"`
   ).join("\n");
 
   const yamlRelations = calculatedRelations.map(
-    (r) => `  - targetTitle: "${r.targetTitle.replace(/"/g, '\\"')}"\n    relationType: "${r.relationType}"\n    weight: ${r.weight || 0.8}\n    description: "${(r.description || "").replace(/"/g, '\\"')}"`
+    (r) => `  - targetTitle: "${String(r.targetTitle || "Risorsa").replace(/"/g, '\\"')}"\n    relationType: "${String(r.relationType || "references")}"\n    weight: ${typeof r.weight === "number" ? r.weight : 0.8}\n    description: "${String(r.description || "").replace(/"/g, '\\"')}"`
   ).join("\n");
 
   const yamlTags = JSON.stringify(extractedTags);
 
   const frontmatterYaml = `---
 okf_version: "0.2"
-title: "${extractedTitle.replace(/"/g, '\\"')}"
-type: "${extractedDocType}"
-domain: "${extractedDomain.replace(/"/g, '\\"')}"
+title: "${safeTitle}"
+type: "${safeDocType}"
+domain: "${safeDomain}"
 tags: ${yamlTags}
 created_at: "${new Date().toISOString()}"
 entities:
-${yamlEntities || '  - name: "' + extractedTitle + '"\n    type: "concept"'}
+${yamlEntities || '  - name: "' + safeTitle + '"\n    type: "concept"'}
 relations:
 ${yamlRelations || '  - targetTitle: "Knowledge Vault"\n    relationType: "references"\n    weight: 0.8'}
 ---`;
@@ -578,6 +701,13 @@ Questo documento è stato ingerito nel Knowledge Vault secondo i protocolli oper
         relations: calculatedRelations.length > 0 ? calculatedRelations : undefined,
         markdownContent: finalMarkdownContent,
         sourceFileName: filename,
+        ...(extractedAuthors && extractedAuthors.length > 0 ? { authors: extractedAuthors } : {}),
+        ...(extractedArxivId ? { arxivId: extractedArxivId } : {}),
+        ...(extractedDoi ? { doi: extractedDoi } : {}),
+        ...(extractedVenue ? { venue: extractedVenue } : {}),
+        ...(extractedPublishedYear ? { publishedYear: extractedPublishedYear } : {}),
+        ...(extractedPdfUrl ? { pdfUrl: extractedPdfUrl } : {}),
+        ...(extractedTldr ? { tldr: extractedTldr } : {}),
         ogTitle: ogData?.ogTitle,
         ogDescription: ogData?.ogDescription,
         ogImage: ogData?.ogImage,

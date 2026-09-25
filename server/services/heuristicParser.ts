@@ -48,35 +48,6 @@ export function fallbackParse(rawText: string, explicitType?: string, ogData?: a
       metadata.solutionSteps = steps;
     }
   } else if (
-    explicitType === "paper" ||
-    text.includes("arxiv.org/") ||
-    text.includes("doi.org/") ||
-    text.includes("openreview.net/") ||
-    text.toLowerCase().startsWith("paper:")
-  ) {
-    // Scientific Paper detection
-    type = "paper";
-    const cleanText = text.replace(/^paper:\s*/i, "").trim();
-    const urlMatch = cleanText.match(/https?:\/\/[^\s]+/i);
-    if (urlMatch) url = urlMatch[0];
-
-    const arxivMatch = (url || cleanText).match(/arxiv\.org\/(?:abs|pdf)\/([0-9]+\.[0-9]+(?:v[0-9]+)?)/i);
-    if (arxivMatch) {
-      metadata.arxivId = arxivMatch[1];
-      metadata.pdfUrl = `https://arxiv.org/pdf/${arxivMatch[1]}.pdf`;
-      url = url || `https://arxiv.org/abs/${arxivMatch[1]}`;
-    }
-
-    const lines = cleanText.split("\n").map(l => l.trim()).filter(Boolean);
-    title = lines[0]?.replace(/^#+\s*/, "").replace(/^https?:\/\/[^\s]+$/, "").slice(0, 120) || (arxivMatch ? `arXiv:${arxivMatch[1]}` : "Paper Scientifico");
-    summary = lines.slice(1, 4).join(" ").slice(0, 300) || `Paper di ricerca scientifica ${arxivMatch ? `[arXiv:${arxivMatch[1]}]` : ""}`;
-    tags.push("paper", "research", "scientific-paper", "academic");
-    if (arxivMatch) tags.push("arxiv");
-
-    metadata.docType = "research";
-    metadata.publishedYear = new Date().getFullYear();
-    metadata.domain = "Artificial Intelligence & Computer Science";
-  } else if (
     explicitType === "rss" ||
     text.toLowerCase().endsWith(".xml") ||
     text.toLowerCase().includes("/feed") ||
@@ -100,10 +71,64 @@ export function fallbackParse(rawText: string, explicitType?: string, ogData?: a
         domainName = new URL(url).hostname.replace(/^www\./, "");
       } catch {}
     }
-    title = domainName !== "Feed RSS" ? `Feed RSS - ${domainName}` : "Canale RSS";
-    summary = `Flusso di aggiornamento e syndication RSS/Atom da ${url || cleanText}.`;
-    tags.push("rss", "feed", "syndication", "updates");
+
+    // Specialized check for arXiv RSS feeds
+    const arxivRssMatch = (url || cleanText).match(/arxiv\.org\/rss\/([a-zA-Z0-9_.-]+)/i);
+    if (arxivRssMatch) {
+      const cat = arxivRssMatch[1];
+      const arxivCatNames: Record<string, string> = {
+        "q-bio.NC": "Neurons and Cognition",
+        "cs.AI": "Artificial Intelligence",
+        "cs.LG": "Machine Learning",
+        "cs.CL": "Computation and Language",
+        "cs.CV": "Computer Vision",
+        "cs.NE": "Neural and Evolutionary Computing",
+        "cs.RO": "Robotics",
+        "stat.ML": "Machine Learning",
+        "q-bio.QM": "Quantitative Methods",
+      };
+      const catName = arxivCatNames[cat] ? ` (${arxivCatNames[cat]})` : "";
+      title = `arXiv RSS: ${cat}${catName}`;
+      summary = `Feed RSS ufficiale di arXiv per la categoria ${cat}${catName}: aggiornamento e preprint scientifici.`;
+      tags.push("rss", "feed", "arxiv", "preprint", "research", cat.toLowerCase());
+    } else {
+      title = domainName !== "Feed RSS" ? `Feed RSS - ${domainName}` : "Canale RSS";
+      summary = `Flusso di aggiornamento e syndication RSS/Atom da ${url || cleanText}.`;
+      tags.push("rss", "feed", "syndication", "updates");
+    }
+
     metadata.docType = "tool_description";
+  } else if (
+    explicitType === "paper" ||
+    (!text.toLowerCase().includes("/rss") && (
+      text.includes("arxiv.org/") ||
+      text.includes("doi.org/") ||
+      text.includes("openreview.net/") ||
+      text.toLowerCase().startsWith("paper:")
+    ))
+  ) {
+    // Scientific Paper detection
+    type = "paper";
+    const cleanText = text.replace(/^paper:\s*/i, "").trim();
+    const urlMatch = cleanText.match(/https?:\/\/[^\s]+/i);
+    if (urlMatch) url = urlMatch[0];
+
+    const arxivMatch = (url || cleanText).match(/arxiv\.org\/(?:abs|pdf)\/([0-9]+\.[0-9]+(?:v[0-9]+)?)/i);
+    if (arxivMatch) {
+      metadata.arxivId = arxivMatch[1];
+      metadata.pdfUrl = `https://arxiv.org/pdf/${arxivMatch[1]}.pdf`;
+      url = url || `https://arxiv.org/abs/${arxivMatch[1]}`;
+    }
+
+    const lines = cleanText.split("\n").map(l => l.trim()).filter(Boolean);
+    title = lines[0]?.replace(/^#+\s*/, "").replace(/^https?:\/\/[^\s]+$/, "").slice(0, 120) || (arxivMatch ? `arXiv:${arxivMatch[1]}` : "Paper Scientifico");
+    summary = lines.slice(1, 4).join(" ").slice(0, 300) || `Paper di ricerca scientifica ${arxivMatch ? `[arXiv:${arxivMatch[1]}]` : ""}`;
+    tags.push("paper", "research", "scientific-paper", "academic");
+    if (arxivMatch) tags.push("arxiv");
+
+    metadata.docType = "research";
+    metadata.publishedYear = new Date().getFullYear();
+    metadata.domain = "Artificial Intelligence & Computer Science";
   } else if (
     explicitType === "note" ||
     text.toLowerCase().startsWith("nota:") ||

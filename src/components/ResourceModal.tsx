@@ -46,7 +46,11 @@ import {
   GraduationCap,
   Rss,
   StickyNote,
-  BookMarked
+  BookMarked,
+  ChevronDown,
+  ChevronUp,
+  Pencil,
+  Radio
 } from "lucide-react";
 import Markdown from "react-markdown";
 import { ResourceItem, ResourceType } from "../types";
@@ -61,6 +65,7 @@ import {
 } from "../lib/relatedResourcesEngine";
 import { TagSuggestionEngine } from "./TagSuggestionEngine";
 import { cleanTag } from "../lib/tagSuggestionEngine";
+import { RssFeedViewer, FeedItem } from "./RssFeedViewer";
 
 interface ResourceModalProps {
   resource: ResourceItem | null;
@@ -75,6 +80,7 @@ interface ResourceModalProps {
   onPrintPreview?: (resource: ResourceItem) => void;
   onExportGoogleDoc?: (resource: ResourceItem) => void;
   onToggleReadLater?: (id: string, currentlyInQueue: boolean) => void;
+  onIngestFeedItem?: (item: FeedItem) => void;
 }
 
 export const ResourceModal: React.FC<ResourceModalProps> = ({
@@ -90,6 +96,7 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
   onPrintPreview,
   onExportGoogleDoc,
   onToggleReadLater,
+  onIngestFeedItem,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [copiedSection, setCopiedSection] = useState<string | null>(null);
@@ -97,6 +104,12 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [ogData, setOgData] = useState<OpenGraphResult | null>(null);
   const [faviconError, setFaviconError] = useState(false);
+
+  // RSS Feed Discovery states for links & articles
+  const [discoveredFeedUrl, setDiscoveredFeedUrl] = useState<string | null>(null);
+  const [isDiscoveringFeed, setIsDiscoveringFeed] = useState<boolean>(false);
+  const [isFeedDiscoveryDrawerOpen, setIsFeedDiscoveryDrawerOpen] = useState<boolean>(false);
+  const [feedDiscoveryStatus, setFeedDiscoveryStatus] = useState<string | null>(null);
 
   // View language toggle: 'original' or 'italian'
   const [viewLanguage, setViewLanguage] = useState<"original" | "italian">("original");
@@ -144,6 +157,20 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
   const [solutionStepsStr, setSolutionStepsStr] = useState((resource?.metadata?.solutionSteps || []).join("\n"));
   const [markdownContent, setMarkdownContent] = useState(resource?.metadata?.markdownContent || "");
   const [readingProgress, setReadingProgress] = useState<number>(resource?.metadata?.readingProgress ?? (resource as any)?.readingProgress ?? 0);
+
+  // Paper scientific metadata
+  const [paperAuthorsStr, setPaperAuthorsStr] = useState((resource?.metadata?.authors || []).join(", "));
+  const [paperArxivId, setPaperArxivId] = useState(resource?.metadata?.arxivId || "");
+  const [paperDoi, setPaperDoi] = useState(resource?.metadata?.doi || "");
+  const [paperPdfUrl, setPaperPdfUrl] = useState(resource?.metadata?.pdfUrl || "");
+  const [paperVenue, setPaperVenue] = useState(resource?.metadata?.venue || "");
+  const [paperPublishedYear, setPaperPublishedYear] = useState<string>(
+    resource?.metadata?.publishedYear ? String(resource.metadata.publishedYear) : ""
+  );
+  const [paperTldr, setPaperTldr] = useState(resource?.metadata?.tldr || "");
+
+  // Raw input collapsible drawer state (collapsed by default if markdown content is present)
+  const [isRawInputExpanded, setIsRawInputExpanded] = useState(false);
 
   // Insights & Evaluation state
   const [useCasesStr, setUseCasesStr] = useState((resource?.metadata?.useCases || []).join("\n"));
@@ -286,6 +313,18 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
         setAiTargetAudience(resource.metadata?.aiTargetAudience || "");
         setAiActionItemsStr((resource.metadata?.aiActionItems || []).join("\n"));
         setUserNotes(resource.metadata?.userNotes || "");
+        setPaperAuthorsStr((resource.metadata?.authors || []).join(", "));
+        setPaperArxivId(resource.metadata?.arxivId || "");
+        setPaperDoi(resource.metadata?.doi || "");
+        setPaperPdfUrl(resource.metadata?.pdfUrl || "");
+        setPaperVenue(resource.metadata?.venue || "");
+        setPaperPublishedYear(resource.metadata?.publishedYear ? String(resource.metadata.publishedYear) : "");
+        setPaperTldr(resource.metadata?.tldr || "");
+        setIsRawInputExpanded(false);
+        setDiscoveredFeedUrl(null);
+        setIsDiscoveringFeed(false);
+        setIsFeedDiscoveryDrawerOpen(false);
+        setFeedDiscoveryStatus(null);
         setIsEditing(Boolean(initialEdit));
         setInsightMessage(null);
         setTranslationMessage(null);
@@ -327,6 +366,13 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
           if (resource.metadata.translatedSummary) setTranslatedSummary(resource.metadata.translatedSummary);
           if (resource.metadata.translatedContent) setTranslatedContent(resource.metadata.translatedContent);
         }
+        if (resource.metadata?.authors) setPaperAuthorsStr(resource.metadata.authors.join(", "));
+        if (resource.metadata?.arxivId) setPaperArxivId(resource.metadata.arxivId);
+        if (resource.metadata?.doi) setPaperDoi(resource.metadata.doi);
+        if (resource.metadata?.pdfUrl) setPaperPdfUrl(resource.metadata.pdfUrl);
+        if (resource.metadata?.venue) setPaperVenue(resource.metadata.venue);
+        if (resource.metadata?.publishedYear) setPaperPublishedYear(String(resource.metadata.publishedYear));
+        if (resource.metadata?.tldr) setPaperTldr(resource.metadata.tldr);
       }
     }
   }, [resource, initialEdit]);
@@ -677,6 +723,15 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
         readingProgress: readingProgress,
         readingStatus: (readingProgress === 100 ? "completed" : readingProgress > 0 ? "in_progress" : "unread") as "unread" | "in_progress" | "completed",
       } : {}),
+      ...(type === "paper" ? {
+        authors: paperAuthorsStr.split(",").map((a) => a.trim()).filter(Boolean),
+        ...(paperArxivId ? { arxivId: paperArxivId.trim() } : {}),
+        ...(paperDoi ? { doi: paperDoi.trim() } : {}),
+        ...(paperPdfUrl ? { pdfUrl: paperPdfUrl.trim() } : {}),
+        ...(paperVenue ? { venue: paperVenue.trim() } : {}),
+        ...(paperPublishedYear ? { publishedYear: Number(paperPublishedYear) } : {}),
+        ...(paperTldr ? { tldr: paperTldr.trim() } : {}),
+      } : {}),
     };
 
     const success = await onUpdate(resource.id, {
@@ -691,6 +746,56 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
     setIsSaving(false);
     if (success) {
       setIsEditing(false);
+    }
+  };
+
+  const handleQuickConvertToArticle = async () => {
+    setIsSaving(true);
+    try {
+      setType("article");
+      const cleanTags = (resource.tags || []).filter((t) => t !== "paper" && t !== "arxiv" && t !== "scientific-paper");
+      if (!cleanTags.includes("article")) cleanTags.push("article");
+      const ok = await onUpdate(resource.id, {
+        type: "article",
+        tags: cleanTags,
+      });
+      if (ok) {
+        setTranslationMessage("Risorsa riclassificata con successo come Articolo Tecnico!");
+        setTimeout(() => setTranslationMessage(null), 3500);
+      }
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleCheckWebsiteFeed = async () => {
+    if (!resource?.url) return;
+    if (isFeedDiscoveryDrawerOpen) {
+      setIsFeedDiscoveryDrawerOpen(false);
+      return;
+    }
+    setIsDiscoveringFeed(true);
+    setFeedDiscoveryStatus("Scansione della pagina web in cerca di feed RSS o Atom...");
+    try {
+      const res = await fetch("/api/discover-feed", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: resource.url }),
+      });
+      const data = await res.json();
+      if (data && data.discovered && data.feedUrl) {
+        setDiscoveredFeedUrl(data.feedUrl);
+        setFeedDiscoveryStatus(null);
+        setIsFeedDiscoveryDrawerOpen(true);
+      } else {
+        setFeedDiscoveryStatus("Nessun feed RSS o Atom standard rilevato sul sito.");
+        setTimeout(() => setFeedDiscoveryStatus(null), 4000);
+      }
+    } catch {
+      setFeedDiscoveryStatus("Errore durante la verifica del feed.");
+      setTimeout(() => setFeedDiscoveryStatus(null), 4000);
+    } finally {
+      setIsDiscoveringFeed(false);
     }
   };
 
@@ -789,6 +894,16 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
   const hasEvaluationPros = metaPros.length > 0;
   const hasEvaluationCons = metaCons.length > 0;
   const hasEvaluationInsights = hasEvaluationScore || hasEvaluationUseCases || hasEvaluationPros || hasEvaluationCons || Boolean(metaRationale);
+
+  const hasPaperMetadata = Boolean(
+    (resource.metadata?.authors && resource.metadata.authors.length > 0) ||
+    resource.metadata?.arxivId ||
+    resource.metadata?.pdfUrl ||
+    resource.metadata?.venue ||
+    resource.metadata?.publishedYear ||
+    resource.metadata?.tldr ||
+    resource.metadata?.doi
+  );
 
   const renderEvaluationCard = () => (
     <div id="technical-evaluation-card" className="bg-[#0E0C08] border border-[#C5A059]/30 rounded-xl p-4 sm:p-5 space-y-4">
@@ -1829,21 +1944,116 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
                 </div>
               )}
 
-              {(type === "knowledge" || type === "article") && (
+              {type === "paper" && (
+                <div className="space-y-3 bg-[#0B0D1B] border border-[#232854] rounded-xl p-4">
+                  <div className="flex items-center gap-1.5 text-xs font-mono text-[#818CF8]">
+                    <GraduationCap className="w-4 h-4" />
+                    <span className="font-semibold uppercase tracking-wider">Metadati Ricerca Scientifica (Paper / arXiv)</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-mono uppercase text-[#818CF8] mb-1">
+                        Autori / Ricercatori (separati da virgola)
+                      </label>
+                      <input
+                        type="text"
+                        value={paperAuthorsStr}
+                        onChange={(e) => setPaperAuthorsStr(e.target.value)}
+                        placeholder="es. Ashish Vaswani, Noam Shazeer..."
+                        className="w-full bg-[#070914] border border-[#1E234A] rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-[#818CF8]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-mono uppercase text-[#818CF8] mb-1">
+                        Identificativo arXiv (es. 2401.12345)
+                      </label>
+                      <input
+                        type="text"
+                        value={paperArxivId}
+                        onChange={(e) => setPaperArxivId(e.target.value)}
+                        placeholder="es. 2401.12345"
+                        className="w-full bg-[#070914] border border-[#1E234A] rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-[#818CF8]"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-mono uppercase text-[#818CF8] mb-1">
+                        Conferenza / Venue
+                      </label>
+                      <input
+                        type="text"
+                        value={paperVenue}
+                        onChange={(e) => setPaperVenue(e.target.value)}
+                        placeholder="es. NeurIPS 2024, ICLR"
+                        className="w-full bg-[#070914] border border-[#1E234A] rounded-lg p-2 text-xs text-white focus:outline-none focus:border-[#818CF8]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-mono uppercase text-[#818CF8] mb-1">
+                        Anno di Pubblicazione
+                      </label>
+                      <input
+                        type="text"
+                        value={paperPublishedYear}
+                        onChange={(e) => setPaperPublishedYear(e.target.value)}
+                        placeholder="es. 2024"
+                        className="w-full bg-[#070914] border border-[#1E234A] rounded-lg p-2 text-xs text-white focus:outline-none focus:border-[#818CF8]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-mono uppercase text-[#818CF8] mb-1">
+                        Link Diretto PDF o DOI
+                      </label>
+                      <input
+                        type="text"
+                        value={paperPdfUrl}
+                        onChange={(e) => setPaperPdfUrl(e.target.value)}
+                        placeholder="https://arxiv.org/pdf/..."
+                        className="w-full bg-[#070914] border border-[#1E234A] rounded-lg p-2 text-xs text-white focus:outline-none focus:border-[#818CF8]"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-mono uppercase text-[#818CF8] mb-1">
+                      TL;DR Scientifico / Abstract Sintetico
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={paperTldr}
+                      onChange={(e) => setPaperTldr(e.target.value)}
+                      placeholder="Sintesi formale del contributo metodologico e dei risultati sperimentali..."
+                      className="w-full font-mono bg-[#070914] border border-[#1E234A] rounded-lg p-2.5 text-xs text-[#CBD5E1] focus:outline-none focus:border-[#818CF8]"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {(type === "knowledge" || type === "article" || type === "paper") && (
                 <div>
                   <label className="block text-[11px] font-mono uppercase text-[#AAA] mb-1 flex items-center justify-between">
                     <span>
-                      {type === "knowledge" ? "Contenuto Markdown OKF v0.2" : "Testo Completo / Markdown dell'Articolo"}
+                      {type === "knowledge" 
+                        ? "Contenuto Markdown OKF v0.2" 
+                        : type === "paper"
+                          ? "Testo Completo / Abstract del Paper"
+                          : "Testo Completo / Markdown dell'Articolo"}
                     </span>
                     <span className="text-[10px] text-[#666]">
-                      {type === "article" ? "Utilizzato per la lettura integrale e traduzione" : "YAML Frontmatter supportato"}
+                      {type === "article" || type === "paper" ? "Utilizzato per la lettura integrale e traduzione" : "YAML Frontmatter supportato"}
                     </span>
                   </label>
                   <textarea
                     rows={8}
                     value={markdownContent}
                     onChange={(e) => setMarkdownContent(e.target.value)}
-                    placeholder={type === "knowledge" ? "# Titolo OKF..." : "Incolla o modifica il testo completo dell'articolo in Markdown..."}
+                    placeholder={type === "knowledge" ? "# Titolo OKF..." : "Incolla o modifica il testo in Markdown..."}
                     className="w-full font-mono bg-[#111] border border-[#262626] rounded-lg p-2.5 text-xs text-[#CCC] focus:outline-none focus:border-[#C5A059]"
                   />
                 </div>
@@ -2263,6 +2473,46 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
                         </>
                       )}
                     </button>
+
+                    {/* Quick RSS/Atom Discovery Button for articles and links */}
+                    {(resource.type === "article" || resource.type === "link" || resource.type === "knowledge") && (
+                      <button
+                        type="button"
+                        onClick={handleCheckWebsiteFeed}
+                        disabled={isDiscoveringFeed}
+                        className="flex items-center gap-1.5 text-[11px] font-mono bg-[#1C1008] hover:bg-[#2B180C] text-[#FB923C] border border-[#4E2412] px-2.5 py-1 rounded-md transition-colors shrink-0"
+                        title="Verifica se il sito sorgente espone un feed RSS o Atom pubblico"
+                      >
+                        {isDiscoveringFeed ? (
+                          <>
+                            <Loader2 className="w-3 h-3 animate-spin text-[#FB923C]" />
+                            <span>Scansione Feed...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Rss className="w-3 h-3 text-[#FB923C]" />
+                            <span>{isFeedDiscoveryDrawerOpen ? "Chiudi Lettore Feed" : "Rileva / Leggi Feed RSS"}</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {feedDiscoveryStatus && (
+                  <div className="mt-2.5 text-xs font-mono text-[#FB923C] bg-[#1E1108] border border-[#3D1E0F] px-3 py-1.5 rounded-lg flex items-center gap-2 animate-in fade-in">
+                    <Radio className="w-3.5 h-3.5 animate-pulse text-[#FB923C] shrink-0" />
+                    <span>{feedDiscoveryStatus}</span>
+                  </div>
+                )}
+
+                {isFeedDiscoveryDrawerOpen && discoveredFeedUrl && (
+                  <div className="mt-3 animate-in fade-in">
+                    <RssFeedViewer
+                      feedUrl={discoveredFeedUrl}
+                      resourceTitle={`Feed RSS di ${resource.title}`}
+                      onIngestItem={onIngestFeedItem}
+                    />
                   </div>
                 )}
               </div>
@@ -2600,6 +2850,35 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
                     )}
                   </div>
 
+                  {resource.metadata?.errorLog && (
+                    <div className="bg-[#0D0505] border border-red-900/40 rounded-lg p-3 space-y-1.5">
+                      <div className="text-[10px] font-mono uppercase text-red-400 font-semibold flex items-center justify-between">
+                        <span className="flex items-center gap-1.5">
+                          <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
+                          <span>Errore Rilevato (Trascrizione Screenshot / Log):</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleCopy(resource.metadata?.errorLog || "", "troubleshoot_error")}
+                          className="text-[10px] font-mono text-red-300 hover:text-white bg-red-950/60 px-2 py-0.5 rounded border border-red-700/40 flex items-center gap-1 cursor-pointer"
+                        >
+                          {copiedSection === "troubleshoot_error" ? <Check className="w-3 h-3 text-red-400" /> : <Copy className="w-3 h-3" />}
+                          <span>{copiedSection === "troubleshoot_error" ? "Copiato" : "Copia Errore"}</span>
+                        </button>
+                      </div>
+                      <pre className="text-xs font-mono text-red-200/90 whitespace-pre-wrap break-all bg-black/50 p-2.5 rounded border border-red-950/70 max-h-40 overflow-y-auto custom-scrollbar">
+                        {resource.metadata.errorLog}
+                      </pre>
+                    </div>
+                  )}
+
+                  {resource.metadata?.problemDescription && resource.metadata.problemDescription !== resource.metadata.errorLog && (
+                    <div className="bg-[#0C0804] border border-[#331D0F] rounded-lg p-3 space-y-1">
+                      <div className="text-[10px] font-mono uppercase text-amber-500/90 font-semibold">Manifestazione del Problema:</div>
+                      <p className="text-xs text-[#E5E5E5] leading-relaxed">{resource.metadata.problemDescription}</p>
+                    </div>
+                  )}
+
                   {resource.metadata?.rootCause && (
                     <div className="bg-[#0C0804] border border-[#331D0F] rounded-lg p-3 space-y-1">
                       <div className="text-[10px] font-mono uppercase text-[#F97316] font-semibold">Causa Scatenante / Root Cause:</div>
@@ -2655,104 +2934,145 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
 
               {/* Paper Scientifico: Autori, arXiv & Accesso PDF */}
               {resource.type === "paper" && (
-                <div className="bg-[#0B0D1B] border border-[#232854] rounded-xl p-4 sm:p-5 space-y-4">
-                  <div className="flex items-center justify-between border-b border-[#232854] pb-3 flex-wrap gap-2">
-                    <div className="flex items-center gap-2 text-xs font-mono text-[#818CF8]">
-                      <GraduationCap className="w-4 h-4" />
-                      <span className="font-semibold uppercase tracking-wider">Scheda Ricerca Scientifica</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {resource.metadata?.venue && (
-                        <span className="text-[11px] font-mono bg-[#161B3B] text-[#A5B4FC] px-2.5 py-0.5 rounded border border-[#313975]">
-                          {resource.metadata.venue}
-                        </span>
-                      )}
-                      {resource.metadata?.publishedYear && (
-                        <span className="text-[11px] font-mono bg-[#161B3B] text-[#94A3B8] px-2 py-0.5 rounded border border-[#313975]">
-                          {resource.metadata.publishedYear}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {resource.metadata?.authors && resource.metadata.authors.length > 0 && (
-                    <div className="space-y-1">
-                      <div className="text-[10px] font-mono uppercase text-[#64748B]">Autori / Ricercatori:</div>
-                      <div className="text-xs text-[#CBD5E1] font-medium flex flex-wrap gap-1.5">
-                        {resource.metadata.authors.map((author, aIdx) => (
-                          <span key={aIdx} className="bg-[#141833] border border-[#2A3166] text-[#E2E8F0] px-2 py-0.5 rounded text-[11px]">
-                            {author}
+                hasPaperMetadata ? (
+                  <div className="bg-[#0B0D1B] border border-[#232854] rounded-xl p-4 sm:p-5 space-y-4">
+                    <div className="flex items-center justify-between border-b border-[#232854] pb-3 flex-wrap gap-2">
+                      <div className="flex items-center gap-2 text-xs font-mono text-[#818CF8]">
+                        <GraduationCap className="w-4 h-4" />
+                        <span className="font-semibold uppercase tracking-wider">Scheda Ricerca Scientifica</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {resource.metadata?.venue && (
+                          <span className="text-[11px] font-mono bg-[#161B3B] text-[#A5B4FC] px-2.5 py-0.5 rounded border border-[#313975]">
+                            {resource.metadata.venue}
                           </span>
-                        ))}
+                        )}
+                        {resource.metadata?.publishedYear && (
+                          <span className="text-[11px] font-mono bg-[#161B3B] text-[#94A3B8] px-2 py-0.5 rounded border border-[#313975]">
+                            {resource.metadata.publishedYear}
+                          </span>
+                        )}
                       </div>
                     </div>
-                  )}
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                    {resource.metadata?.arxivId && (
-                      <div className="bg-[#070914] border border-[#1E234A] rounded-lg p-3 flex items-center justify-between">
-                        <div>
-                          <div className="text-[10px] font-mono uppercase text-[#818CF8]">Identificativo arXiv</div>
-                          <div className="text-xs font-mono font-bold text-white mt-0.5">
-                            arXiv:{resource.metadata.arxivId}
-                          </div>
+                    {resource.metadata?.authors && resource.metadata.authors.length > 0 && (
+                      <div className="space-y-1">
+                        <div className="text-[10px] font-mono uppercase text-[#64748B]">Autori / Ricercatori:</div>
+                        <div className="text-xs text-[#CBD5E1] font-medium flex flex-wrap gap-1.5">
+                          {resource.metadata.authors.map((author, aIdx) => (
+                            <span key={aIdx} className="bg-[#141833] border border-[#2A3166] text-[#E2E8F0] px-2 py-0.5 rounded text-[11px]">
+                              {author}
+                            </span>
+                          ))}
                         </div>
-                        <a
-                          href={`https://arxiv.org/abs/${resource.metadata.arxivId}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="px-2.5 py-1 bg-[#1E234A] hover:bg-[#2A3166] text-[#A5B4FC] rounded text-xs font-mono flex items-center gap-1 transition-colors"
-                        >
-                          <span>Scheda</span>
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
                       </div>
                     )}
 
-                    {(resource.metadata?.pdfUrl || resource.metadata?.arxivId) && (
-                      <div className="bg-[#070914] border border-[#1E234A] rounded-lg p-3 flex items-center justify-between">
-                        <div>
-                          <div className="text-[10px] font-mono uppercase text-emerald-400">Documento Completo</div>
-                          <div className="text-xs font-mono text-[#AAA] mt-0.5">Formato PDF Originale</div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                      {resource.metadata?.arxivId && (
+                        <div className="bg-[#070914] border border-[#1E234A] rounded-lg p-3 flex items-center justify-between">
+                          <div>
+                            <div className="text-[10px] font-mono uppercase text-[#818CF8]">Identificativo arXiv</div>
+                            <div className="text-xs font-mono font-bold text-white mt-0.5">
+                              arXiv:{resource.metadata.arxivId}
+                            </div>
+                          </div>
+                          <a
+                            href={`https://arxiv.org/abs/${resource.metadata.arxivId}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-2.5 py-1 bg-[#1E234A] hover:bg-[#2A3166] text-[#A5B4FC] rounded text-xs font-mono flex items-center gap-1 transition-colors"
+                          >
+                            <span>Scheda</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
                         </div>
-                        <a
-                          href={resource.metadata?.pdfUrl || `https://arxiv.org/pdf/${resource.metadata.arxivId}.pdf`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="px-3 py-1 bg-emerald-950/70 hover:bg-emerald-900 border border-emerald-700/50 text-emerald-300 rounded text-xs font-mono flex items-center gap-1 transition-colors"
-                        >
-                          <Download className="w-3 h-3" />
-                          <span>Apri PDF</span>
-                        </a>
+                      )}
+
+                      {(resource.metadata?.pdfUrl || resource.metadata?.arxivId) && (
+                        <div className="bg-[#070914] border border-[#1E234A] rounded-lg p-3 flex items-center justify-between">
+                          <div>
+                            <div className="text-[10px] font-mono uppercase text-emerald-400">Documento Completo</div>
+                            <div className="text-xs font-mono text-[#AAA] mt-0.5">Formato PDF Originale</div>
+                          </div>
+                          <a
+                            href={resource.metadata?.pdfUrl || `https://arxiv.org/pdf/${resource.metadata.arxivId}.pdf`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-3 py-1 bg-emerald-950/70 hover:bg-emerald-900 border border-emerald-700/50 text-emerald-300 rounded text-xs font-mono flex items-center gap-1 transition-colors"
+                          >
+                            <Download className="w-3 h-3" />
+                            <span>Apri PDF</span>
+                          </a>
+                        </div>
+                      )}
+                    </div>
+
+                    {resource.metadata?.tldr && (
+                      <div className="bg-[#070914] border border-[#1E234A] rounded-lg p-3 space-y-1">
+                        <div className="text-[10px] font-mono uppercase text-[#818CF8] font-semibold">TL;DR Scientifico:</div>
+                        <p className="text-xs text-[#CBD5E1] leading-relaxed italic">{resource.metadata.tldr}</p>
                       </div>
                     )}
                   </div>
-
-                  {resource.metadata?.tldr && (
-                    <div className="bg-[#070914] border border-[#1E234A] rounded-lg p-3 space-y-1">
-                      <div className="text-[10px] font-mono uppercase text-[#818CF8] font-semibold">TL;DR Scientifico:</div>
-                      <p className="text-xs text-[#CBD5E1] leading-relaxed italic">{resource.metadata.tldr}</p>
+                ) : (
+                  <div className="bg-[#0B0D1B] border border-[#232854] rounded-xl p-4 sm:p-5 space-y-3">
+                    <div className="flex items-center justify-between border-b border-[#232854] pb-2.5 flex-wrap gap-2">
+                      <div className="flex items-center gap-2 text-xs font-mono text-[#818CF8]">
+                        <GraduationCap className="w-4 h-4" />
+                        <span className="font-semibold uppercase tracking-wider">Scheda Ricerca Scientifica</span>
+                      </div>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#161B3B] text-[#A5B4FC] border border-[#313975]">
+                        Metadati accademici assenti
+                      </span>
                     </div>
-                  )}
-                </div>
+
+                    <p className="text-xs text-[#94A3B8] leading-relaxed">
+                      Questa risorsa è attualmente classificata come <strong className="text-white font-mono font-medium">Paper Scientifico</strong>, ma non contiene metadati accademici strutturati (Autori, arXiv ID, DOI, link PDF o Conferenza/Venue). Se si tratta in realtà di un articolo tecnico o di un blog post, puoi convertirlo subito in Articolo con 1 click, oppure compilare i metadati del paper.
+                    </p>
+
+                    <div className="flex items-center gap-2.5 pt-1 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={handleQuickConvertToArticle}
+                        disabled={isSaving}
+                        className="px-3.5 py-1.5 bg-[#17140B] hover:bg-[#261E0E] text-[#E5C170] border border-[#C5A059]/50 rounded-lg text-xs font-mono flex items-center gap-1.5 transition-colors cursor-pointer font-medium"
+                      >
+                        <BookOpen className="w-3.5 h-3.5 text-[#C5A059]" />
+                        <span>Converti in Articolo Tecnico</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setIsEditing(true)}
+                        className="px-3.5 py-1.5 bg-[#161B3B] hover:bg-[#202754] text-[#A5B4FC] border border-[#313975] rounded-lg text-xs font-mono flex items-center gap-1.5 transition-colors cursor-pointer"
+                      >
+                        <Pencil className="w-3.5 h-3.5 text-[#818CF8]" />
+                        <span>Compila Metadati Paper</span>
+                      </button>
+                    </div>
+                  </div>
+                )
               )}
 
-              {/* Feed RSS: Dettagli Canale e Aggregatore */}
+              {/* Feed RSS: Lettore Live & Stream Articoli */}
               {resource.type === "rss" && (
-                <div className="bg-[#150D08] border border-[#331C10] rounded-xl p-4 sm:p-5 space-y-4">
-                  <div className="flex items-center justify-between border-b border-[#331C10] pb-3">
-                    <div className="flex items-center gap-2 text-xs font-mono text-[#FB923C]">
-                      <Rss className="w-4 h-4" />
-                      <span className="font-semibold uppercase tracking-wider">Feed RSS / Canale Notizie</span>
-                    </div>
-                    <span className="text-[10px] font-mono uppercase bg-[#29140A] text-[#FB923C] border border-[#4E2412] px-2 py-0.5 rounded">
-                      Formato {resource.metadata?.feedFormat || "RSS 2.0"}
-                    </span>
-                  </div>
+                <div className="space-y-4">
+                  <RssFeedViewer
+                    feedUrl={resource.metadata?.feedUrl || resource.url || ""}
+                    resourceTitle={resource.title}
+                    onIngestItem={onIngestFeedItem}
+                  />
 
-                  <div className="bg-[#0A0704] border border-[#29140A] rounded-lg p-3 space-y-2">
-                    <div className="text-[10px] font-mono uppercase text-[#888]">URL Feed per Lettori RSS (Feedly, NetNewsWire):</div>
-                    <div className="flex items-center justify-between gap-2 overflow-hidden">
+                  {/* Scheda Tecnica URL Feed per aggregatori esterni */}
+                  <div className="bg-[#150D08] border border-[#331C10] rounded-xl p-3 sm:p-4">
+                    <div className="text-[10px] font-mono uppercase text-[#A87250] mb-1.5 flex items-center justify-between flex-wrap gap-2">
+                      <span>URL del Canale Feed (per aggregatori come Feedly, Reeder, NetNewsWire):</span>
+                      <span className="text-[#FB923C] bg-[#29140A] px-2 py-0.5 rounded border border-[#4E2412]">
+                        Formato {resource.metadata?.feedFormat || "RSS 2.0"}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2 overflow-hidden bg-[#0A0704] border border-[#29140A] rounded-lg p-2.5">
                       <code className="text-xs font-mono text-[#FED7AA] truncate">
                         {resource.metadata?.feedUrl || resource.url || "Non disponibile"}
                       </code>
@@ -2762,7 +3082,7 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
                         className="px-2.5 py-1 bg-[#29140A] hover:bg-[#3D1E0F] text-[#FB923C] rounded text-xs font-mono flex items-center gap-1 shrink-0 transition-colors"
                       >
                         {copiedSection === "rss_feed_url" ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                        <span>{copiedSection === "rss_feed_url" ? "Copiato" : "Copia URL Feed"}</span>
+                        <span>{copiedSection === "rss_feed_url" ? "Copiato" : "Copia URL"}</span>
                       </button>
                     </div>
                   </div>
@@ -2831,28 +3151,64 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
                 </div>
               </div>
 
-              {/* Original Full Input / Text Captured - Always clearly accessible if user input is longer or distinct */}
+              {/* Original Full Input / Text Captured - Clean non-redundant collapsible drawer when formatted document exists */}
               {resource.rawInput && resource.rawInput.trim().length > 0 && resource.rawInput.trim() !== resource.url && (
-                <div className="bg-[#0D0D0D] border border-[#262626] rounded-xl p-4 sm:p-5 space-y-3">
+                <div className="bg-[#0A0A0A] border border-[#222] rounded-xl p-3.5 sm:p-4 space-y-2.5">
                   <div className="flex items-center justify-between flex-wrap gap-2">
-                    <div className="text-[11px] font-mono uppercase text-[#C5A059] tracking-wider flex items-center gap-1.5 font-medium">
-                      <Terminal className="w-3.5 h-3.5 text-[#C5A059]" />
-                      <span>Testo Integrale Immesso dall'Utente ({resource.rawInput.length} caratteri)</span>
-                    </div>
-
                     <button
                       type="button"
-                      onClick={() => handleCopy(resource.rawInput || "", "raw_input")}
-                      className="text-[11px] font-mono text-[#AAA] hover:text-white flex items-center gap-1"
+                      onClick={() => setIsRawInputExpanded(!isRawInputExpanded)}
+                      className="flex items-center gap-2.5 text-left group cursor-pointer"
                     >
-                      {copiedSection === "raw_input" ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3 text-[#C5A059]" />}
-                      <span>{copiedSection === "raw_input" ? "Copiato" : "Copia Testo Completo"}</span>
+                      <div className="p-1 rounded-md bg-[#16140E] border border-[#C5A059]/30 text-[#C5A059] group-hover:border-[#C5A059] transition-colors">
+                        <Terminal className="w-3.5 h-3.5" />
+                      </div>
+                      <div>
+                        <div className="text-[11px] font-mono uppercase text-[#C5A059] tracking-wider font-semibold flex items-center gap-1.5">
+                          <span>Input Grezzo Immesso ({resource.rawInput.length.toLocaleString('it-IT')} caratteri)</span>
+                          {currentDisplayMarkdown && (
+                            isRawInputExpanded 
+                              ? <ChevronUp className="w-3.5 h-3.5 text-[#888]" /> 
+                              : <ChevronDown className="w-3.5 h-3.5 text-[#888]" />
+                          )}
+                        </div>
+                        <p className="text-[10px] font-mono text-[#777]">
+                          {currentDisplayMarkdown 
+                            ? "Snapshot originale salvato per audit & provenienza. Per la lettura formattata, vedi il riquadro sottostante."
+                            : "Testo integrale immesso durante la cattura."}
+                        </p>
+                      </div>
                     </button>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(resource.rawInput || "", "raw_input")}
+                        className="text-[11px] font-mono text-[#AAA] hover:text-white flex items-center gap-1 px-2.5 py-1 bg-[#141414] hover:bg-[#1E1E1E] rounded-md border border-[#2A2A2A] transition-colors"
+                      >
+                        {copiedSection === "raw_input" ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3 text-[#C5A059]" />}
+                        <span>{copiedSection === "raw_input" ? "Copiato" : "Copia Testo"}</span>
+                      </button>
+
+                      {currentDisplayMarkdown && (
+                        <button
+                          type="button"
+                          onClick={() => setIsRawInputExpanded(!isRawInputExpanded)}
+                          className="text-[11px] font-mono text-[#888] hover:text-white px-2.5 py-1 rounded-md bg-[#141414] hover:bg-[#1E1E1E] border border-[#2A2A2A] transition-colors cursor-pointer"
+                        >
+                          {isRawInputExpanded ? "Comprimi" : "Espandi"}
+                        </button>
+                      )}
+                    </div>
                   </div>
 
-                  <div className="text-xs sm:text-sm font-mono text-[#CCC] bg-[#050505] p-3.5 sm:p-4 rounded-lg border border-[#1C1C1C] overflow-x-auto whitespace-pre-wrap max-h-96 overflow-y-auto leading-relaxed scrollbar-thin scrollbar-thumb-[#333]">
-                    {resource.rawInput}
-                  </div>
+                  {(!currentDisplayMarkdown || isRawInputExpanded) && (
+                    <div className="pt-1.5 animate-in fade-in duration-150">
+                      <div className="text-xs sm:text-sm font-mono text-[#CCC] bg-[#050505] p-3.5 sm:p-4 rounded-lg border border-[#1C1C1C] overflow-x-auto whitespace-pre-wrap max-h-96 overflow-y-auto leading-relaxed scrollbar-thin scrollbar-thumb-[#333]">
+                        {resource.rawInput}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -2890,7 +3246,11 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
                     <div className="flex items-center gap-2 text-xs font-mono text-[#C5A059]">
                       <FileCode className="w-4 h-4 text-[#C5A059]" />
                       <span className="font-semibold text-white">
-                        {resource.type === "article" ? "Testo Completo dell'Articolo" : "Documento Integrale"}
+                        {resource.type === "article" 
+                          ? "Testo Completo dell'Articolo" 
+                          : resource.type === "paper"
+                            ? "Testo Completo del Paper Scientifico"
+                            : "Documento Integrale"}
                       </span>
                       <span className={`text-[10px] px-2 py-0.5 rounded border ${
                         isItalianView 

@@ -28,7 +28,9 @@ import {
   Clock,
   Workflow,
   ArrowRight,
-  Cpu
+  Cpu,
+  Save,
+  RotateCw
 } from "lucide-react";
 import Markdown from "react-markdown";
 import { ResourceItem, DiagnosticLog, OKFEntity, OKFRelation } from "../types";
@@ -121,6 +123,8 @@ export const KnowledgeUploadDialog: React.FC<KnowledgeUploadDialogProps> = ({
   const [success, setSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [lastProcessedResource, setLastProcessedResource] = useState<any | null>(null);
+  const hasSavedDocRef = useRef(false);
 
   // Instant OKF Frontmatter parsing
   const parsedDoc: ParsedOKFDocument = useMemo(() => {
@@ -258,6 +262,7 @@ export const KnowledgeUploadDialog: React.FC<KnowledgeUploadDialogProps> = ({
     // Focus the first file
     const first = parsedItems[0];
     if (first) {
+      hasSavedDocRef.current = false;
       setSelectedQueueId(first.id);
       setActiveFileName(first.name);
       if (first.isPdf && first.base64) {
@@ -577,8 +582,9 @@ export const KnowledgeUploadDialog: React.FC<KnowledgeUploadDialogProps> = ({
 
       logEvent("info", `Inizializzazione Ingestion Orchestrator per "${activeFileName || "documento"}" (${trimmedResources.length} nodi grafo)`);
 
+      const timeoutMs = pdfPayload ? 90000 : 60000;
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 45000);
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
       const res = await fetch("/api/vault/agentic-ingest", {
         method: "POST",
@@ -620,6 +626,7 @@ export const KnowledgeUploadDialog: React.FC<KnowledgeUploadDialogProps> = ({
       }
 
       const generatedResource = data.resource;
+      setLastProcessedResource(generatedResource);
       setInputText(generatedResource.metadata?.markdownContent || inputText);
       setCustomTitle(generatedResource.title);
       setCustomDomain(generatedResource.metadata?.domain || "Knowledge Architecture");
@@ -632,11 +639,21 @@ export const KnowledgeUploadDialog: React.FC<KnowledgeUploadDialogProps> = ({
       );
 
       if (autoSave) {
+        if (hasSavedDocRef.current) {
+          setSuccess(true);
+          setSuccessMessage("Documento già archiviato nel Vault!");
+          setTimeout(() => {
+            setSuccess(false);
+            onClose();
+          }, 800);
+          return;
+        }
         setProcessingStage("Salvataggio documento e nodi relazionali su Firestore...");
+        const resType = (generatedResource.type as any) || "knowledge";
         const ok = await onUploadProcessedDoc({
-          type: "knowledge",
+          type: resType,
           title: generatedResource.title,
-          url: (initialSourceMetadata?.gdocUrl || initialSourceMetadata?.gdriveSourceUrl) || "",
+          url: (initialSourceMetadata?.gdocUrl || initialSourceMetadata?.gdriveSourceUrl) || generatedResource.url || "",
           rawInput: generatedResource.metadata?.markdownContent || inputText,
           summary: generatedResource.summary,
           tags: generatedResource.tags,
@@ -648,6 +665,7 @@ export const KnowledgeUploadDialog: React.FC<KnowledgeUploadDialogProps> = ({
         });
 
         if (ok) {
+          hasSavedDocRef.current = true;
           logEvent("success", `Documento "${generatedResource.title}" salvato nel Vault via Multi-Agent Orchestrator.`);
           setSuccess(true);
           setSuccessMessage("Documento strutturato e salvato con successo dal team di Agenti!");
@@ -660,12 +678,88 @@ export const KnowledgeUploadDialog: React.FC<KnowledgeUploadDialogProps> = ({
         }
       } else {
         setActiveTab("trace");
-        setSuccessMessage("Orchestrazione completata! Puoi ispezionare il trace di derivazione, l'anteprima o salvare.");
+        setSuccessMessage("Orchestrazione completata! I 6 agenti hanno preparato il documento. Clicca su 'Salva nel Vault' per archiviarlo.");
       }
     } catch (err: any) {
       console.error("[MultiAgent Ingest] Error:", err);
-      setErrorMessage(err.message || "Errore sconosciuto durante l'orchestrazione multi-agente");
-      logEvent("error", "Errore pipeline multi-agente", err);
+      let msg = err.message || "";
+      if (err.name === "AbortError" || msg.includes("aborted")) {
+        msg = `La pipeline multi-agente ha superato il tempo massimo (${pdfPayload ? "90s" : "60s"}). Per documenti complessi, puoi salvare subito con 'Salva Istantaneo' o riprovare.`;
+      } else if (msg.includes("Failed to fetch") || msg.includes("NetworkError")) {
+        msg = "Impossibile contattare il server. Verifica la connessione di rete e riprova.";
+      } else if (!msg || msg === "undefined") {
+        msg = "Errore durante l'elaborazione dei 6 agenti. I dati inseriti sono preservati e puoi salvarli direttamente.";
+      }
+      setErrorMessage(msg);
+      logEvent("error", "Errore pipeline multi-agente", { error: msg, raw: String(err) });
+    } finally {
+      setIsProcessing(false);
+      setProcessingStage("");
+    }
+  };
+
+  // Salvataggio immediato (0ms AI) del documento già analizzato dai 6 agenti o presente in editor
+  const handleSaveProcessedDoc = async () => {
+    if (!inputText.trim() || isProcessing) return;
+
+    if (hasSavedDocRef.current) {
+      setSuccess(true);
+      setSuccessMessage("Documento già salvato nel Vault!");
+      setTimeout(() => {
+        setSuccess(false);
+        onClose();
+      }, 800);
+      return;
+    }
+
+    setIsProcessing(true);
+    setProcessingStage("Salvataggio documento nel Vault...");
+    setErrorMessage(null);
+
+    try {
+      const currentResource = lastProcessedResource;
+      const title = customTitle || currentResource?.title || parsedDoc.title || "Documento Knowledge OKF";
+      const docType = customDocType || currentResource?.metadata?.docType || parsedDoc.docType || "specification";
+      const domain = customDomain || currentResource?.metadata?.domain || parsedDoc.domain || "Knowledge Architecture";
+      const tags = customTags.length > 0 ? customTags : (currentResource?.tags || parsedDoc.tags || []);
+      const resourceType = currentResource?.type || (parsedDoc.isValidOKF ? "knowledge" : "knowledge");
+
+      const ok = await onUploadProcessedDoc({
+        type: resourceType,
+        title,
+        url: (initialSourceMetadata?.gdocUrl || initialSourceMetadata?.gdriveSourceUrl) || currentResource?.url || "",
+        rawInput: inputText,
+        summary: currentResource?.summary || parsedDoc.bodyMarkdown?.slice(0, 280) || title,
+        tags,
+        isFavorite: false,
+        metadata: {
+          ...(currentResource?.metadata || {}),
+          okfVersion: "0.2",
+          domain,
+          docType,
+          markdownContent: inputText,
+          entities: currentResource?.metadata?.entities || (parsedDoc.entities.length > 0 ? parsedDoc.entities : [{ name: title, type: "concept", description: "Entità cardine del documento" }]),
+          relations: currentResource?.metadata?.relations || parsedDoc.relations || [],
+          ...(initialSourceMetadata || {}),
+        },
+      });
+
+      if (ok) {
+        hasSavedDocRef.current = true;
+        logEvent("success", `Documento "${title}" salvato con successo nel Vault.`);
+        setSuccess(true);
+        setSuccessMessage("Documento salvato con successo nel Vault!");
+        setTimeout(() => {
+          setSuccess(false);
+          onClose();
+        }, 1100);
+      } else {
+        throw new Error("Salvataggio non riuscito in Firestore. Verifica la connessione o i permessi.");
+      }
+    } catch (err: any) {
+      console.error("[Save Processed Doc] Error:", err);
+      setErrorMessage(err.message || "Errore durante il salvataggio nel Vault.");
+      logEvent("error", "Errore salvataggio Vault", err);
     } finally {
       setIsProcessing(false);
       setProcessingStage("");
@@ -798,7 +892,7 @@ export const KnowledgeUploadDialog: React.FC<KnowledgeUploadDialogProps> = ({
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".pdf,.md,.markdown,.txt,.json,.yaml,.yml,.csv,.ts,.tsx,.py,.rs,.go"
+                  accept=".pdf,.tex,.latex,.md,.markdown,.txt,.json,.yaml,.yml,.csv,.ts,.tsx,.py,.rs,.go"
                   multiple
                   className="hidden"
                   onChange={(e) => {
@@ -818,7 +912,7 @@ export const KnowledgeUploadDialog: React.FC<KnowledgeUploadDialogProps> = ({
                         <FileCode className="w-4 h-4" /> {activeFileName}
                       </span>
                     ) : (
-                      "Trascina qui i tuoi Paper (.pdf), specifiche (.md), appunti (.txt, .json) o clicca per sfogliare"
+                      "Trascina qui i tuoi Paper (.pdf, .tex), specifiche (.md), appunti (.txt, .json) o clicca per sfogliare"
                     )}
                   </p>
                   <div className="flex items-center gap-2 mt-0.5 flex-wrap justify-center">
@@ -1306,7 +1400,7 @@ export const KnowledgeUploadDialog: React.FC<KnowledgeUploadDialogProps> = ({
                         <span>Ispeziona Anteprima & Metadati</span>
                       </button>
                       <button
-                        onClick={() => handleMultiAgentIngest(true)}
+                        onClick={handleSaveProcessedDoc}
                         disabled={isProcessing}
                         className="px-3.5 py-1.5 rounded-lg text-xs text-black bg-[#C5A059] hover:bg-[#D5B069] font-medium transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50 shadow-sm"
                       >
@@ -1374,58 +1468,101 @@ export const KnowledgeUploadDialog: React.FC<KnowledgeUploadDialogProps> = ({
               Annulla
             </button>
 
-            {/* If the document has valid OKF frontmatter, show instant 0ms save */}
-            {isOkfNative && (
-              <button
-                type="button"
-                onClick={handleInstantSave}
-                disabled={!inputText.trim() || isProcessing}
-                className="px-3.5 py-2 rounded-lg text-xs text-[#C5A059] bg-[#1C1710] hover:bg-[#2A2012] border border-[#C5A059]/40 font-medium transition-all disabled:opacity-50 flex items-center gap-1.5 cursor-pointer shadow-sm"
-                title="Salva direttamente senza attendere la rielaborazione dell'IA (0ms)"
-              >
-                <Zap className="w-3.5 h-3.5 fill-[#C5A059]" />
-                <span>Salva Istantaneo (0ms)</span>
-              </button>
+            {agentSteps.length > 0 ? (
+              <>
+                {/* Re-run pipeline if user updated the text */}
+                <button
+                  type="button"
+                  onClick={() => handleMultiAgentIngest(false)}
+                  disabled={(!inputText.trim() && !pdfPayload) || isProcessing}
+                  className="px-3.5 py-2 rounded-lg text-xs text-[#DDD] bg-[#1A1A1A] hover:bg-[#252525] border border-[#333] hover:border-[#444] font-medium transition-all disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+                  title="Riesegui l'orchestrazione dei 6 agenti sui testi attuali"
+                >
+                  <RotateCw className={`w-3.5 h-3.5 text-[#C5A059] ${isProcessing ? "animate-spin" : ""}`} />
+                  <span>Riesegui Pipeline (6 Agenti)</span>
+                </button>
+
+                {/* Primary action when trace is ready: Save immediately in 0ms */}
+                <button
+                  type="button"
+                  onClick={handleSaveProcessedDoc}
+                  disabled={!inputText.trim() || isProcessing}
+                  className="px-4 py-2 rounded-lg text-xs text-black bg-[#C5A059] hover:bg-[#D5B069] font-medium transition-all disabled:opacity-50 flex items-center gap-2 shadow-lg shadow-[#C5A059]/20 cursor-pointer"
+                >
+                  {isProcessing ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Salvataggio nel Vault...</span>
+                    </>
+                  ) : success ? (
+                    <>
+                      <CheckCircle className="w-3.5 h-3.5 text-emerald-950" />
+                      <span>Salvato nel Vault!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-3.5 h-3.5" />
+                      <span>Salva nel Vault</span>
+                    </>
+                  )}
+                </button>
+              </>
+            ) : (
+              <>
+                {/* If the document has valid OKF frontmatter, show instant 0ms save */}
+                {isOkfNative && (
+                  <button
+                    type="button"
+                    onClick={handleInstantSave}
+                    disabled={!inputText.trim() || isProcessing}
+                    className="px-3.5 py-2 rounded-lg text-xs text-[#C5A059] bg-[#1C1710] hover:bg-[#2A2012] border border-[#C5A059]/40 font-medium transition-all disabled:opacity-50 flex items-center gap-1.5 cursor-pointer shadow-sm"
+                    title="Salva direttamente senza attendere la rielaborazione dell'IA (0ms)"
+                  >
+                    <Zap className="w-3.5 h-3.5 fill-[#C5A059]" />
+                    <span>Salva Istantaneo (0ms)</span>
+                  </button>
+                )}
+
+                {/* Inspect Multi-Agent Pipeline Trace without immediately saving */}
+                <button
+                  type="button"
+                  onClick={() => handleMultiAgentIngest(false)}
+                  disabled={(!inputText.trim() && !pdfPayload) || isProcessing}
+                  className="px-3.5 py-2 rounded-lg text-xs text-[#DDD] bg-[#1A1A1A] hover:bg-[#252525] border border-[#333] hover:border-[#444] font-medium transition-all disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+                  title="Esegui la pipeline di ingestione (6 Agenti) e visualizza la traccia di derivazione epistemica prima del salvataggio"
+                >
+                  <Workflow className="w-3.5 h-3.5 text-[#C5A059]" />
+                  <span>Trace Pipeline (6 Agenti)</span>
+                </button>
+
+                {/* Multi-Agent Orchestration & Save (Primary) */}
+                <button
+                  type="button"
+                  onClick={() => handleMultiAgentIngest(true)}
+                  disabled={(!inputText.trim() && !pdfPayload) || isProcessing}
+                  className="px-4 py-2 rounded-lg text-xs text-black bg-[#C5A059] hover:bg-[#D5B069] font-medium transition-all disabled:opacity-50 flex items-center gap-2 shadow-lg shadow-[#C5A059]/20 cursor-pointer"
+                >
+                  {isProcessing ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Esecuzione Pipeline Ingestione...</span>
+                    </>
+                  ) : success ? (
+                    <>
+                      <CheckCircle className="w-3.5 h-3.5 text-emerald-950" />
+                      <span>Ingerito & Salvato!</span>
+                    </>
+                  ) : (
+                    <>
+                      <BrainCircuit className="w-3.5 h-3.5 stroke-[2.5]" />
+                      <span>
+                        {isOkfNative ? "Arricchisci & Ingerisci OKF" : "Esegui Ingestion Pipeline (6 Agenti)"}
+                      </span>
+                    </>
+                  )}
+                </button>
+              </>
             )}
-
-            {/* Inspect Multi-Agent Pipeline Trace without immediately saving */}
-            <button
-              type="button"
-              onClick={() => handleMultiAgentIngest(false)}
-              disabled={(!inputText.trim() && !pdfPayload) || isProcessing}
-              className="px-3.5 py-2 rounded-lg text-xs text-[#DDD] bg-[#1A1A1A] hover:bg-[#252525] border border-[#333] hover:border-[#444] font-medium transition-all disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
-              title="Esegui la pipeline di ingestione (6 Agenti) e visualizza la traccia di derivazione epistemica prima del salvataggio"
-            >
-              <Workflow className="w-3.5 h-3.5 text-[#C5A059]" />
-              <span>Trace Pipeline (6 Agenti)</span>
-            </button>
-
-            {/* Multi-Agent Orchestration & Save (Primary) */}
-            <button
-              type="button"
-              onClick={() => handleMultiAgentIngest(true)}
-              disabled={(!inputText.trim() && !pdfPayload) || isProcessing}
-              className="px-4 py-2 rounded-lg text-xs text-black bg-[#C5A059] hover:bg-[#D5B069] font-medium transition-all disabled:opacity-50 flex items-center gap-2 shadow-lg shadow-[#C5A059]/20 cursor-pointer"
-            >
-              {isProcessing ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Esecuzione Pipeline Ingestione...</span>
-                </>
-              ) : success ? (
-                <>
-                  <CheckCircle className="w-3.5 h-3.5 text-emerald-950" />
-                  <span>Ingerito & Salvato!</span>
-                </>
-              ) : (
-                <>
-                  <BrainCircuit className="w-3.5 h-3.5 stroke-[2.5]" />
-                  <span>
-                    {isOkfNative ? "Arricchisci & Ingerisci OKF" : "Esegui Ingestion Pipeline (6 Agenti)"}
-                  </span>
-                </>
-              )}
-            </button>
           </div>
         </div>
       </div>

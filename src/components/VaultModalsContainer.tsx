@@ -22,6 +22,7 @@ import { CekikjInspectorModal } from "./CekikjInspectorModal";
 import { VaultIntelligenceDrawer } from "./VaultIntelligenceDrawer";
 import { DiscrepancyInspectorModal } from "./DiscrepancyInspectorModal";
 import { VaultHealthCheckDrawer } from "./VaultHealthCheckDrawer";
+import { FeedItem } from "./RssFeedViewer";
 
 export interface VaultModalsContainerProps {
   // Vault Health Check Diagnostic Drawer
@@ -205,6 +206,34 @@ export function VaultModalsContainer({
   setViewMode,
   onNavigateToGraphNode,
 }: VaultModalsContainerProps) {
+  const handleIngestFeedItem = async (item: FeedItem) => {
+    const isArxiv = item.link.includes("arxiv.org") || Boolean(item.pdfUrl);
+    const arxivMatch = item.link.match(/arxiv\.org\/(?:abs|pdf)\/([0-9]+\.[0-9]+(?:v[0-9]+)?)/i);
+
+    const success = await handleManualAdd({
+      type: isArxiv ? "paper" : "article",
+      title: item.title,
+      url: item.link,
+      summary: item.summary || `Articolo importato dal feed RSS: ${item.title}`,
+      rawInput: `${item.title}\n\n${item.summary}\n\nLink: ${item.link}`,
+      tags: Array.from(new Set(["feed-item", ...(isArxiv ? ["arxiv", "paper"] : ["article"]), ...(item.categories || [])])),
+      metadata: {
+        authors: item.author ? [item.author] : undefined,
+        arxivId: arxivMatch ? arxivMatch[1] : undefined,
+        pdfUrl: item.pdfUrl,
+        publishedYear: item.pubDate ? new Date(item.pubDate).getFullYear() : new Date().getFullYear(),
+        domain: isArxiv ? "Artificial Intelligence & Computer Science" : "Software & Technology",
+        docType: isArxiv ? "research" : "guide",
+        markdownContent: `# ${item.title}\n\n**Autore**: ${item.author || "N/D"}\n**Fonte**: [${item.link}](${item.link})\n**Data**: ${item.pubDate || "N/D"}\n\n## Abstract / Sommario\n\n${item.summary}\n\n${item.content ? `## Contenuto del Feed\n\n${item.content}` : ""}`,
+      },
+    });
+
+    if (success) {
+      setStatusMessage(`"${item.title.slice(0, 35)}..." salvato con successo nel Vault!`);
+      setTimeout(() => setStatusMessage(null), 4000);
+    }
+  };
+
   return (
     <>
       {/* Resource Detail & Edit Modal */}
@@ -222,6 +251,7 @@ export function VaultModalsContainer({
         onToggleReadLater={onToggleReadLater}
         onPrintPreview={(res) => setPrintPreviewResource(res)}
         onExportGoogleDoc={handleExportGoogleDoc}
+        onIngestFeedItem={handleIngestFeedItem}
         onViewInGraph={(res) => {
           setSelectedResourceForDetail(null);
           onNavigateToGraphNode?.(res.id);

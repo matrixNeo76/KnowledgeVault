@@ -286,6 +286,49 @@ export async function fetchArticleTextFromUrl(rawUrl: string, timeoutMs = 6000):
       domain = new URL(targetUrl).hostname.replace(/^www\./, "");
     } catch {}
 
+    // Special handler for RSS and Atom Feeds: parse recent articles/preprints
+    const isRssFeed = rawHtml.includes("<rss") || rawHtml.includes("<channel") || rawHtml.includes("<feed") || targetUrl.includes("/rss") || targetUrl.endsWith(".xml");
+    if (isRssFeed) {
+      const channelTitleMatch = rawHtml.match(/<channel[\s\S]*?<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/i) ||
+                                rawHtml.match(/<feed[\s\S]*?<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/i) ||
+                                rawHtml.match(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/i);
+      const feedTitle = channelTitleMatch ? channelTitleMatch[1].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim() : "Feed RSS";
+
+      const channelDescMatch = rawHtml.match(/<channel[\s\S]*?<description>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/description>/i) ||
+                               rawHtml.match(/<feed[\s\S]*?<subtitle>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/subtitle>/i);
+      const feedDesc = channelDescMatch ? channelDescMatch[1].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim() : "";
+      
+      const itemBlocks = rawHtml.match(/<item[\s\S]*?<\/item>/gi) || rawHtml.match(/<entry[\s\S]*?<\/entry>/gi) || [];
+      const parsedItems: string[] = [];
+
+      for (const itemBlock of itemBlocks.slice(0, 12)) {
+        const itemTitle = itemBlock.match(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/i)?.[1]?.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+        const itemLink = itemBlock.match(/<link>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/link>/i)?.[1]?.trim() ||
+                         itemBlock.match(/<link[^>]+href=["']([^"']+)["']/i)?.[1]?.trim();
+        const itemDesc = itemBlock.match(/<description>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/description>/i)?.[1]?.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() ||
+                         itemBlock.match(/<summary>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/summary>/i)?.[1]?.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+        const itemAuthor = itemBlock.match(/<dc:creator>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/dc:creator>/i)?.[1]?.replace(/<[^>]+>/g, "").trim() ||
+                           itemBlock.match(/<author>[\s\S]*?<name>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/name>/i)?.[1]?.replace(/<[^>]+>/g, "").trim();
+
+        if (itemTitle) {
+          let line = `### ${itemTitle}\n`;
+          if (itemAuthor) line += `**Autori**: ${itemAuthor}\n`;
+          if (itemLink) line += `**Link**: ${itemLink}\n`;
+          if (itemDesc) line += `\n${itemDesc}\n`;
+          parsedItems.push(line);
+        }
+      }
+
+      if (parsedItems.length > 0) {
+        const feedMarkdown = `# ${feedTitle}\n\n${feedDesc ? `> ${feedDesc}\n\n` : ""}**Sorgente**: ${targetUrl}\n\n## Ultimi Articoli e Preprint nel Feed:\n\n${parsedItems.join("\n---\n\n")}`;
+        return {
+          title: feedTitle,
+          text: feedMarkdown,
+          markdown: feedMarkdown,
+        };
+      }
+    }
+
     // Extract title
     let title = "";
     const ogTitleMatch = rawHtml.match(/<meta[^>]+property=["'](?:og|twitter):title["'][^>]+content=["']([^"']+)["']/i) ||
@@ -473,11 +516,36 @@ export async function fetchOpenGraphMetadata(rawUrl: string, timeoutMs = 4500): 
     }
 
     const contentType = response.headers.get("content-type") || "";
-    if (!contentType.includes("text/html") && !contentType.includes("xhtml")) {
+    const isXmlOrRss = contentType.includes("xml") || contentType.includes("rss") || contentType.includes("atom") || targetUrl.includes("/rss") || targetUrl.endsWith(".xml");
+    if (!contentType.includes("text/html") && !contentType.includes("xhtml") && !isXmlOrRss) {
       return defaultResult;
     }
 
     const buffer = await response.text();
+
+    if (isXmlOrRss || buffer.includes("<rss") || buffer.includes("<channel") || buffer.includes("<feed")) {
+      const channelTitleMatch = buffer.match(/<channel[\s\S]*?<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/i) ||
+                                buffer.match(/<feed[\s\S]*?<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/i) ||
+                                buffer.match(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/i);
+      const channelDescMatch = buffer.match(/<channel[\s\S]*?<description>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/description>/i) ||
+                               buffer.match(/<feed[\s\S]*?<subtitle>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/subtitle>/i) ||
+                               buffer.match(/<description>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/description>/i);
+
+      const rawRssTitle = channelTitleMatch ? channelTitleMatch[1].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim() : "";
+      const rawRssDesc = channelDescMatch ? channelDescMatch[1].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim() : "";
+
+      if (rawRssTitle && !isGenericTitle(rawRssTitle, domain)) {
+        return {
+          url: targetUrl,
+          domain,
+          siteName: domain,
+          ogTitle: rawRssTitle,
+          ogDescription: rawRssDesc || defaultResult.ogDescription,
+          favicon: defaultResult.favicon,
+        };
+      }
+    }
+
     const htmlSlice = buffer.slice(0, 300000);
     return extractOpenGraphFromHtml(htmlSlice, targetUrl);
   } catch (err: any) {

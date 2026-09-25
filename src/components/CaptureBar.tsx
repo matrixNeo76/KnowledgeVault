@@ -39,6 +39,13 @@ interface CaptureBarProps {
   onOpenKnowledgeUpload?: () => void;
   onOpenDiagnostic?: () => void;
   onOpenGoogleDrive?: () => void;
+  onCaptureFile?: (
+    file: File,
+    explicitType?: ResourceType,
+    notes?: string,
+    onStageUpdate?: (stage: CaptureStage, message?: string) => void,
+    preferredModel?: GeminiModelId
+  ) => Promise<boolean>;
   onUploadRawFile?: (file: File) => Promise<boolean>;
   onOpenIntelligence?: (prefilledQuery?: string) => void;
   isIntelligenceOpen?: boolean;
@@ -52,6 +59,7 @@ export const CaptureBar: React.FC<CaptureBarProps> = ({
   captureStageMessage,
   transformationCategory,
   onOpenKnowledgeUpload,
+  onCaptureFile,
   onUploadRawFile,
   onOpenIntelligence,
   isIntelligenceOpen = false,
@@ -619,11 +627,25 @@ export const CaptureBar: React.FC<CaptureBarProps> = ({
             type="file"
             ref={fileInputRef}
             onChange={async (e) => {
-              if (e.target.files && e.target.files.length > 0 && onUploadRawFile) {
+              if (e.target.files && e.target.files.length > 0) {
                 const file = e.target.files[0];
                 try {
                   setIsUploadingFile(true);
-                  const ok = await onUploadRawFile(file);
+                  let ok = false;
+                  if (onCaptureFile) {
+                    ok = await onCaptureFile(
+                      file,
+                      selectedType !== "auto" ? selectedType : undefined,
+                      input.trim() || undefined,
+                      undefined,
+                      selectedModel
+                    );
+                    if (ok) {
+                      setInput("");
+                    }
+                  } else if (onUploadRawFile) {
+                    ok = await onUploadRawFile(file);
+                  }
                   if (ok) {
                     setShowSuccess(true);
                     setTimeout(() => setShowSuccess(false), 3000);
@@ -691,7 +713,7 @@ export const CaptureBar: React.FC<CaptureBarProps> = ({
                   selectedType === "knowledge"
                     ? "Incolla testo, specifiche, guide o note .md da strutturare nello standard OKF v0.2..."
                     : selectedType === "troubleshooting"
-                    ? "Descrivi l'errore, incolla il messaggio o il codice per estrarre la procedura di fix..."
+                    ? "Descrivi l'errore o scrivi note sul fix, poi clicca Cattura o allega il PDF/screenshot..."
                     : "Incolla link, repository GitHub, server MCP o digita note da archiviare nel Vault..."
                 }
                 disabled={isAnalyzing || isUploadingFile}
@@ -713,19 +735,27 @@ export const CaptureBar: React.FC<CaptureBarProps> = ({
               )}
 
               {/* Quick File Attachment Button */}
-              {onUploadRawFile && (
+              {(onCaptureFile || onUploadRawFile) && (
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={isAnalyzing || isUploadingFile}
-                  className="p-2 text-[#777] hover:text-[#E5C170] hover:bg-[#181818] rounded-xl border border-transparent hover:border-[#282828] transition-colors shrink-0 mb-0.5 cursor-pointer disabled:opacity-50"
-                  title="Allega file per staging (Audio, PDF, TXT, MD, Immagini fino a 50MB)"
+                  className={`p-2 rounded-xl border transition-colors shrink-0 mb-0.5 cursor-pointer disabled:opacity-50 ${
+                    selectedType === "troubleshooting"
+                      ? "text-orange-400 bg-orange-950/30 border-orange-500/40 hover:bg-orange-900/40 hover:text-orange-300"
+                      : "text-[#777] hover:text-[#E5C170] hover:bg-[#181818] border-transparent hover:border-[#282828]"
+                  }`}
+                  title={
+                    selectedType === "troubleshooting"
+                      ? "Allega screenshot errore, PDF o log diagnostico per analisi multimodale e risoluzione (Problema & Fix)"
+                      : "Allega file per acquisizione ed analisi multimodale con Gemini (PDF, Immagini con testo, Note, Audio)"
+                  }
                   aria-label="Allega file"
                 >
                   {isUploadingFile ? (
                     <Loader2 className="w-4 h-4 text-[#C5A059] animate-spin" />
                   ) : (
-                    <Paperclip className="w-4 h-4" />
+                    <Paperclip className={`w-4 h-4 ${selectedType === "troubleshooting" ? "text-orange-400 stroke-[2.5]" : ""}`} />
                   )}
                 </button>
               )}

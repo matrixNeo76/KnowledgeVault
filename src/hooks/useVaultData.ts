@@ -1477,6 +1477,51 @@ export function useVaultData() {
 
     try {
       addLog("info", "FIRESTORE", `Inserimento manuale: "${newResource.title}" [${newResource.type}]`);
+
+      // Controllo deduplicazione preventiva rispetto al patrimonio esistente
+      const cleanTitle = (newResource.title || "").trim().toLowerCase();
+      const cleanUrl = newResource.url ? newResource.url.trim().toLowerCase().replace(/\/$/, "") : "";
+      const cleanArxiv = (newResource.metadata?.arxivId || "").trim().toLowerCase();
+
+      const existingDup = resources.find((r) => {
+        if (cleanArxiv && r.metadata?.arxivId && r.metadata.arxivId.trim().toLowerCase() === cleanArxiv) {
+          return true;
+        }
+        if (cleanUrl && r.url && r.url.trim().toLowerCase().replace(/\/$/, "") === cleanUrl) {
+          return true;
+        }
+        if (cleanTitle && cleanTitle.length > 8 && r.title && r.title.trim().toLowerCase() === cleanTitle) {
+          return true;
+        }
+        return false;
+      });
+
+      if (existingDup) {
+        addLog("info", "FIRESTORE", `Risorsa "${newResource.title}" già presente (ID: ${existingDup.id}). Aggiornamento ed arricchimento senza creare duplicati.`);
+        const mergedData = {
+          type: newResource.type || existingDup.type,
+          summary: newResource.summary || existingDup.summary,
+          tags: Array.from(new Set([...(existingDup.tags || []), ...(newResource.tags || [])])),
+          metadata: {
+            ...(existingDup.metadata || {}),
+            ...(newResource.metadata || {}),
+          },
+          updatedAt: serverTimestamp(),
+        };
+
+        if (existingDup.id && !existingDup.id.startsWith("local-")) {
+          await withFirestoreTimeout(
+            setDoc(doc(db, "resources", existingDup.id), sanitizeForFirestore(mergedData), { merge: true }),
+            8000
+          );
+        }
+
+        setResources((prev) =>
+          prev.map((r) => (r.id === existingDup.id ? { ...r, ...mergedData, updatedAt: new Date() } : r))
+        );
+        return true;
+      }
+
       const rawData = {
         userId: activeUser.uid,
         type: newResource.type,

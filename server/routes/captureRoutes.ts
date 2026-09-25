@@ -28,6 +28,7 @@ import { extractMlTagsLocally, normalizeTag, RawTagSuggestion } from "../service
 import { executePreFlightCheck } from "../services/deterministicGates";
 import { executeCekikjIngestionGate } from "../services/cekikjIngestionGate";
 import { processAcademicPaperPipeline } from "../services/specializedPipelines";
+import { fetchFeedData, discoverRssFeedUrl } from "../services/rssService";
 
 export const captureRouter = Router();
 
@@ -66,10 +67,12 @@ captureRouter.post("/convert-file-to-okf", async (req, res) => {
       fileName = "file", 
       mimeType = "application/octet-stream", 
       fileType = "document", 
+      explicitType = "",
       textContent = "", 
       base64Data = "",
       notes = "",
-      existingResources = [] 
+      existingResources = [],
+      preferredModel = "auto"
     } = req.body;
 
     const contextList = (existingResources as any[]).slice(0, 30).map((r) => ({
@@ -90,6 +93,18 @@ captureRouter.post("/convert-file-to-okf", async (req, res) => {
     const isPdf = lowerName.endsWith(".pdf") || (mimeType && mimeType.toLowerCase().includes("pdf")) || fileType?.toLowerCase() === "pdf" || fileType?.toLowerCase() === "paper";
     const isImage = (mimeType && mimeType.toLowerCase().startsWith("image/")) || ["png", "jpg", "jpeg", "webp", "gif", "svg"].some((ext) => lowerName.endsWith("." + ext));
 
+    const isTroubleshoot = explicitType === "troubleshooting" || 
+      lowerName.includes("troubleshoot") || 
+      lowerName.includes("fix") || 
+      lowerName.includes("error") || 
+      lowerName.includes("errore") || 
+      lowerName.includes("bug") || 
+      lowerName.includes("crash") || 
+      lowerName.includes("diagnost") ||
+      notes.toLowerCase().includes("troubleshoot") ||
+      notes.toLowerCase().includes("errore") ||
+      notes.toLowerCase().includes("soluzione");
+
     let cleanBase64 = "";
     let rawB64 = base64Data || "";
     if (!rawB64 && typeof textContent === "string" && (textContent.startsWith("data:") || textContent.startsWith("JVBERi0") || textContent.startsWith("SUQz") || textContent.startsWith("UklGR") || textContent.startsWith("//+MYx"))) {
@@ -106,8 +121,10 @@ captureRouter.post("/convert-file-to-okf", async (req, res) => {
 
     // -------------------------------------------------------------
     // DETERMINISTIC PRE-FLIGHT GATE & SPECIALIZED ACADEMIC PAPER PIPELINE
+    // (Only executed if explicitly requested or strictly an academic paper, NOT troubleshooting)
     // -------------------------------------------------------------
-    if (isPdf && cleanBase64 && cleanBase64.length > 20) {
+    const isStrictAcademicPaper = !isTroubleshoot && (explicitType === "paper" || fileType === "paper" || lowerName.includes("arxiv") || lowerName.includes("paper"));
+    if (isPdf && cleanBase64 && cleanBase64.length > 20 && isStrictAcademicPaper) {
       try {
         const pdfBuffer = Buffer.from(cleanBase64, "base64");
         const existingShaList = (existingResources as any[])
@@ -148,11 +165,18 @@ captureRouter.post("/convert-file-to-okf", async (req, res) => {
     const schema = {
       type: Type.OBJECT,
       properties: {
+        type: { type: Type.STRING },
         title: { type: Type.STRING },
         summary: { type: Type.STRING },
         tags: { type: Type.ARRAY, items: { type: Type.STRING } },
         domain: { type: Type.STRING },
         docType: { type: Type.STRING },
+        affectedSystem: { type: Type.STRING },
+        rootCause: { type: Type.STRING },
+        problemDescription: { type: Type.STRING },
+        errorLog: { type: Type.STRING },
+        attemptedFixes: { type: Type.ARRAY, items: { type: Type.STRING } },
+        solutionSteps: { type: Type.ARRAY, items: { type: Type.STRING } },
         entities: {
           type: Type.ARRAY,
           items: {
@@ -397,6 +421,36 @@ User Notes/Annotations attached to this file:
 Existing resources in the user's Vault for topological cross-linking:
 ${JSON.stringify(contextList, null, 2)}
 
+${isTroubleshoot ? `
+SPECIALIZED TROUBLESHOOTING & ERROR RESOLUTION MANDATE:
+The uploaded file is a bug report, system crash log, error screenshot, or a document/PDF containing an error screenshot followed by the applied solution / fix:
+1. VISUAL INSPECTION & ERROR OCR:
+   - Carefully inspect any visual element, screenshot, error modal, crash alert, dialog box, terminal output, stack trace, or Windows/Linux error code in the PDF/image.
+   - Transcribe the exact error text, code, or message into 'errorLog'.
+   - Summarize the failure behavior and symptoms into 'problemDescription'.
+2. SOLUTION & REMEDIATION EXTRACTION:
+   - Read the accompanying or subsequent text detailing how the problem was resolved.
+   - Break down the applied solution into discrete, ordered, actionable steps in 'solutionSteps' (e.g., specific registry keys, terminal commands, driver reinstallations, DLL placements, or code fixes).
+   - Articulate the technical 'rootCause' explaining why the error occurred.
+   - Identify the software, package, operating system, or library in 'affectedSystem'.
+   - List any failed attempts or workarounds in 'attemptedFixes' (if mentioned).
+3. MANDATORY CLASSIFICATION:
+   - 'type': "troubleshooting"
+   - 'docType': "specification"
+   - 'domain': "System Diagnostics & OS" (or "Developer Tooling", "Cloud Architecture", "Database Engineering" depending on context)
+   - 'tags': Include ["troubleshooting", "bugfix", "diagnostica", "fix", ...] and tags related to the affected system.
+4. STRUCTURED MARKDOWN DOCUMENT (markdownContent):
+   Start with YAML frontmatter conforming to OKF v0.2, followed by:
+   # [Titolo Descrittivo del Problema e Soluzione]
+   > Scheda diagnostica e procedura di risoluzione per [affectedSystem]
+   ## 1. Descrizione del Problema ed Errore Riscontrato
+   (Trascrizione fedele dell'errore visibile nello screenshot/PDF)
+   ## 2. Analisi della Causa Radice (Root Cause)
+   ## 3. Procedura Risolutiva Applicata (Passo-Passo Verificato)
+   (Passaggi numerati con comandi o configurazioni)
+   ## 4. Verifiche di Ripristino e Prevenzione
+` : ""}
+
 Strict OKF v0.2 & Content Depth Mandates:
 1. 'title': Clear, canonical title representing the document's core subject.
 2. 'summary': Dense, 2-4 sentence executive summary in Italian.
@@ -448,7 +502,7 @@ Return pure JSON strictly matching the schema.`;
       ];
 
       try {
-        const generated = await generateMultimodalWithGeminiFallback(multimodalContents, schema, 45000);
+        const generated = await generateMultimodalWithGeminiFallback(multimodalContents, schema, 45000, "/api/convert-file-to-okf", preferredModel);
         if (generated?.text) {
           parsed = JSON.parse(generated.text);
         }
@@ -474,7 +528,11 @@ Return pure JSON strictly matching the schema.`;
       const textPrompt = `${promptText}\n\nDocument/File Content ("${fileName}"):\n"""\n${textToAnalyze.slice(0, 45000)}\n"""`;
 
       try {
-        const generated = await generateWithGeminiFallback(textPrompt, schema, 35000);
+        const generated = await generateWithGeminiFallback(textPrompt, schema, {
+          timeoutMs: 35000,
+          endpoint: "/api/convert-file-to-okf",
+          preferredModel: preferredModel || undefined,
+        });
         if (generated?.text) {
           parsed = JSON.parse(generated.text);
         }
@@ -484,18 +542,26 @@ Return pure JSON strictly matching the schema.`;
     }
 
     if (parsed && parsed.title && parsed.markdownContent) {
+      const resolvedType = explicitType || (isTroubleshoot ? "troubleshooting" : (parsed.type || "knowledge"));
+
       return res.json({
         success: true,
         source: "gemini",
         resource: {
-          type: "knowledge",
+          type: resolvedType,
           title: parsed.title,
           summary: parsed.summary,
-          tags: parsed.tags || ["file-upload", "knowledge", "okf-v0.2"],
+          tags: parsed.tags || ["file-upload", resolvedType, "okf-v0.2"],
           metadata: {
             okfVersion: "0.2",
-            domain: parsed.domain || "Knowledge Architecture",
+            domain: parsed.domain || (resolvedType === "troubleshooting" ? "System Diagnostics & OS" : "Knowledge Architecture"),
             docType: parsed.docType || "specification",
+            affectedSystem: parsed.affectedSystem || undefined,
+            rootCause: parsed.rootCause || undefined,
+            problemDescription: parsed.problemDescription || parsed.errorLog || undefined,
+            errorLog: parsed.errorLog || undefined,
+            attemptedFixes: Array.isArray(parsed.attemptedFixes) && parsed.attemptedFixes.length > 0 ? parsed.attemptedFixes : undefined,
+            solutionSteps: Array.isArray(parsed.solutionSteps) && parsed.solutionSteps.length > 0 ? parsed.solutionSteps : undefined,
             entities: parsed.entities || [],
             relations: parsed.relations || [],
             markdownContent: parsed.markdownContent,
@@ -507,6 +573,71 @@ Return pure JSON strictly matching the schema.`;
     }
 
     const fallbackText = textContent || extractedPdfText || notes || `Contenuto estratto dal file ${fileName}`;
+
+    if (isTroubleshoot || explicitType === "troubleshooting") {
+      const fallbackTitle = inferredTitle || "Diagnostica e Risoluzione Problema";
+      const fallbackDoc = `---
+okf_version: "0.2"
+id: "doc-${Date.now()}"
+title: "${fallbackTitle}"
+type: "troubleshooting"
+domain: "System Diagnostics & OS"
+tags: ["troubleshooting", "bugfix", "diagnostica", "okf-v0.2"]
+created_at: "${new Date().toISOString()}"
+entities:
+  - name: "${fallbackTitle}"
+    type: "problem"
+    description: "Problema diagnostico acquisito da ${fileName}"
+relations:
+  - target_title: "Knowledge Vault: Panoramica e Architettura OKF v0.2 (README)"
+    relation_type: "references"
+    weight: 0.85
+---
+
+# ${fallbackTitle}
+
+> **Scheda Diagnostica e Procedura Risolutiva (\`${fileName}\`)**
+
+---
+
+## 1. Descrizione del Problema
+${fallbackText.slice(0, 1500)}
+
+---
+
+## 2. Risoluzione e Note
+${notes ? notes : "Consultare il file originale allegato per i dettagli completi del fix."}
+`;
+
+      return res.json({
+        success: true,
+        source: "fallback",
+        resource: {
+          type: "troubleshooting",
+          title: fallbackTitle,
+          summary: `Diagnostica e procedura di risoluzione per errore acquisito da ${fileName}.`,
+          tags: ["troubleshooting", "bugfix", "diagnostica", "okf-v0.2"],
+          metadata: {
+            okfVersion: "0.2",
+            domain: "System Diagnostics & OS",
+            docType: "specification",
+            problemDescription: fallbackText.slice(0, 500),
+            markdownContent: fallbackDoc,
+            sourceFileName: fileName,
+            sourceFileType: fileType,
+            entities: [{ name: fallbackTitle, type: "problem", description: `Problema acquisito da ${fileName}` }],
+            relations: contextList.slice(0, 2).map((c) => ({
+              targetId: c.id,
+              targetTitle: c.title,
+              relationType: "references",
+              weight: 0.8,
+              description: "Collegamento ontologico nel Vault",
+            })),
+          },
+        },
+      });
+    }
+
     const fallbackDoc = `---
 okf_version: "0.2"
 title: "${inferredTitle}"
@@ -2181,4 +2312,51 @@ Return pure JSON strictly complying with the schema.`;
     });
   }
 });
+
+// -------------------------------------------------------------
+// RSS & ATOM FEED READER PROXY ENDPOINTS
+// -------------------------------------------------------------
+captureRouter.post("/fetch-feed-items", async (req, res) => {
+  try {
+    const { feedUrl, limit } = req.body;
+    if (!feedUrl || typeof feedUrl !== "string") {
+      return res.status(400).json({ success: false, error: "Parametro 'feedUrl' obbligatorio." });
+    }
+
+    const feedData = await fetchFeedData(feedUrl, typeof limit === "number" ? limit : 40);
+    return res.json({
+      success: true,
+      feed: feedData,
+    });
+  } catch (err: any) {
+    console.error("[fetch-feed-items] Error:", err.message);
+    return res.status(500).json({
+      success: false,
+      error: err?.message || "Impossibile recuperare il feed RSS.",
+    });
+  }
+});
+
+captureRouter.post("/discover-feed", async (req, res) => {
+  try {
+    const { url } = req.body;
+    if (!url || typeof url !== "string") {
+      return res.status(400).json({ success: false, error: "Parametro 'url' obbligatorio." });
+    }
+
+    const discoveredUrl = await discoverRssFeedUrl(url);
+    return res.json({
+      success: true,
+      discovered: Boolean(discoveredUrl),
+      feedUrl: discoveredUrl,
+    });
+  } catch (err: any) {
+    console.error("[discover-feed] Error:", err.message);
+    return res.status(500).json({
+      success: false,
+      error: err?.message || "Errore durante il rilevamento del feed RSS.",
+    });
+  }
+});
+
 

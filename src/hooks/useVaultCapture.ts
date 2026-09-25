@@ -23,7 +23,7 @@ import {
   disableNetwork,
   User 
 } from "../lib/firebase";
-import { ResourceItem, ResourceType, RawFileItem, DiagnosticLog, CaptureStage, TransformationCategory, ResourceMetadata } from "../types";
+import { ResourceItem, ResourceType, RawFileItem, DiagnosticLog, CaptureStage, TransformationCategory, ResourceMetadata, GeminiModelId } from "../types";
 import { localFallbackAnalyzeResource } from "../lib/fallbackParser";
 import { parseDate, getTimestampMillis } from "../lib/dateUtils";
 import { loadRawFilesFromIndexedDB } from "../lib/indexedDb";
@@ -530,6 +530,7 @@ interface UseVaultCaptureProps {
   setSelectedTag: (tag: string | null) => void;
   searchQuery?: string;
   setSearchQuery: (q: string) => void;
+  handleManualAdd?: (newResource: Omit<ResourceItem, "id" | "userId" | "createdAt" | "updatedAt">) => Promise<boolean>;
 }
 
 export function useVaultCapture({
@@ -548,6 +549,7 @@ export function useVaultCapture({
   setSelectedTag,
   searchQuery = "",
   setSearchQuery,
+  handleManualAdd,
 }: UseVaultCaptureProps) {
   const [rawFiles, setRawFiles] = useState<RawFileItem[]>(() => {
     const cached = loadLocalRawFiles();
@@ -752,6 +754,17 @@ export function useVaultCapture({
     const uploadSessionId = "raw-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
     const initialRawCount = rawFiles.length;
 
+    const ext = file.name.split(".").pop()?.toLowerCase() || "";
+    const isAudio = (file.type && file.type.startsWith("audio/")) || ["mp3", "wav", "m4a", "ogg", "aac", "flac", "opus", "webm", "wma", "aiff"].includes(ext);
+    const isPdf = ext === "pdf" || (file.type && file.type.includes("pdf"));
+    const isImage = (file.type && file.type.startsWith("image/")) || ["png", "jpg", "jpeg", "webp", "gif", "svg"].includes(ext);
+    const isTextType = !isAudio && !isPdf && !isImage && (["txt", "md", "markdown", "json", "yaml", "yml", "csv", "log", "ts", "js", "py", "rs", "go", "xml", "toml", "sql", "sh"].includes(ext) || (file.type && file.type.startsWith("text/")));
+    
+    let textContent = "";
+    let base64Data = "";
+    let resolvedMime = file.type || (isPdf ? "application/pdf" : isImage ? `image/${ext === "jpg" ? "jpeg" : ext}` : "application/octet-stream");
+    let previewText = "";
+
     try {
       recordLifecycleEvent({
         stage: "CAPTURE_INITIATED",
@@ -771,15 +784,6 @@ export function useVaultCapture({
       });
 
       addLog("info", "CAPTURE", `[${uploadSessionId}] Avvio acquisizione file grezzo: "${file.name}" (${(file.size / 1024).toFixed(1)} KB, raw buffer: ${initialRawCount})`);
-      
-      const ext = file.name.split(".").pop()?.toLowerCase() || "";
-      const isAudio = (file.type && file.type.startsWith("audio/")) || ["mp3", "wav", "m4a", "ogg", "aac", "flac", "opus", "webm", "wma", "aiff"].includes(ext);
-      const isPdf = ext === "pdf" || (file.type && file.type.includes("pdf"));
-      const isImage = (file.type && file.type.startsWith("image/")) || ["png", "jpg", "jpeg", "webp", "gif", "svg"].includes(ext);
-      const isTextType = !isAudio && !isPdf && !isImage && (["txt", "md", "markdown", "json", "yaml", "yml", "csv", "log", "ts", "js", "py", "rs", "go", "xml", "toml", "sql", "sh"].includes(ext) || (file.type && file.type.startsWith("text/")));
-      
-      let textContent = "";
-      let base64Data = "";
 
       if (isTextType) {
         try {
@@ -796,7 +800,6 @@ export function useVaultCapture({
       const needsChunking = dataPayload.length > CHUNK_SIZE;
       const totalChunks = needsChunking ? Math.ceil(dataPayload.length / CHUNK_SIZE) : 1;
 
-      let resolvedMime = file.type;
       if (!resolvedMime || resolvedMime === "application/octet-stream") {
         if (ext === "mp3") resolvedMime = "audio/mpeg";
         else if (ext === "wav") resolvedMime = "audio/wav";
@@ -807,7 +810,6 @@ export function useVaultCapture({
         else resolvedMime = "application/octet-stream";
       }
 
-      let previewText = "";
       if (isTextType) {
         previewText = textContent.slice(0, 3000);
       } else if (isAudio) {
@@ -914,7 +916,7 @@ export function useVaultCapture({
 
       const sanitized = sanitizeForFirestore(rawFileDocData);
       const writeStart = Date.now();
-      const docRef = await withFirestoreTimeout(addDoc(collection(db, "raw_files"), sanitized), 3500);
+      const docRef = await withFirestoreTimeout(addDoc(collection(db, "raw_files"), sanitized), 20000);
       const writeDuration = Date.now() - writeStart;
 
       if (needsChunking) {
@@ -925,7 +927,7 @@ export function useVaultCapture({
             index: i,
             data: chunkData,
             createdAt: serverTimestamp(),
-          }), 3500);
+          }), 20000);
         }
       }
 
@@ -954,21 +956,30 @@ export function useVaultCapture({
       return true;
     } catch (err: any) {
       console.error("Upload raw file failed:", err);
-      if (isQuotaError(err)) {
-        setQuotaExceeded(true);
+      const isTimeoutOrQuota =
+        isQuotaError(err) ||
+        err?.message?.includes("timed out") ||
+        err?.message?.includes("timeout") ||
+        err?.code === "deadline-exceeded" ||
+        err?.code === "unavailable";
+
+      if (isTimeoutOrQuota) {
+        if (isQuotaError(err)) setQuotaExceeded(true);
         const localId = "local-file-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
         const localFile: RawFileItem = {
           id: localId,
           userId: activeUser.uid,
           fileName: file.name,
           fileSize: file.size,
-          fileType: file.type?.startsWith("audio/") ? "audio" : "document",
-          mimeType: file.type || "application/octet-stream",
+          fileType: isAudio ? "audio" : ext || "document",
+          mimeType: resolvedMime || file.type || "application/octet-stream",
           status: "raw",
-          contentPreview: `[File: ${file.name} - ${(file.size / 1024).toFixed(1)} KB]`,
+          contentPreview: previewText || `[File: ${file.name} - ${(file.size / 1024).toFixed(1)} KB]`,
           notes: notes || "",
           hasChunks: false,
           totalChunks: 1,
+          textContent: textContent || undefined,
+          base64Data: base64Data || undefined,
           createdAt: new Date(),
           updatedAt: new Date(),
         };
@@ -987,9 +998,9 @@ export function useVaultCapture({
           stage: "RAW_FILE_STAGED",
           resourceId: localId,
           resourceTitle: file.name,
-          resourceType: file.type || "document",
+          resourceType: isAudio ? "audio" : ext || "document",
           status: "warn",
-          message: `[File Grezzo ${uploadSessionId}] Quota Firestore esaurita: archiviato nel buffer locale con ID "${localId}" (${rawCountBefore} -> ${rawCountAfter})`,
+          message: `[File Grezzo ${uploadSessionId}] Salvato nel buffer locale (Firestore timeout/quota): "${localId}" (${rawCountBefore} -> ${rawCountAfter})`,
           details: {
             uploadSessionId,
             localId,
@@ -999,7 +1010,12 @@ export function useVaultCapture({
           },
         });
 
-        setStatusMessage(`File "${file.name}" archiviato nella memoria locale (Quota Firestore esaurita)`);
+        const isTimeout = err?.message?.includes("timed out") || err?.message?.includes("timeout");
+        setStatusMessage(
+          isTimeout
+            ? `File "${file.name}" archiviato in memoria locale (timeout sincronizzazione Firestore)`
+            : `File "${file.name}" archiviato nella memoria locale (Quota Firestore esaurita)`
+        );
         setTimeout(() => setStatusMessage(null), 3500);
         return true;
       }
@@ -1007,6 +1023,165 @@ export function useVaultCapture({
       setErrorMessage(`Errore upload file: ${err.message || "Errore sconosciuto"}`);
       setTimeout(() => setErrorMessage(null), 5000);
       return false;
+    }
+  };
+
+  // Direct Intelligent Ingestion of Files (PDF, Image, Text, Logs) with Multimodal AI
+  const handleCaptureFile = async (
+    file: File,
+    explicitType?: ResourceType,
+    notes?: string,
+    onStageUpdate?: (stage: CaptureStage, message?: string) => void,
+    preferredModel?: GeminiModelId
+  ): Promise<boolean> => {
+    const ext = file.name.split(".").pop()?.toLowerCase() || "";
+    const isAudio = (file.type && file.type.startsWith("audio/")) || ["mp3", "wav", "m4a", "ogg", "aac", "flac", "opus", "webm", "wma", "aiff"].includes(ext);
+    const isPdf = ext === "pdf" || (file.type && file.type.includes("pdf"));
+    const isImage = (file.type && file.type.startsWith("image/")) || ["png", "jpg", "jpeg", "webp", "gif", "svg"].includes(ext);
+    const isTextType = !isAudio && !isPdf && !isImage;
+
+    addLog("info", "CAPTURE", `Inizio acquisizione multimodale del file "${file.name}" (${(file.size / 1024).toFixed(1)} KB, categoria: ${explicitType || "auto"})...`);
+
+    setIsAnalyzing(true);
+    setCaptureStage("sending");
+    setCaptureStageMessage(`Caricamento file "${file.name}"...`);
+    if (onStageUpdate) {
+      onStageUpdate("sending", `Caricamento file "${file.name}"...`);
+    }
+
+    try {
+      let textContent = "";
+      let base64Data = "";
+
+      if (isTextType) {
+        try {
+          textContent = await readFileAsText(file);
+        } catch {
+          base64Data = await readFileAsBase64(file);
+        }
+      } else {
+        base64Data = await readFileAsBase64(file);
+      }
+
+      const stageMsg = explicitType === "troubleshooting"
+        ? "Analisi multimodale dello screenshot/PDF (lettura errore, causa e passaggi risolutivi)..."
+        : "Analisi semantica e multimodale con Gemini Flash...";
+      setCaptureStage("analyzing");
+      setCaptureStageMessage(stageMsg);
+      if (onStageUpdate) {
+        onStageUpdate("analyzing", stageMsg);
+      }
+
+      const res = await fetch("/api/convert-file-to-okf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileName: file.name,
+          mimeType: file.type || (isPdf ? "application/pdf" : isImage ? "image/png" : "text/plain"),
+          fileType: ext,
+          explicitType: explicitType || undefined,
+          base64Data,
+          textContent,
+          notes: notes || "",
+          existingResources: resources.slice(0, 25).map((r) => ({ id: r.id, title: r.title, type: r.type, tags: r.tags || [] })),
+          preferredModel: preferredModel || undefined,
+        }),
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || `Errore HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      if (!data.success || !data.resource) {
+        throw new Error("Risposta non valida dal motore di analisi multimodale.");
+      }
+
+      setCaptureStage("transforming");
+      setCaptureStageMessage("Validazione schema OKF v0.2...");
+      if (onStageUpdate) {
+        onStageUpdate("transforming", "Validazione schema OKF v0.2...");
+      }
+
+      const resourcePayload = {
+        ...data.resource,
+        rawInput: `File: ${file.name}\n${notes ? `Note utente: ${notes}\n` : ""}\n${data.resource.summary || ""}`,
+      };
+
+      setCaptureStage("saving");
+      setCaptureStageMessage("Archiviazione nel Vault...");
+      if (onStageUpdate) {
+        onStageUpdate("saving", "Archiviazione nel Vault...");
+      }
+
+      let success = false;
+      if (handleManualAdd) {
+        success = await handleManualAdd(resourcePayload);
+      } else {
+        const activeUid = user?.uid || auth.currentUser?.uid || "anon";
+        const rawData = {
+          userId: activeUid,
+          type: resourcePayload.type,
+          title: resourcePayload.title,
+          url: resourcePayload.url ? resourcePayload.url.trim() : "",
+          rawInput: resourcePayload.rawInput || "",
+          summary: resourcePayload.summary,
+          tags: resourcePayload.tags || [],
+          isFavorite: false,
+          metadata: resourcePayload.metadata || {},
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        };
+        try {
+          const docRef = await withFirestoreTimeout(addDoc(collection(db, "resources"), sanitizeForFirestore(rawData)), 8000);
+          const savedItem: ResourceItem = {
+            id: docRef.id,
+            ...rawData,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          } as ResourceItem;
+          setResources((prev) => [savedItem, ...prev.filter((r) => r.id !== docRef.id)]);
+          saveLocalResources([savedItem, ...resources.filter((r) => r.id !== docRef.id)], activeUid);
+          success = true;
+        } catch {
+          const localId = "local-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
+          const localItem: ResourceItem = {
+            id: localId,
+            ...rawData,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          } as ResourceItem;
+          setResources((prev) => [localItem, ...prev]);
+          saveLocalResources([localItem, ...resources], activeUid);
+          success = true;
+        }
+      }
+      if (success) {
+        setCaptureStage("success");
+        setCaptureStageMessage("Completato!");
+        if (onStageUpdate) {
+          onStageUpdate("success", "Completato!");
+        }
+        const typeLabel = resourcePayload.type === "troubleshooting" ? "Problema & Fix" : resourcePayload.type;
+        setStatusMessage(`"${resourcePayload.title.slice(0, 35)}..." salvato come ${typeLabel} nel Vault!`);
+        setTimeout(() => setStatusMessage(null), 4000);
+        addLog("success", "CAPTURE", `File "${file.name}" elaborato e salvato come ${typeLabel}: "${resourcePayload.title}".`);
+        return true;
+      }
+      return false;
+    } catch (err: any) {
+      console.error("handleCaptureFile error:", err);
+      addLog("error", "CAPTURE", `Errore elaborazione file "${file.name}": ${err?.message}`);
+      setErrorMessage(`Errore elaborazione file: ${err?.message}`);
+      setTimeout(() => setErrorMessage(null), 5000);
+      return false;
+    } finally {
+      setIsAnalyzing(false);
+      setTimeout(() => {
+        setCaptureStage("idle");
+        setCaptureStageMessage("");
+      }, 3000);
     }
   };
 
@@ -2683,6 +2858,7 @@ export function useVaultCapture({
     transformationCategory,
     analyzeWithAI,
     handleCapture,
+    handleCaptureFile,
     handleUploadRawFile,
     handleDeleteRawFile,
     handleConvertFileToOKF,

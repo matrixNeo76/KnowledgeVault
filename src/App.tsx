@@ -205,6 +205,7 @@ export default function App() {
     transformationCategory,
     analyzeWithAI,
     handleCapture,
+    handleCaptureFile,
     handleUploadRawFile,
     handleDeleteRawFile,
     handleConvertFileToOKF,
@@ -224,6 +225,7 @@ export default function App() {
     setSelectedTag,
     searchQuery,
     setSearchQuery,
+    handleManualAdd,
   });
 
   // ADHD & Deep Focus Zen Mode (⌘⇧F)
@@ -965,6 +967,7 @@ export default function App() {
                   onOpenKnowledgeUpload={() => setIsKnowledgeUploadOpen(true)}
                   onOpenDiagnostic={() => setIsDiagnosticOpen(true)}
                   onOpenGoogleDrive={() => setIsGoogleDriveOpen(true)}
+                  onCaptureFile={handleCaptureFile}
                   onUploadRawFile={handleUploadRawFile}
                   onOpenIntelligence={(prefill) => {
                     if (prefill) {
